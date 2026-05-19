@@ -181,8 +181,8 @@ class HttpServerService {
     const keyword = url.searchParams.get('keyword');
     const page = parseInt(url.searchParams.get('page') || '1');
     const pageSize = parseInt(url.searchParams.get('pageSize') || '20');
-    const list = await qqMusicService.search(keyword, page, pageSize);
-    this._json(res, { code: 0, data: list });
+    const result = await qqMusicService.search(keyword, page, pageSize);
+    this._json(res, { code: 0, data: result.list, total: result.total });
   }
 
   async _apiSongUrl(req, res) {
@@ -317,33 +317,54 @@ class HttpServerService {
     }
     const targetUrl = decodeURIComponent(rawUrl);
     this._getCookiesFromReq(req);
-    fileLogger.info('AudioProxy', `Fetching: ${targetUrl.substring(0, 200)}`);
+
+    const rangeHeader = req.headers.range;
+    fileLogger.info('AudioProxy', `Fetching: ${targetUrl.substring(0, 200)} range=${rangeHeader||'none'}`);
     try {
+      const fetchHeaders = {
+        'Referer': 'https://y.qq.com/',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Cookie': qqMusicService.cookie
+      };
+      if (rangeHeader) fetchHeaders['Range'] = rangeHeader;
+
       const response = await fetch(targetUrl, {
-        headers: { 'Referer': 'https://y.qq.com/', 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Cookie': qqMusicService.cookie },
+        headers: fetchHeaders,
         redirect: 'follow'
       });
       const ct = response.headers.get('content-type') || '';
       const cl = response.headers.get('content-length');
-      fileLogger.info('AudioProxy', `Response: ${response.status} ${ct} ${cl || 'chunked'}`);
+      const cr = response.headers.get('content-range');
+      fileLogger.info('AudioProxy', `Response: ${response.status} ${ct} ${cl||'chunked'} rng=${cr||'none'}`);
 
-      if (!response.ok) {
+      if (response.status !== 200 && response.status !== 206) {
         let errBody = '';
         try { errBody = await response.text(); } catch (e) { /* ignore */ }
-        fileLogger.error('AudioProxy', `Failed: HTTP ${response.status} ct=${ct} body=${errBody.substring(0, 200)} url=${targetUrl.substring(0, 200)}`);
+        fileLogger.error('AudioProxy', `Failed: HTTP ${response.status} ct=${ct} body=${errBody.substring(0, 200)}`);
         res.writeHead(response.status); res.end(); return;
       }
 
-      if (!ct.includes('audio') && !ct.includes('octet-stream') && !ct.includes('mpeg')) {
+      if (response.status !== 206 && !ct.includes('audio') && !ct.includes('octet-stream') && !ct.includes('mpeg')) {
         let warnBody = '';
         try { warnBody = await response.text(); } catch (e) { /* ignore */ }
-        fileLogger.error('AudioProxy', `Non-audio Content-Type: ${ct} body=${warnBody.substring(0, 300)} url=${targetUrl.substring(0, 200)}`);
+        fileLogger.error('AudioProxy', `Non-audio Content-Type: ${ct} body=${warnBody.substring(0, 300)}`);
         res.writeHead(415); res.end(); return;
       }
 
-      res.setHeader('Content-Type', ct || 'audio/mpeg');
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      if (cl) res.setHeader('Content-Length', cl);
+      const headers = {
+        'Content-Type': ct || 'audio/mpeg',
+        'Accept-Ranges': 'bytes',
+        'Access-Control-Allow-Origin': '*'
+      };
+      if (response.status === 206) {
+        if (cr) headers['Content-Range'] = cr;
+        if (cl) headers['Content-Length'] = cl;
+        res.writeHead(206, headers);
+      } else {
+        if (cl) headers['Content-Length'] = cl;
+        res.writeHead(200, headers);
+      }
+
       const reader = response.body.getReader();
       let total = 0;
       while (true) {
@@ -355,7 +376,7 @@ class HttpServerService {
       res.end();
       fileLogger.info('AudioProxy', `Done: ${total} bytes`);
     } catch (err) {
-      fileLogger.error('AudioProxy', `Error: ${err.message} url=${targetUrl.substring(0, 200)}`);
+      fileLogger.error('AudioProxy', `Error: ${err.message}`);
       res.writeHead(500); res.end();
     }
   }

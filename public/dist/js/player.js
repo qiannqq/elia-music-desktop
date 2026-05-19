@@ -295,9 +295,10 @@
 
   function seek(percent){
     const e=els();
-    if(e.audio.duration&&isFinite(e.audio.duration)){
-      e.audio.currentTime=percent*e.audio.duration;
-    }
+    if(!isFinite(percent)||percent<0||percent>1) return;
+    const dur=e.audio.duration;
+    if(!dur||!isFinite(dur)||dur<=0) return;
+    e.audio.currentTime=percent*dur;
   }
 
   function setOnTimeUpdate(cb){
@@ -386,7 +387,6 @@
 
       if(errCode===4&&retryCount<1&&currentSong){
         retryCount++;
-        showError('音频加载中...正在重试');
         try{
           const res=await Api.api.getSongUrl(currentSong.mid,false,currentSong);
           if(res.data&&res.data.url){
@@ -436,6 +436,7 @@
     });
 
     e.progress.addEventListener('mousedown',(ev)=>{
+      if(!audio.duration||!isFinite(audio.duration)) return;
       isDragging=true;
       const rect=e.progress.getBoundingClientRect();
       const pct=Math.max(0,Math.min(1,(ev.clientX-rect.left)/rect.width));
@@ -478,6 +479,6 @@
     get playMode(){return playMode},
     get currentTime(){return audio?audio.currentTime:0},
     get lyricLines(){return lyricLines},
-    getDuration(){return audio&&audio.duration&&isFinite(audio.duration)?audio.duration:0}
+    getDuration(){return audio&&audio.duration&&isFinite(audio.duration)?audio.duration:NaN}
   };
 })();

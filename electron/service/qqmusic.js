@@ -57,7 +57,8 @@ class QQMusicService {
 
     const data = res.search?.data?.body || {};
     const list = data.song?.list || data.item_song || [];
-    return list.map(item => this.normalizeSong(item));
+    const total = data.song?.totalnum || list.length;
+    return { list: list.map(item => this.normalizeSong(item)), total };
   }
 
   normalizeSong(data) {

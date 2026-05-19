@@ -9,11 +9,51 @@
     searchResults:[],
     searchKeyword:'',
     currentPage:1,
+    searchTotal:0,
     highQuality:true,
     selectedMids:[],
     savePath:localStorage.getItem('qqmusic_save_path')||'',
-    recentDirs:JSON.parse(localStorage.getItem('qqmusic_recent_dirs')||'[]')
+    recentDirs:JSON.parse(localStorage.getItem('qqmusic_recent_dirs')||'[]'),
+    pageScrolls:{}
   };
+
+  const DOWNLOAD_ICON='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+  const R=10,C=2*Math.PI*R;
+
+  function setDlRing(mid,pct,status){
+    const el=document.querySelector('[data-dl-mid="'+mid+'"]');
+    if(!el) return;
+    if(status==='done'){
+      el.innerHTML='<svg class="dl-ring" viewBox="0 0 28 28"><circle class="dl-ring-done" cx="14" cy="14" r="'+R+'"/></svg>';
+      setTimeout(()=>{el.innerHTML=DOWNLOAD_ICON;},3000);
+    } else if(status==='fail'){
+      el.innerHTML='<span class="song-progress-fail">✗</span>';
+      setTimeout(()=>{el.innerHTML=DOWNLOAD_ICON;},3000);
+    } else {
+      const offset=C-(pct/100)*C;
+      el.innerHTML='<svg class="dl-ring" viewBox="0 0 28 28"><circle class="dl-ring-bg" cx="14" cy="14" r="'+R+'"/><circle class="dl-ring-fill" cx="14" cy="14" r="'+R+'" style="stroke-dashoffset:'+offset+'"/></svg>';
+    }
+  }
+
+  function makeDlBtn(mid){
+    return '<span class="dl-btn" data-dl-mid="'+mid+'" onclick="App.downloadSong(\''+mid+'\')">'+DOWNLOAD_ICON+'</span>';
+  }
+
+  function makeAddBtn(mid,added){
+    if(added){
+      return '<span class="add-btn added" title="已添加"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg></span>';
+    }
+    return '<span class="add-btn" data-add-mid="'+mid+'" tabindex="0">'+
+      '<span class="add-btn-header" onclick="App.toggleAddBtn(event,\''+mid+'\')"><span class="add-btn-icon"></span></span>'+
+      '<span class="add-btn-body">'+
+      '<span class="add-btn-item" onclick="App.addToTop(\''+mid+'\',event)">添加到歌单顶部</span>'+
+      '<span class="add-btn-item" onclick="App.addSong(\''+mid+'\',event)">添加到歌单底部</span>'+
+      '</span></span>';
+  }
+
+  function collapseAllAddBtns(){
+    document.querySelectorAll('.add-btn.expanded').forEach(el=>el.classList.remove('expanded'));
+  }
 
   let toastIdCounter=0;
 
@@ -76,7 +116,14 @@
   const PAGE_ORDER=['search','playlist','settings','about'];
 
   function navigate(page){
-    const current=document.querySelector('.page.active');
+    const main=$('main-content');
+    const currentPage=document.querySelector('.page.active');
+    if(currentPage&&main){
+      const curId=currentPage.id.replace('page-','');
+      state.pageScrolls[curId]=main.scrollTop;
+    }
+
+    const current=currentPage;
     const next=document.getElementById('page-'+page);
     if(current===next&&page!=='playlist'&&page!=='settings') return;
 
@@ -116,6 +163,8 @@
 
     if(page==='playlist') renderPlaylist();
     if(page==='settings') loadSettings();
+
+    if(main) main.scrollTop=state.pageScrolls[page]||0;
   }
 
   function updatePlaylistBadge(){
@@ -168,7 +217,7 @@
 
     if(hero) hero.style.display='none';
     if(center) center.classList.add('has-results');
-    let html='<div class="results-header"><h3>搜索结果</h3><span class="results-count">'+state.searchResults.length+' 首</span>';
+    let html='<div class="results-header"><div class="results-title-group"><h3>搜索结果</h3><span class="results-count">'+state.searchResults.length+' 首</span></div>';
     html+='<div class="results-actions">';
     html+='<button class="btn btn-sm btn-accent" onclick="App.addAllResults()">全部添加</button>';
     html+='<button class="btn btn-sm btn-primary" onclick="App.batchDownloadSmart()">批量下载</button>';
@@ -186,19 +235,20 @@
       html+='<div class="song-info"><div class="song-name">'+esc(song.name)+'</div><div class="song-artist">'+esc(song.artist)+'</div></div>';
       html+='<div class="song-actions">';
       html+='<button class="btn-icon accent" title="试听" onclick="App.playSong(\''+song.mid+'\')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>';
-      html+='<button class="btn-icon accent" title="下载" onclick="App.downloadSong(\''+song.mid+'\')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>';
-      html+='<button class="btn-icon" title="'+(added?'已添加':'添加到歌单')+'" onclick="App.addSong(\''+song.mid+'\')" '+(added?'disabled style="opacity:0.4"':'')+'>';
-      html+='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button>';
+      html+=makeDlBtn(song.mid);
+      html+=makeAddBtn(song.mid,added);
       html+='</div></div>';
     });
     html+='</div>';
     container.innerHTML=html;
 
     if(state.searchKeyword){
+      const totalPages=Math.max(1,Math.ceil(state.searchTotal/20));
+      const hasNext=state.currentPage<totalPages;
       pagination.style.display='flex';
       pagination.innerHTML='<button class="btn btn-secondary" onclick="App.changePage('+(state.currentPage-1)+')" '+(state.currentPage<=1?'disabled':'')+'>上一页</button>';
-      pagination.innerHTML+='<span style="font-size:13px;color:var(--text-secondary)">第 '+state.currentPage+' 页</span>';
-      pagination.innerHTML+='<button class="btn btn-secondary" onclick="App.changePage('+(state.currentPage+1)+')">下一页</button>';
+      pagination.innerHTML+='<span style="font-size:13px;color:var(--text-secondary)">第 '+state.currentPage+'/'+totalPages+' 页</span>';
+      pagination.innerHTML+='<button class="btn btn-secondary" onclick="App.changePage('+(state.currentPage+1)+')" '+(!hasNext?'disabled':'')+'>下一页</button>';
     } else {
       pagination.style.display='none';
     }
@@ -227,22 +277,22 @@
     let html='';
     state.songs.forEach(song=>{
       const checked=state.selectedMids.includes(song.mid)?'checked':'';
+      const isPlaying=Player.currentSong&&Player.currentSong.mid===song.mid;
       const coverHtml=song.pic
         ?'<img class="song-cover" src="'+Api.getProxyImageUrl(song.pic)+'" alt="" loading="lazy">'
-        :'<div class="song-cover-placeholder"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>';
+        :'<div class="song-cover-placeholder"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>';
 
-      html+='<div class="playlist-item">';
+      html+='<div class="playlist-item'+(isPlaying?' playing':'')+'">';
       html+='<input type="checkbox" '+checked+' onchange="App.toggleSelect(\''+song.mid+'\')">';
       html+=coverHtml;
       html+='<div class="song-info"><div class="song-name">'+esc(song.name)+'</div><div class="song-artist">'+esc(song.artist)+'</div></div>';
       html+='<div class="playlist-item-actions">';
       html+='<div class="playlist-item-btns">';
       html+='<button class="btn-icon accent" title="试听" onclick="App.playSong(\''+song.mid+'\')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>';
-      html+='<button class="btn-icon accent" title="下载" onclick="App.downloadSong(\''+song.mid+'\')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></button>';
+      html+=makeDlBtn(song.mid);
       html+='<button class="btn-icon" title="歌词" onclick="App.viewLyric(\''+song.mid+'\')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></button>';
       html+='<button class="btn-icon" title="删除" onclick="App.removeSong(\''+song.mid+'\')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>';
       html+='</div>';
-      html+='<div class="playlist-item-progress" data-progress-mid="'+song.mid+'"></div>';
       html+='</div></div>';
     });
     content.innerHTML=html;
@@ -332,12 +382,10 @@
         const result=await showSaveDialog(filename,song);
         if(!result||!result.path) return;
 
-        const toastId=showToast('正在获取下载链接...','info',0);
+        setDlRing(song.mid,0);
         const data=await Api.downloadSong(song,result.filename);
         const audioUrl=data.url;
-        if(!audioUrl){updateToast(toastId,'无法获取下载链接','error');setTimeout(()=>dismissToast(toastId),3000);return;}
-
-        updateToast(toastId,'下载中 0%','info');
+        if(!audioUrl){setDlRing(song.mid,0,'fail');return;}
 
         const xhr=new XMLHttpRequest();
         xhr.open('GET',audioUrl);
@@ -345,8 +393,7 @@
 
         xhr.onprogress=(e)=>{
           if(e.lengthComputable){
-            const pct=Math.round(e.loaded/e.total*100);
-            updateToast(toastId,'下载中 '+pct+'%','info');
+            setDlRing(song.mid,Math.round(e.loaded/e.total*100));
           }
         };
 
@@ -358,32 +405,31 @@
             const savedPath=await window.electronAPI.saveFile(result.path+'/'+result.filename,uint8Array);
             if(savedPath){
               addRecentDir(result.path);
-              updateToast(toastId,'下载完成: '+result.filename,'success');
-              setTimeout(()=>dismissToast(toastId),2000);
+              setDlRing(song.mid,100,'done');
+              showToast('下载完成: '+result.filename,'success');
             }
           } else {
-            updateToast(toastId,'下载失败: HTTP '+xhr.status,'error');
-            setTimeout(()=>dismissToast(toastId),3000);
+            setDlRing(song.mid,0,'fail');
+            showToast('下载失败: HTTP '+xhr.status,'error');
           }
         };
 
         xhr.onerror=()=>{
-          updateToast(toastId,'下载失败','error');
-          setTimeout(()=>dismissToast(toastId),3000);
+          setDlRing(song.mid,0,'fail');
+          showToast('下载失败','error');
         };
 
         xhr.send();
       }catch(err){
+        setDlRing(song.mid,0,'fail');
         showToast('下载失败: '+err.message,'error');
       }
     } else {
       try{
-        const toastId=showToast('正在获取下载链接...','info',0);
+        setDlRing(song.mid,0);
         const data=await Api.downloadSong(song,filename);
         const audioUrl=data.url;
-        if(!audioUrl){updateToast(toastId,'无法获取下载链接','error');setTimeout(()=>dismissToast(toastId),3000);return;}
-
-        updateToast(toastId,'下载中...','info');
+        if(!audioUrl){setDlRing(song.mid,0,'fail');return;}
 
         const xhr=new XMLHttpRequest();
         xhr.open('GET',audioUrl);
@@ -391,8 +437,7 @@
 
         xhr.onprogress=(e)=>{
           if(e.lengthComputable){
-            const pct=Math.round(e.loaded/e.total*100);
-            updateToast(toastId,'下载中 '+pct+'%','info');
+            setDlRing(song.mid,Math.round(e.loaded/e.total*100));
           }
         };
 
@@ -401,21 +446,22 @@
             const url=URL.createObjectURL(xhr.response);
             triggerDownload(url,filename);
             URL.revokeObjectURL(url);
-            updateToast(toastId,'下载完成','success');
-            setTimeout(()=>dismissToast(toastId),2000);
+            setDlRing(song.mid,100,'done');
+            showToast('下载完成','success');
           } else {
-            updateToast(toastId,'下载失败','error');
-            setTimeout(()=>dismissToast(toastId),3000);
+            setDlRing(song.mid,0,'fail');
+            showToast('下载失败','error');
           }
         };
 
         xhr.onerror=()=>{
-          updateToast(toastId,'下载失败','error');
-          setTimeout(()=>dismissToast(toastId),3000);
+          setDlRing(song.mid,0,'fail');
+          showToast('下载失败','error');
         };
 
         xhr.send();
       }catch(err){
+        setDlRing(song.mid,0,'fail');
         showToast('下载失败: '+err.message,'error');
       }
     }
@@ -446,11 +492,17 @@
         if(item.url){
           try{
             const filename=(item.name||'未知')+' - '+(item.artist||'未知')+'.mp3';
+            updateSongProgress(item.mid,0);
             if(saveDir){
               const data=await Api.downloadSong(item,filename);
               if(data&&data.url){
                 const xhr=new XMLHttpRequest();
                 xhr.open('GET',data.url);xhr.responseType='blob';
+                xhr.onprogress=(e)=>{
+                  if(e.lengthComputable){
+                    updateSongProgress(item.mid,Math.round(e.loaded/e.total*100));
+                  }
+                };
                 await new Promise((resolve,reject)=>{
                   xhr.onload=async()=>{
                     if(xhr.status===200){
@@ -462,12 +514,19 @@
                   xhr.onerror=()=>reject(new Error('网络错误'));
                   xhr.send();
                 });
+                updateSongProgress(item.mid,100,'done');
                 ok++;
-              } else {fail++;}
+              } else {updateSongProgress(item.mid,0,'fail');fail++;}
             } else {
+              updateSongProgress(item.mid,0);
               const blob=await new Promise((resolve,reject)=>{
                 const xhr=new XMLHttpRequest();
                 xhr.open('GET',item.url);xhr.responseType='blob';
+                xhr.onprogress=(e)=>{
+                  if(e.lengthComputable){
+                    updateSongProgress(item.mid,Math.round(e.loaded/e.total*100));
+                  }
+                };
                 xhr.onload=()=>xhr.status===200?resolve(xhr.response):reject(new Error('HTTP '+xhr.status));
                 xhr.onerror=()=>reject(new Error('网络错误'));
                 xhr.send();
@@ -475,13 +534,11 @@
               const url=URL.createObjectURL(blob);
               triggerDownload(url,filename);
               URL.revokeObjectURL(url);
+              updateSongProgress(item.mid,100,'done');
               ok++;
             }
-          }catch(e){fail++;}
-        } else {fail++;}
-
-        const pct=Math.round((i+1)/urls.length*100);
-        updateSongProgress(item.mid,pct,item.url?(fail>0&&ok===0?'fail':'done'):'fail');
+          }catch(e){updateSongProgress(item.mid,0,'fail');fail++;}
+        } else {updateSongProgress(item.mid,0,'fail');fail++;}
       }
 
       if(ok>0){
@@ -497,14 +554,12 @@
   }
 
   function updateSongProgress(mid,pct,status){
-    const el=document.querySelector('[data-progress-mid="'+mid+'"]');
-    if(!el) return;
     if(status==='done'){
-      el.innerHTML='<span class="song-progress-done">✓</span>';
+      setDlRing(mid,100,'done');
     } else if(status==='fail'){
-      el.innerHTML='<span class="song-progress-fail">✗</span>';
+      setDlRing(mid,0,'fail');
     } else {
-      el.innerHTML='<div class="song-dl-progress"><div class="song-dl-progress-fill" style="width:'+pct+'%"></div></div>';
+      setDlRing(mid,pct||0);
     }
   }
 
@@ -551,6 +606,7 @@
       } else {
         const res=await Api.api.search(keyword);
         state.searchResults=res.data||[];
+        state.searchTotal=res.total||0;
         state.searchKeyword=keyword;
         state.currentPage=1;
         renderSearchResults();
@@ -563,6 +619,17 @@
     }
   }
 
+  function applyZoom(v){
+    const clamped=Math.max(75,Math.min(150,v));
+    const scale=clamped/100;
+    document.documentElement.style.zoom=scale;
+    const slider=$('zoom-slider');
+    const label=$('zoom-value');
+    if(slider) slider.value=clamped;
+    if(label) label.textContent=clamped+'%';
+    localStorage.setItem('qqmusic_zoom',clamped.toString());
+  }
+
   async function loadSettings(){
     const saved=localStorage.getItem('qqmusic_cookie')||'';
     setCookieInputValue(saved);
@@ -573,6 +640,9 @@
     const sp=localStorage.getItem('qqmusic_save_path')||'';
     if($('default-save-path')) $('default-save-path').value=sp;
     renderRecentDirsManage();
+
+    const zoom=parseInt(localStorage.getItem('qqmusic_zoom')||'100');
+    applyZoom(zoom);
   }
 
   function renderRecentDirsManage(){
@@ -685,6 +755,17 @@
       localStorage.setItem('qqmusic_high_quality',state.highQuality.toString());
       $('hq-badge').style.display=state.highQuality?'':'none';
     });
+
+    const zoomSlider=$('zoom-slider');
+    const zoomLabel=$('zoom-value');
+    if(zoomSlider){
+      zoomSlider.addEventListener('input',()=>{
+        if(zoomLabel) zoomLabel.textContent=zoomSlider.value+'%';
+      });
+      zoomSlider.addEventListener('change',()=>{
+        applyZoom(parseInt(zoomSlider.value));
+      });
+    }
 
     if(window.electronAPI){
       $('btn-minimize').addEventListener('click',()=>window.electronAPI.minimize());
@@ -847,6 +928,7 @@
         if(res.data&&res.data.url){
           Player.play({...song,url:res.data.url});
           Player.setPlaylist(state.songs);
+          renderPlaylist();
         } else {
           showToast('无法获取播放链接','error');
         }
@@ -862,13 +944,45 @@
       await doDownload(song);
     },
 
-    addSong(mid){
+    addSong(mid,ev){
+      if(ev){ev.stopPropagation();}
+      collapseAllAddBtns();
       const song=findSong(mid);
       if(!song) return;
       if(addToList(song)){
         showToast('已添加: '+song.name,'success');
-        renderSearchResults();
+        const btn=document.querySelector('[data-add-mid="'+mid+'"]');
+        if(btn){
+          btn.classList.add('added');
+          btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>';
+        }
       }
+    },
+
+    addToTop(mid,ev){
+      ev.stopPropagation();
+      collapseAllAddBtns();
+      const song=findSong(mid);
+      if(!song) return;
+      if(isAdded(song.mid)){showToast('已存在: '+song.name,'info');return;}
+      state.songs.unshift(song);
+      saveSongs();
+      updatePlaylistBadge();
+      showToast('已置顶: '+song.name,'success');
+      const btn=document.querySelector('[data-add-mid="'+mid+'"]');
+      if(btn){
+        btn.classList.add('added');
+        btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>';
+      }
+    },
+
+    toggleAddBtn(ev,mid){
+      ev.stopPropagation();
+      const btn=ev.currentTarget.closest('.add-btn');
+      if(!btn) return;
+      const wasExpanded=btn.classList.contains('expanded');
+      collapseAllAddBtns();
+      if(!wasExpanded) btn.classList.add('expanded');
     },
 
     removeSong(mid){
@@ -878,9 +992,17 @@
 
     addAllResults(){
       let count=0;
-      state.searchResults.forEach(s=>{if(addToList(s)) count++;});
+      state.searchResults.forEach(s=>{
+        if(addToList(s)){
+          count++;
+          const btn=document.querySelector('[data-add-mid="'+s.mid+'"]');
+          if(btn){
+            btn.classList.add('added');
+            btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>';
+          }
+        }
+      });
       if(count>0) showToast('已添加 '+count+' 首','success');
-      renderSearchResults();
       updatePlaylistBadge();
     },
 
@@ -991,11 +1113,13 @@
           el.addEventListener('click',()=>{
             const t=parseFloat(el.dataset.time);
             if(isNaN(t)) return;
+            const dur=Player.getDuration();
+            if(!isFinite(dur)||dur<=0) return;
             if(Player.currentSong&&Player.currentSong.mid===mid){
-              Player.seek(t/Player.getDuration());
+              Player.seek(t/dur);
             } else {
               App.playSong(mid);
-              setTimeout(()=>Player.seek(t/Player.getDuration()),1500);
+              setTimeout(()=>{const d=Player.getDuration();if(isFinite(d)&&d>0) Player.seek(t/d);},1500);
             }
           });
         });
@@ -1040,6 +1164,7 @@
       try{
         const res=await Api.api.search(state.searchKeyword,page);
         state.searchResults=res.data||[];
+        state.searchTotal=res.total||0;
         state.currentPage=page;
         renderSearchResults();
       }catch(err){
@@ -1060,9 +1185,49 @@
       loadSongs();
       ThemeManager.init();
       Player.init();
+      const playerCloseBtn=$('player-close-btn');
+      if(playerCloseBtn){playerCloseBtn.addEventListener('click',()=>renderPlaylist());}
       setupEventListeners();
       updatePlaylistBadge();
       loadSettings();
+
+      let zoomTimer=null;
+      let pendingZoomDelta=0;
+      window.addEventListener('wheel',(e)=>{
+        if(!e.ctrlKey) return;
+        e.preventDefault();
+        pendingZoomDelta+=(e.deltaY<0?1:-1);
+        if(zoomTimer) return;
+        zoomTimer=setTimeout(()=>{
+          zoomTimer=null;
+          if(pendingZoomDelta===0) return;
+          const cur=parseInt(localStorage.getItem('qqmusic_zoom')||'100');
+          const next=cur+pendingZoomDelta*5;
+          pendingZoomDelta=0;
+          applyZoom(next);
+        },80);
+      },{passive:false});
+
+      window.addEventListener('keydown',(e)=>{
+        if(e.ctrlKey&&e.key==='0'){
+          e.preventDefault();
+          applyZoom(100);
+        }
+        if(e.key==='Escape') collapseAllAddBtns();
+      });
+
+      document.addEventListener('click',(e)=>{
+        if(!e.target.closest('.add-btn')) collapseAllAddBtns();
+      });
+
+      document.addEventListener('focusout',(e)=>{
+        requestAnimationFrame(()=>{
+          if(!document.activeElement||!document.activeElement.closest('.add-btn')){
+            collapseAllAddBtns();
+          }
+        });
+      });
+
       navigate('search');
 
       const savedCookie=localStorage.getItem('qqmusic_cookie');

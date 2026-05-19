@@ -1,6 +1,6 @@
 {
   "name": "qqmusic-desktop",
-  "version": "1.0.0-alpha-001",
+  "version": "1.0.0-alpha-002",
   "description": "Elia Music 音乐播放器 - 伊莉雅音乐播放器",
   "main": "./public/electron/main.js",
   "scripts": {
