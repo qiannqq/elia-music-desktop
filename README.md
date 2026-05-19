@@ -4,7 +4,7 @@
   <img src="elia.png" width="30%" height="30%">
 </p>
 
-> 一款基于 Electron 构建的桌面端 QQ 音乐辅助工具，支持搜索、试听、歌单导入与批量下载。
+> 一款基于 Electron 构建的桌面端音乐播放器，支持搜索、试听、歌单导入与批量下载。
 
 ## 功能
 
@@ -73,7 +73,7 @@ npm run build-l
 ## 目录结构
 
 ```
-qqmusic-desktop/
+elia-music-desktop/
 ├── electron/          # 主进程代码
 │   ├── config/        # 配置文件
 │   ├── controller/    # IPC 控制器
