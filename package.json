@@ -1,0 +1,48 @@
+{
+  "name": "qqmusic-desktop",
+  "version": "1.0.0-alpha-001",
+  "description": "Elia Music 音乐播放器 - 伊莉雅音乐播放器",
+  "main": "./public/electron/main.js",
+  "scripts": {
+    "dev": "ee-bin dev",
+    "prebuild": "node scripts/sync-electron.js",
+    "build": "npm run build-electron && ee-bin encrypt",
+    "start": "ee-bin start",
+    "dev-electron": "ee-bin dev --serve=electron",
+    "prebuild-electron": "node scripts/sync-electron.js",
+    "build-electron": "ee-bin build --cmds=electron",
+    "icon": "ee-bin icon",
+    "prebuild-w": "node scripts/sync-electron.js",
+    "build-w": "ee-bin build --cmds=win64",
+    "prebuild-we": "node scripts/sync-electron.js",
+    "build-we": "ee-bin build --cmds=win_e",
+    "prebuild-w-7z": "node scripts/sync-electron.js",
+    "build-w-7z": "ee-bin build --cmds=win_7z",
+    "prebuild-m": "node scripts/sync-electron.js",
+    "build-m": "ee-bin build --cmds=mac",
+    "prebuild-m-arm64": "node scripts/sync-electron.js",
+    "build-m-arm64": "ee-bin build --cmds=mac_arm64",
+    "prebuild-l": "node scripts/sync-electron.js",
+    "build-l": "ee-bin build --cmds=linux"
+  },
+  "keywords": [
+    "音乐播放器",
+    "Elia Music",
+    "下载器",
+    "Electron"
+  ],
+  "author": "sena-senki",
+  "license": "MIT",
+  "devDependencies": {
+    "@electron/rebuild": "^3.7.1",
+    "@types/node": "^22.19.1",
+    "debug": "^4.4.0",
+    "ee-bin": "^4.2.0",
+    "electron": "^39.2.6",
+    "electron-builder": "^26.3.5"
+  },
+  "dependencies": {
+    "ee-core": "^4.1.5",
+    "electron-updater": "^6.7.3"
+  }
+}

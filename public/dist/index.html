@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:* http://127.0.0.1:*; img-src 'self' http://* https://* data: blob:; media-src 'self' http://* https://* blob:; connect-src 'self' http://localhost:* http://127.0.0.1:* http://* https://*; font-src 'self' data:;">
+  <title>Elia Music 音乐播放器</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <!-- Titlebar -->
+  <div class="titlebar" id="titlebar">
+    <div class="titlebar-drag">
+      <div class="titlebar-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        <span>Elia Music</span>
+      </div>
+    </div>
+    <div class="titlebar-controls">
+      <button class="titlebar-btn" id="btn-minimize" title="最小化">
+        <svg width="12" height="12" viewBox="0 0 12 12"><line x1="1" y1="6" x2="11" y2="6" stroke="currentColor" stroke-width="1.2"/></svg>
+      </button>
+      <button class="titlebar-btn" id="btn-maximize" title="最大化">
+        <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" rx="1" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>
+      </button>
+      <button class="titlebar-btn titlebar-btn-close" id="btn-close" title="关闭">
+        <svg width="12" height="12" viewBox="0 0 12 12"><line x1="2" y1="2" x2="10" y2="10" stroke="currentColor" stroke-width="1.2"/><line x1="10" y1="2" x2="2" y2="10" stroke="currentColor" stroke-width="1.2"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Layout -->
+  <div class="app-layout">
+    <!-- Sidebar -->
+    <nav class="sidebar" id="sidebar">
+      <div class="nav-item active" data-page="search">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <span>搜索</span>
+      </div>
+      <div class="nav-item" data-page="playlist">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15V6"/><path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M12 12H3"/><path d="M16 6H3"/><path d="M12 18H3"/></svg>
+        <span>歌单</span>
+        <span class="nav-badge" id="playlist-count" style="display:none">0</span>
+      </div>
+      <div class="nav-item" data-page="settings">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+        <span>设置</span>
+      </div>
+      <div class="nav-item" data-page="about">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+        <span>关于</span>
+      </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content" id="main-content">
+      <!-- Search Page -->
+      <div class="page active" id="page-search">
+        <div class="search-center" id="search-center">
+          <div class="search-hero" id="search-hero">
+            <h1 class="hero-title">Elia Music</h1>
+            <p class="hero-subtitle">搜索歌曲、歌手，或粘贴歌单链接</p>
+          </div>
+          <div class="search-bar-wrapper">
+            <div class="search-bar">
+              <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="search-input" placeholder="搜索歌曲、歌手、专辑 或 粘贴歌单链接" autocomplete="off">
+              <button class="search-btn" id="search-btn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div id="search-results"></div>
+        <div id="search-pagination" class="pagination" style="display:none"></div>
+      </div>
+
+      <!-- Playlist Page -->
+      <div class="page" id="page-playlist">
+        <div class="page-header">
+          <h2>歌单</h2>
+          <div class="page-header-actions" id="playlist-actions"></div>
+        </div>
+        <div id="playlist-empty" class="empty-state">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.3"><path d="M21 15V6"/><path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M12 12H3"/><path d="M16 6H3"/><path d="M12 18H3"/></svg>
+          <p>暂无歌曲</p>
+          <p class="empty-hint">搜索或粘贴歌单链接来添加歌曲</p>
+        </div>
+        <div id="playlist-content"></div>
+        <div id="playlist-batch-bar" class="batch-bar" style="display:none"></div>
+      </div>
+
+      <!-- Settings Page -->
+      <div class="page" id="page-settings">
+        <div class="page-title-row"><h2>设置</h2></div>
+        <div class="settings-section">
+          <h3>Cookie 管理</h3>
+          <p class="settings-desc">设置 QQ音乐 Cookie 以获取高品质资源。在浏览器中登录 y.qq.com，按 F12 打开开发者工具，在 Application &gt; Cookies 中复制 Cookie 字符串。</p>
+          <div class="settings-field">
+            <label>Cookie 状态</label>
+            <div class="cookie-status" id="cookie-status">
+              <span class="status-dot"></span>
+              <span class="status-text">未配置</span>
+            </div>
+          </div>
+          <div class="settings-field">
+            <label for="cookie-input-pw">Cookie 字符串</label>
+            <div class="cookie-input-wrapper">
+              <input type="password" id="cookie-input-pw" placeholder="粘贴 QQ音乐 Cookie 字符串..." class="cookie-input-field">
+              <input type="text" id="cookie-input-text" placeholder="粘贴 QQ音乐 Cookie 字符串..." class="cookie-input-field" style="display:none">
+              <button class="icon-btn" id="cookie-toggle-visibility" title="显示/隐藏">
+                <svg id="eye-open" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg id="eye-closed" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="settings-actions">
+            <button class="btn btn-primary" id="cookie-verify">验证</button>
+            <button class="btn btn-accent" id="cookie-save">保存</button>
+            <button class="btn btn-secondary" id="cookie-clear">清除</button>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h3>下载设置</h3>
+          <div class="settings-field">
+            <label>默认保存目录</label>
+            <div class="path-input-row">
+              <input type="text" id="default-save-path" readonly placeholder="未设置（每次下载时选择）">
+              <button class="btn btn-secondary" id="set-default-path">浏览</button>
+              <button class="btn btn-secondary" id="clear-default-path">清除</button>
+            </div>
+          </div>
+          <div class="settings-field" id="recent-dirs-section" style="display:none">
+            <label>常用目录</label>
+            <div id="recent-dirs-manage"></div>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h3>音质设置</h3>
+          <div class="settings-field">
+            <label class="toggle-label">
+              <input type="checkbox" id="hq-toggle" class="toggle-input">
+              <span class="toggle-switch"></span>
+              <span>高品质模式 (320kbps)</span>
+              <span class="badge badge-hq" id="hq-badge" style="display:none">HQ</span>
+            </label>
+          </div>
+        </div>
+        <div class="settings-section">
+          <h3>外观</h3>
+          <div class="theme-options" id="theme-options">
+            <label class="theme-option">
+              <input type="radio" name="theme" value="system" checked>
+              <span class="theme-option-content">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                跟随系统
+              </span>
+            </label>
+            <label class="theme-option">
+              <input type="radio" name="theme" value="light">
+              <span class="theme-option-content">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+                浅色
+              </span>
+            </label>
+            <label class="theme-option">
+              <input type="radio" name="theme" value="dark">
+              <span class="theme-option-content">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                深色
+              </span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- About Page -->
+      <div class="page" id="page-about">
+        <div class="about-card">
+          <div class="about-logo">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          </div>
+          <h2>伊莉雅音乐播放器</h2>
+          <p class="about-version">v1.0.0-alpha-001</p>
+          <p class="about-desc">一款基于 Electron 构建的桌面端 QQ 音乐下载工具，支持搜索、试听、批量下载等功能。</p>
+          <div class="about-info">
+            <div class="about-row"><span>框架</span><span>Electron + electron-egg</span></div>
+            <div class="about-row"><span>版本</span><span>1.0.0-alpha-001</span></div>
+            <div class="about-row"><span>作者</span><span>sena-senki</span></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Player Bar -->
+  <div class="player-bar" id="player-bar" style="display:none">
+    <audio id="audio-player" preload="auto"></audio>
+    <div class="player-info">
+      <div class="player-cover-wrap" id="player-cover-wrap">
+        <div class="player-cover" id="player-cover">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        </div>
+        <div class="player-cover-loading" id="player-cover-loading" style="display:none">
+          <div class="cover-spinner"></div>
+        </div>
+      </div>
+      <div class="player-meta" id="player-meta">
+        <div class="player-lyric-container" id="player-lyric-container">
+          <div class="player-lyric-scroll" id="player-lyric-scroll"></div>
+          <div class="player-name-overlay" id="player-name-overlay">-</div>
+        </div>
+        <div class="player-name" id="player-name">-</div>
+      </div>
+    </div>
+    <div class="player-controls">
+      <button class="player-btn player-btn-sm" id="player-prev-btn" title="上一首">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+      <button class="player-btn" id="player-play-btn" title="播放/暂停">
+        <svg id="icon-play" width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        <svg id="icon-pause" width="20" height="20" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+      </button>
+      <button class="player-btn player-btn-sm" id="player-next-btn" title="下一首">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2"/></svg>
+      </button>
+      <button class="player-btn player-btn-sm" id="player-mode-btn" title="播放模式">
+        <svg id="icon-mode-repeat-all" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+        <svg id="icon-mode-repeat-one" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="12" y="15" text-anchor="middle" font-size="8" fill="currentColor" stroke="none">1</text></svg>
+        <svg id="icon-mode-shuffle" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+      </button>
+    </div>
+    <div class="player-progress-wrapper">
+      <span class="player-time" id="player-current-time">0:00</span>
+      <div class="player-progress" id="player-progress">
+        <div class="player-progress-fill" id="player-progress-fill"></div>
+      </div>
+      <span class="player-time" id="player-duration">0:00</span>
+    </div>
+    <div class="player-extra">
+      <div class="player-volume-wrapper">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+        <input type="range" id="player-volume" min="0" max="1" step="0.05" value="0.8">
+      </div>
+      <button class="player-btn player-btn-lyric" id="player-lyric-btn" title="歌词">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      </button>
+      <button class="player-btn player-btn-close" id="player-close-btn" title="关闭播放器">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="player-error" id="player-error" style="display:none"></div>
+  </div>
+
+  <!-- Custom Save Dialog -->
+  <div class="modal-overlay" id="save-dialog-overlay" style="display:none">
+    <div class="modal save-dialog">
+      <div class="modal-header">
+        <h3>选择保存位置</h3>
+        <button class="modal-close" id="save-dialog-close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="save-dialog-body">
+        <div class="save-dialog-path">
+          <label>保存路径</label>
+          <div class="path-input-row">
+            <input type="text" id="save-path-input" readonly>
+            <button class="btn btn-secondary" id="save-path-browse">浏览</button>
+          </div>
+        </div>
+        <div class="save-dialog-filename">
+          <label>文件名</label>
+          <input type="text" id="save-filename-input">
+        </div>
+        <div class="save-dialog-recent" id="save-recent-dirs">
+          <label>常用目录</label>
+          <div class="recent-dirs-list" id="recent-dirs-list"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="save-dialog-cancel">取消</button>
+        <button class="btn btn-primary" id="save-dialog-confirm">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lyrics Modal -->
+  <div class="modal-overlay" id="lyrics-overlay" style="display:none">
+    <div class="modal lyrics-modal">
+      <div class="modal-header">
+        <h3 id="lyrics-title">歌词</h3>
+        <button class="modal-close" id="lyrics-close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body lyrics-body" id="lyrics-body"></div>
+    </div>
+  </div>
+
+  <!-- Confirm Dialog -->
+  <div class="modal-overlay" id="confirm-overlay" style="display:none">
+    <div class="modal confirm-modal">
+      <div class="confirm-icon" id="confirm-icon">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      </div>
+      <p class="confirm-message" id="confirm-message"></p>
+      <div class="confirm-actions">
+        <button class="btn btn-secondary" id="confirm-cancel">取消</button>
+        <button class="btn btn-primary" id="confirm-ok">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Loading Overlay -->
+  <div class="loading-overlay" id="loading-overlay" style="display:none">
+    <div class="loading-spinner"></div>
+    <div class="loading-text" id="loading-text">加载中...</div>
+  </div>
+
+  <script src="js/theme.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

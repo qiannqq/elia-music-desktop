@@ -1,0 +1,67 @@
+{
+  "productName": "EliaMusic",
+  "appId": "com.qqmusic.desktop",
+  "copyright": "© 2026 Elia Music",
+  "directories": {
+    "output": "out"
+  },
+  "asar": true,
+  "files": [
+    "**/*",
+    "!cmd/",
+    "!data/",
+    "!electron/",
+    "!frontend/",
+    "!logs/",
+    "!out/",
+    "!go/",
+    "!python/",
+    "!.git/",
+    "!.gitignore",
+    "!README.md",
+    "!README.zh-CN.md",
+    "!LICENSE"
+  ],
+  "extraResources": {
+    "from": "build/extraResources/",
+    "to": "extraResources"
+  },
+  "compression": "maximum",
+  "removePackageScripts": true,
+  "nsis": {
+    "oneClick": false,
+    "allowElevation": true,
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": "build/icons/icon.ico",
+    "uninstallerIcon": "build/icons/icon.ico",
+    "installerHeaderIcon": "build/icons/icon.ico",
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Elia Music",
+    "installerLanguages": ["zh_CN"],
+    "language": "2052"
+  },
+  "win": {
+    "icon": "build/icons/icon.ico",
+    "artifactName": "${productName}-${version}-Setup.${ext}",
+    "forceCodeSigning": false,
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ]
+  },
+  "portable": {
+    "artifactName": "${productName}-${version}-Portable.${ext}"
+  },
+  "linux": {
+    "icon": "build/icons",
+    "target": ["AppImage"],
+    "category": "Audio"
+  },
+  "mac": {
+    "icon": "build/icons/icon.icns",
+    "target": ["dmg"]
+  }
+}
