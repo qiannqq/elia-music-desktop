@@ -374,10 +374,6 @@ body{
   flex-shrink:0;
   vertical-align:middle;
   margin-right:2px;
-  transition:transform 0.2s ease;
-}
-.source-icon:hover{
-  transform:scale(1.2);
 }
 .source-icon img{
   width:100%;
@@ -677,6 +673,10 @@ body{
   border-radius:var(--radius);
   position:sticky;
   bottom:0;
+  z-index:10;
+}
+body.has-player .batch-bar{
+  bottom:72px;
 }
 .batch-bar .batch-info{flex:1;font-size:13px;color:var(--text-secondary)}
 

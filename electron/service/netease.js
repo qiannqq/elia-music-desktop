@@ -154,7 +154,7 @@ class NeteaseMusicService {
     const trackIds = (playlist.trackIds || []).map(t => t.id);
     let tracks = playlist.tracks || [];
 
-    if (tracks.length === 0 && trackIds.length > 0) {
+    if (trackIds.length > 0 && tracks.length < trackIds.length) {
       tracks = await this._batchGetTrackDetails(trackIds);
     }
 

@@ -19,6 +19,7 @@
   };
 
   const DOWNLOAD_ICON='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+  const DOWNLOAD_ICON_SM='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
   const SOURCE_QQ_ICON='<span class="source-icon source-qq" title="QQ音乐"><img src="https://y.qq.com/favicon.ico" alt="QQ" onerror="this.parentNode.innerHTML=\'Q\'"></span>';
   const SOURCE_NETEASE_ICON='<span class="source-icon source-netease" title="网易云音乐"><img src="https://music.163.com/favicon.ico" alt="网易" onerror="this.parentNode.innerHTML=\'N\'"></span>';
   const R=10,C=2*Math.PI*R;
@@ -76,7 +77,7 @@
     const icons={
       success:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>',
       error:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
-      info:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+      info:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="17" x2="12" y2="12"/><circle cx="12" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg>',
       progress:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>'
     };
     el.innerHTML='<span class="toast-icon">'+(icons[type]||icons.info)+'</span><span class="toast-text">'+msg+'</span>';
@@ -94,7 +95,7 @@
       const icons={
         success:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>',
         error:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
-        info:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>'
+        info:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="17" x2="12" y2="12"/><circle cx="12" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg>'
       };
       el.className='toast toast-'+type;
       const iconEl=el.querySelector('.toast-icon');
@@ -225,10 +226,10 @@
 
     if(hero) hero.style.display='none';
     if(center) center.classList.add('has-results');
-    let html='<div class="results-header"><div class="results-title-group"><h3>搜索结果</h3><span class="results-count">'+state.searchResults.length+' 首</span></div>';
+    let html='<div class="results-header"><div class="results-title-group"><h3>'+esc(state.searchKeyword||'搜索结果')+'</h3><span class="results-count">'+state.searchResults.length+' 首</span></div>';
     html+='<div class="results-actions">';
     html+='<button class="btn btn-sm btn-accent" onclick="App.addAllResults()">全部添加</button>';
-    html+='<button class="btn btn-sm btn-primary" onclick="App.batchDownloadSmart()">批量下载</button>';
+    html+='<button class="btn btn-sm btn-primary" onclick="App.batchDownloadSmart()">'+DOWNLOAD_ICON_SM+' 批量下载</button>';
     html+='</div></div>';
     html+='<div class="results-grid">';
 
@@ -280,7 +281,7 @@
     actions.innerHTML='<button class="btn btn-sm btn-secondary" onclick="App.selectAll()">全选</button>';
     actions.innerHTML+='<button class="btn btn-sm btn-secondary" onclick="App.clearPlaylist()">清空</button>';
     actions.innerHTML+='<button class="btn btn-sm btn-accent" onclick="App.exportPlaylist()">导出</button>';
-    actions.innerHTML+='<button class="btn btn-sm btn-primary" onclick="App.batchDownloadPlaylist()">批量下载</button>';
+    actions.innerHTML+='<button class="btn btn-sm btn-primary" onclick="App.batchDownloadPlaylist()">'+DOWNLOAD_ICON_SM+' 批量下载</button>';
 
     let html='';
     state.songs.forEach(song=>{
@@ -291,7 +292,7 @@
         :'<div class="song-cover-placeholder"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>';
 
       html+='<div class="playlist-item'+(isPlaying?' playing':'')+'">';
-      html+='<input type="checkbox" '+checked+' onchange="App.toggleSelect(\''+song.mid+'\')">';
+      html+='<input type="checkbox" '+checked+' data-mid="'+song.mid+'" onchange="App.toggleSelect(\''+song.mid+'\')">';
       html+=coverHtml;
       html+='<div class="song-info"><div class="song-name">'+getSourceIcon(song.source)+' '+esc(song.name)+'</div><div class="song-artist">'+esc(song.artist)+'</div></div>';
       html+='<div class="playlist-item-actions">';
@@ -310,7 +311,20 @@
       batchBar.innerHTML='<div class="batch-info">已选择 <strong>'+state.selectedMids.length+'</strong> 首</div>';
       batchBar.innerHTML+='<button class="btn btn-sm btn-secondary" onclick="App.invertSelect()">反选</button>';
       batchBar.innerHTML+='<button class="btn btn-sm btn-secondary" onclick="App.deleteSelected()">删除</button>';
-      batchBar.innerHTML+='<button class="btn btn-sm btn-primary" onclick="App.batchDownloadSmart()">批量下载</button>';
+      batchBar.innerHTML+='<button class="btn btn-sm btn-primary" onclick="App.batchDownloadSmart()">'+DOWNLOAD_ICON_SM+' 批量下载</button>';
+    } else {
+      batchBar.style.display='none';
+    }
+  }
+
+  function updateBatchBar(){
+    const batchBar=$('playlist-batch-bar');
+    if(state.selectedMids.length>0){
+      batchBar.style.display='flex';
+      batchBar.innerHTML='<div class="batch-info">已选择 <strong>'+state.selectedMids.length+'</strong> 首</div>';
+      batchBar.innerHTML+='<button class="btn btn-sm btn-secondary" onclick="App.invertSelect()">反选</button>';
+      batchBar.innerHTML+='<button class="btn btn-sm btn-secondary" onclick="App.deleteSelected()">删除</button>';
+      batchBar.innerHTML+='<button class="btn btn-sm btn-primary" onclick="App.batchDownloadSmart()">'+DOWNLOAD_ICON_SM+' 批量下载</button>';
     } else {
       batchBar.style.display='none';
     }
@@ -337,6 +351,10 @@
 
   function escapePath(p){
     return String(p||'').replace(/\\/g,'\\\\');
+  }
+
+  function sanitizeFilename(name){
+    return String(name||'').replace(/[\/\\:*?"<>|]/g,'_').replace(/\s+/g,' ').trim();
   }
 
   function showSaveDialog(filename,songData){
@@ -382,7 +400,7 @@
   }
 
   async function doDownload(song){
-    const filename=song.name+' - '+song.artist+'.mp3';
+    const filename=sanitizeFilename(song.name)+' - '+sanitizeFilename(song.artist)+'.mp3';
     const useCustomDialog=!!(window.electronAPI);
 
     if(useCustomDialog){
@@ -495,11 +513,11 @@
 
       for(let i=0;i<urls.length;i++){
         const item=urls[i];
-        updateToast(toastId,'批量下载 '+(i+1)+'/'+urls.length,'info');
+        // updateToast(toastId,'批量下载 '+(i+1)+'/'+urls.length,'info');
 
         if(item.url){
           try{
-            const filename=(item.name||'未知')+' - '+(item.artist||'未知')+'.mp3';
+            const filename=sanitizeFilename(item.name||'未知')+' - '+sanitizeFilename(item.artist||'未知')+'.mp3';
             updateSongProgress(item.mid,0);
             if(saveDir){
               const data=await Api.downloadSong(item,filename);
@@ -593,16 +611,22 @@
       let m;
 
       if((m=keyword.match(neteasePlaylistRe))){
-        const res=await Api.neteaseApi.getPlaylist(m[1]);
-        if(res.data&&res.data.list&&res.data.list.length>0){
-          res.data.list.forEach(s=>addToList(s));
-          state.searchResults=[];
-          state.searchKeyword='';
-          showToast('已导入网易云歌单: '+(res.data.name||'')+' ('+res.data.list.length+'首)','success');
-          renderSearchResults();
-          navigate('playlist');
-        } else {
-          showToast('歌单为空或获取失败','error');
+        const toastId=showToast('网易云音乐 歌单加载中...歌曲过多可能需要十几秒种加载~','info',0);
+        try{
+          const res=await Api.neteaseApi.getPlaylist(m[1]);
+          dismissToast(toastId);
+          if(res.data&&res.data.list&&res.data.list.length>0){
+            state.searchResults=res.data.list;
+            state.searchKeyword=res.data.name||'网易云歌单';
+            state.currentPage=1;
+            showToast('歌曲加载完成~','success');
+            renderSearchResults();
+          } else {
+            showToast('歌单为空或获取失败','error');
+          }
+        }catch(err){
+          dismissToast(toastId);
+          showToast('歌单加载失败 '+err.message,'error');
         }
       } else if((m=keyword.match(neteaseSongRe))){
         const searchRes=await Api.neteaseApi.search(keyword,1,1);
@@ -624,16 +648,22 @@
         renderSearchResults();
       } else if((m=keyword.match(playlistRe))||(m=keyword.match(idRe))||(m=keyword.match(numRe))){
         const id=typeof m==='object'?m[1]:m;
-        const res=await Api.api.getPlaylist(id);
-        if(res.data&&res.data.list&&res.data.list.length>0){
-          res.data.list.forEach(s=>addToList(s));
-          state.searchResults=[];
-          state.searchKeyword='';
-          showToast('已导入歌单: '+(res.data.name||'')+' ('+res.data.list.length+'首)','success');
-          renderSearchResults();
-          navigate('playlist');
-        } else {
-          showToast('歌单为空或获取失败','error');
+        const toastId=showToast('QQ音乐 歌单加载中...歌曲过多可能需要十几秒种加载~','info',0);
+        try{
+          const res=await Api.api.getPlaylist(id);
+          dismissToast(toastId);
+          if(res.data&&res.data.list&&res.data.list.length>0){
+            state.searchResults=res.data.list;
+            state.searchKeyword=res.data.name||'QQ歌单';
+            state.currentPage=1;
+            showToast('歌曲加载完成~','success');
+            renderSearchResults();
+          } else {
+            showToast('歌单为空或获取失败','error');
+          }
+        }catch(err){
+          dismissToast(toastId);
+          showToast('歌单加载失败 '+err.message,'error');
         }
       } else if((m=keyword.match(songRe))){
         const res=await Api.api.getSongDetail(m[1]);
@@ -791,7 +821,8 @@
       const cookie=getCookieInputValue();
       if(!cookie){showToast('请输入 Cookie','error');return;}
       localStorage.setItem('qqmusic_cookie',cookie);
-      localStorage.setItem('qqmusic_cookie_status','pending');
+      const currentStatus=localStorage.getItem('qqmusic_cookie_status');
+      if(currentStatus!=='valid') localStorage.setItem('qqmusic_cookie_status','pending');
       updateCookieStatus();
       showToast('Cookie 已保存','success');
     });
@@ -844,7 +875,8 @@
       const cookie=getNeteaseCookieInputValue();
       if(!cookie){showToast('请输入 MUSIC_U Cookie','error');return;}
       localStorage.setItem('netease_cookie',cookie);
-      localStorage.setItem('netease_cookie_status','pending');
+      const currentStatus=localStorage.getItem('netease_cookie_status');
+      if(currentStatus!=='valid') localStorage.setItem('netease_cookie_status','pending');
       updateNeteaseCookieStatus();
       showToast('网易云 Cookie 已保存','success');
     });
@@ -1093,6 +1125,7 @@
     async downloadSong(mid){
       const song=findSong(mid);
       if(!song){showToast('歌曲不存在','error');return;}
+      setDlRing(mid,0);
       await doDownload(song);
     },
 
@@ -1144,18 +1177,26 @@
 
     addAllResults(){
       let count=0;
+      const toAdd=[];
       state.searchResults.forEach(s=>{
-        if(addToList(s)){
+        if(!isAdded(s.mid)){
+          toAdd.push(s);
           count++;
-          const btn=document.querySelector('[data-add-mid="'+s.mid+'"]');
-          if(btn){
-            btn.classList.add('added');
-            btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>';
-          }
         }
       });
-      if(count>0) showToast('已添加 '+count+' 首','success');
-      updatePlaylistBadge();
+      if(count>0){
+        state.songs.unshift(...toAdd);
+        saveSongs();
+        updatePlaylistBadge();
+      }
+      state.searchResults.forEach(s=>{
+        const btn=document.querySelector('[data-add-mid="'+s.mid+'"]');
+        if(btn){
+          btn.classList.add('added');
+          btn.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--text-tertiary)" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>';
+        }
+      });
+      if(count>0) showToast('已置顶 '+count+' 首','success');
     },
 
     batchDownloadResults(){
@@ -1191,21 +1232,27 @@
       } else {
         state.selectedMids.push(mid);
       }
-      renderPlaylist();
+      const cb=document.querySelector('.playlist-item input[data-mid="'+mid+'"]');
+      if(cb) cb.checked=state.selectedMids.includes(mid);
+      updateBatchBar();
     },
 
     selectAll(){
-      if(state.selectedMids.length===state.songs.length){
-        state.selectedMids=[];
-      } else {
-        state.selectedMids=state.songs.map(s=>s.mid);
-      }
-      renderPlaylist();
+      const allSelected=state.selectedMids.length===state.songs.length;
+      state.selectedMids=allSelected?[]:state.songs.map(s=>s.mid);
+      document.querySelectorAll('.playlist-item input[type="checkbox"]').forEach((cb,i)=>{
+        if(i<state.songs.length) cb.checked=!allSelected;
+      });
+      updateBatchBar();
     },
 
     invertSelect(){
       state.selectedMids=state.songs.filter(s=>!state.selectedMids.includes(s.mid)).map(s=>s.mid);
-      renderPlaylist();
+      state.songs.forEach(s=>{
+        const cb=document.querySelector('.playlist-item input[data-mid="'+s.mid+'"]');
+        if(cb) cb.checked=state.selectedMids.includes(s.mid);
+      });
+      updateBatchBar();
     },
 
     deleteSelected(){

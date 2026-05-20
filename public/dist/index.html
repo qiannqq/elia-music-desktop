@@ -62,7 +62,7 @@
             <p class="hero-subtitle">搜索歌曲、歌手，或粘贴QQ音乐/网易云音乐歌单链接</p>
           </div>
           <div class="search-source-tabs" id="search-source-tabs">
-            <button class="source-tab active" data-source="qq">
+            <button class="source-tab" data-source="qq">
               <img class="source-tab-icon" src="https://y.qq.com/favicon.ico" alt="" onerror="this.style.display='none'">
               <span>QQ音乐</span>
             </button>
@@ -104,7 +104,7 @@
       <div class="page" id="page-settings">
         <div class="page-title-row"><h2>设置</h2></div>
         <div class="settings-section">
-          <h3>Cookie 管理</h3>
+          <h3>QQ音乐 Cookie</h3>
           <p class="settings-desc">设置 QQ音乐 Cookie 以获取高品质资源。在浏览器中登录 y.qq.com，按 F12 打开开发者工具，在 Application &gt; Cookies 中复制 Cookie 字符串。</p>
           <div class="settings-field">
             <label>Cookie 状态</label>
@@ -188,7 +188,7 @@
           <div class="settings-field">
             <label>界面缩放</label>
             <div class="zoom-control">
-              <input type="range" id="zoom-slider" min="100" max="150" step="5" value="100" class="zoom-slider">
+              <input type="range" id="zoom-slider" min="75" max="150" step="5" value="100" class="zoom-slider">
               <span class="zoom-value" id="zoom-value">100%</span>
             </div>
           </div>
@@ -348,7 +348,7 @@
   <div class="modal-overlay" id="confirm-overlay" style="display:none">
     <div class="modal confirm-modal">
       <div class="confirm-icon" id="confirm-icon">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#c42b1c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
       </div>
       <p class="confirm-message" id="confirm-message"></p>
       <div class="confirm-actions">
