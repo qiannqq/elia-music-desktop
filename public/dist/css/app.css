@@ -326,6 +326,72 @@ body{
 }
 .search-btn.link-style:hover{background:var(--accent-light)}
 
+/* ========== Search Source Tabs ========== */
+.search-source-tabs{
+  display:flex;
+  gap:8px;
+  justify-content:center;
+  margin-bottom:20px;
+}
+.source-tab{
+  padding:8px 20px;
+  border-radius:20px;
+  border:1.5px solid var(--border);
+  background:transparent;
+  color:var(--text-secondary);
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-size:13px;
+  font-weight:500;
+  font-family:inherit;
+  transition:all 0.2s ease;
+}
+.source-tab:hover:not(.active){
+  border-color:var(--text-tertiary);
+  color:var(--text);
+}
+.source-tab.active{
+  border-color:var(--accent);
+  background:var(--accent-light);
+  color:var(--accent);
+}
+.source-tab-icon{
+  width:16px;
+  height:16px;
+  border-radius:2px;
+  flex-shrink:0;
+}
+
+/* ========== Source Icons ========== */
+.source-icon{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:16px;
+  height:16px;
+  flex-shrink:0;
+  vertical-align:middle;
+  margin-right:2px;
+  transition:transform 0.2s ease;
+}
+.source-icon:hover{
+  transform:scale(1.2);
+}
+.source-icon img{
+  width:100%;
+  height:100%;
+  border-radius:2px;
+  object-fit:cover;
+}
+.source-icon.source-qq{
+  color:#33c1ff;
+}
+.source-icon.source-netease{
+  color:#ec4141;
+}
+
 /* ========== Search Results ========== */
 .results-header{
   display:flex;

@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { logger } = require('ee-core/log');
 const { qqMusicService } = require('./qqmusic');
+const { neteaseMusicService } = require('./netease');
 const { fileLogger } = require('./logger');
 const { app } = require('electron');
 
@@ -47,7 +48,7 @@ class HttpServerService {
 
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-QQMusic-Cookie');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-QQMusic-Cookie, X-NetEase-Cookie');
 
       if (req.method === 'OPTIONS') {
         res.writeHead(200);
@@ -132,6 +133,12 @@ class HttpServerService {
     return cookie;
   }
 
+  _getNeteaseCookiesFromReq(req) {
+    const cookie = req.headers['x-netease-cookie'] || '';
+    if (cookie) neteaseMusicService.setCookie(cookie);
+    return cookie;
+  }
+
   _getBody(req) {
     return new Promise((resolve, reject) => {
       let body = '';
@@ -159,6 +166,13 @@ class HttpServerService {
       'POST:/api/set-cookie': () => this._apiSetCookie(req, res),
       'GET:/api/download': () => this._apiLegacyDownload(req, res, url),
       'POST:/api/log': () => this._apiLog(req, res),
+      'GET:/api/netease/search': () => this._apiNeteaseSearch(req, res, url),
+      'POST:/api/netease/song/url': () => this._apiNeteaseSongUrl(req, res),
+      'GET:/api/netease/song/lyric': () => this._apiNeteaseLyric(req, res, url),
+      'GET:/api/netease/playlist': () => this._apiNeteasePlaylist(req, res, url),
+      'POST:/api/netease/validate-cookie': () => this._apiNeteaseValidateCookie(req, res),
+      'GET:/api/netease/userinfo': () => this._apiNeteaseUserInfo(req, res),
+      'POST:/api/netease/set-cookie': () => this._apiNeteaseSetCookie(req, res),
     };
 
     const key = `${req.method}:${pathname}`;
@@ -187,23 +201,36 @@ class HttpServerService {
 
   async _apiSongUrl(req, res) {
     this._getCookiesFromReq(req);
+    this._getNeteaseCookiesFromReq(req);
     const url = new URL(req.url, `http://localhost:${this.port}`);
     const mid = url.searchParams.get('mid');
     const hq = url.searchParams.get('highQuality') === 'true';
     const body = await this._getBody(req);
     let songData = { mid, raw: {} };
     if (body.song) songData = body.song;
-    const playUrl = await qqMusicService.getMusicUrl(songData, { highQuality: hq });
+
+    let playUrl;
+    if (songData.source === 'netease') {
+      playUrl = await neteaseMusicService.getMusicUrl(songData, { quality: hq ? 'exhigh' : 'standard' });
+    } else {
+      playUrl = await qqMusicService.getMusicUrl(songData, { highQuality: hq });
+    }
     this._json(res, { code: 0, data: { url: playUrl, mid } });
   }
 
   async _apiBatchUrl(req, res) {
     this._getCookiesFromReq(req);
+    this._getNeteaseCookiesFromReq(req);
     const body = await this._getBody(req);
     const { songs, highQuality } = body;
     const results = await Promise.all(songs.map(async (song) => {
       try {
-        const url = await qqMusicService.getMusicUrl(song, { highQuality });
+        let url;
+        if (song.source === 'netease') {
+          url = await neteaseMusicService.getMusicUrl(song, { quality: highQuality ? 'exhigh' : 'standard' });
+        } else {
+          url = await qqMusicService.getMusicUrl(song, { highQuality });
+        }
         return { ...song, url, success: true };
       } catch (err) {
         return { ...song, url: '', success: false, error: err.message };
@@ -224,8 +251,15 @@ class HttpServerService {
 
   async _apiLyric(req, res, url) {
     this._getCookiesFromReq(req);
+    this._getNeteaseCookiesFromReq(req);
     const mid = url.searchParams.get('mid');
-    const lyric = await qqMusicService.getLyric(mid);
+    const source = url.searchParams.get('source') || 'qq';
+    let lyric;
+    if (source === 'netease') {
+      lyric = await neteaseMusicService.getLyric(mid);
+    } else {
+      lyric = await qqMusicService.getLyric(mid);
+    }
     this._json(res, { code: 0, data: lyric });
   }
 
@@ -259,9 +293,15 @@ class HttpServerService {
 
   async _apiDownload(req, res) {
     this._getCookiesFromReq(req);
+    this._getNeteaseCookiesFromReq(req);
     const body = await this._getBody(req);
     const { song, filename } = body;
-    const playUrl = await qqMusicService.getMusicUrl(song, { highQuality: true });
+    let playUrl;
+    if (song.source === 'netease') {
+      playUrl = await neteaseMusicService.getMusicUrl(song, { quality: 'exhigh' });
+    } else {
+      playUrl = await qqMusicService.getMusicUrl(song, { highQuality: true });
+    }
     if (!playUrl) return this._json(res, { error: '无法获取播放链接' }, 500);
     this._json(res, { code: 0, data: { url: playUrl, filename: filename || `${song.name} - ${song.artist}.mp3` } });
   }
@@ -272,9 +312,13 @@ class HttpServerService {
       if (!rawUrl) { res.writeHead(400); res.end(); return; }
       const targetUrl = decodeURIComponent(rawUrl);
       logger.info('[ImageProxy] Fetching: %s', targetUrl.substring(0, 120));
+
+      const isNetease = targetUrl.includes('music.126.net') || targetUrl.includes('music.163.com');
+      const referer = isNetease ? 'https://music.163.com/' : 'https://y.qq.com/';
+
       const response = await fetch(targetUrl, {
         headers: {
-          'Referer': 'https://y.qq.com/',
+          'Referer': referer,
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8'
         },
@@ -321,10 +365,14 @@ class HttpServerService {
     const rangeHeader = req.headers.range;
     fileLogger.info('AudioProxy', `Fetching: ${targetUrl.substring(0, 200)} range=${rangeHeader||'none'}`);
     try {
+      const isNetease = targetUrl.includes('music.126.net') || targetUrl.includes('music.163.com');
+      const referer = isNetease ? 'https://music.163.com/' : 'https://y.qq.com/';
+      const cookie = isNetease ? neteaseMusicService.cookie : qqMusicService.cookie;
+
       const fetchHeaders = {
-        'Referer': 'https://y.qq.com/',
+        'Referer': referer,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Cookie': qqMusicService.cookie
+        'Cookie': cookie
       };
       if (rangeHeader) fetchHeaders['Range'] = rangeHeader;
 
@@ -438,6 +486,63 @@ class HttpServerService {
     if (stack) fileLogger.error('Renderer', 'Stack: ' + stack);
 
     this._json(res, { code: 0 });
+  }
+
+  async _apiNeteaseSearch(req, res, url) {
+    this._getNeteaseCookiesFromReq(req);
+    const keyword = url.searchParams.get('keyword');
+    const page = parseInt(url.searchParams.get('page') || '1');
+    const pageSize = parseInt(url.searchParams.get('pageSize') || '30');
+    const result = await neteaseMusicService.search(keyword, page, pageSize);
+    this._json(res, { code: 0, data: result.list, total: result.total });
+  }
+
+  async _apiNeteaseSongUrl(req, res) {
+    this._getNeteaseCookiesFromReq(req);
+    const body = await this._getBody(req);
+    const { song, quality } = body;
+    if (!song || !song.id) return this._json(res, { error: 'song.id 不能为空' }, 400);
+    const url = await neteaseMusicService.getMusicUrl(song, { quality: quality || 'exhigh' });
+    this._json(res, { code: 0, data: { url, id: song.id } });
+  }
+
+  async _apiNeteaseLyric(req, res, url) {
+    this._getNeteaseCookiesFromReq(req);
+    const id = url.searchParams.get('id');
+    if (!id) return this._json(res, { error: 'id 不能为空' }, 400);
+    const lyric = await neteaseMusicService.getLyric(id);
+    this._json(res, { code: 0, data: lyric });
+  }
+
+  async _apiNeteasePlaylist(req, res, url) {
+    this._getNeteaseCookiesFromReq(req);
+    const id = url.searchParams.get('id');
+    if (!id) return this._json(res, { error: 'id 不能为空' }, 400);
+    const data = await neteaseMusicService.getPlaylist(id);
+    this._json(res, { code: 0, data });
+  }
+
+  async _apiNeteaseValidateCookie(req, res) {
+    const body = await this._getBody(req);
+    const cookie = body.cookie || '';
+    if (!cookie) return this._json(res, { error: 'cookie 不能为空' }, 400);
+    neteaseMusicService.setCookie(cookie);
+    const isValid = await neteaseMusicService.validateCookie();
+    this._json(res, { code: 0, data: { isValid } });
+  }
+
+  async _apiNeteaseUserInfo(req, res) {
+    this._getNeteaseCookiesFromReq(req);
+    const info = await neteaseMusicService.getUserInfo();
+    this._json(res, { code: 0, data: info });
+  }
+
+  async _apiNeteaseSetCookie(req, res) {
+    const body = await this._getBody(req);
+    if (!body.cookie) return this._json(res, { error: 'cookie 不能为空' }, 400);
+    neteaseMusicService.setCookie(body.cookie);
+    const isValid = await neteaseMusicService.validateCookie();
+    this._json(res, { code: 0, data: { isValid } });
   }
 }
 

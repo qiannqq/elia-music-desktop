@@ -14,10 +14,13 @@
     selectedMids:[],
     savePath:localStorage.getItem('qqmusic_save_path')||'',
     recentDirs:JSON.parse(localStorage.getItem('qqmusic_recent_dirs')||'[]'),
-    pageScrolls:{}
+    pageScrolls:{},
+    searchSource:localStorage.getItem('search_source')||'qq'
   };
 
   const DOWNLOAD_ICON='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+  const SOURCE_QQ_ICON='<span class="source-icon source-qq" title="QQ音乐"><img src="https://y.qq.com/favicon.ico" alt="QQ" onerror="this.parentNode.innerHTML=\'Q\'"></span>';
+  const SOURCE_NETEASE_ICON='<span class="source-icon source-netease" title="网易云音乐"><img src="https://music.163.com/favicon.ico" alt="网易" onerror="this.parentNode.innerHTML=\'N\'"></span>';
   const R=10,C=2*Math.PI*R;
 
   function setDlRing(mid,pct,status){
@@ -54,6 +57,10 @@
 
   function collapseAllAddBtns(){
     document.querySelectorAll('.add-btn.expanded').forEach(el=>el.classList.remove('expanded'));
+  }
+
+  function getSourceIcon(source){
+    return source==='netease'?SOURCE_NETEASE_ICON:SOURCE_QQ_ICON;
   }
 
   let toastIdCounter=0;
@@ -103,7 +110,7 @@
   }
 
   function trimSong(s){
-    return {mid:s.mid,name:s.name,artist:s.artist,pic:s.pic||'',link:s.link||'',mediaMid:s.mediaMid||''};
+    return {mid:s.mid,name:s.name,artist:s.artist,pic:s.pic||'',link:s.link||'',mediaMid:s.mediaMid||'',source:s.source||'qq'};
   }
 
   function saveSongs(){
@@ -233,7 +240,7 @@
 
       html+='<div class="song-card" data-mid="'+song.mid+'">';
       html+=coverHtml;
-      html+='<div class="song-info"><div class="song-name">'+esc(song.name)+'</div><div class="song-artist">'+esc(song.artist)+'</div></div>';
+      html+='<div class="song-info"><div class="song-name">'+getSourceIcon(song.source)+' '+esc(song.name)+'</div><div class="song-artist">'+esc(song.artist)+'</div></div>';
       html+='<div class="song-actions">';
       html+='<button class="btn-icon accent" title="试听" onclick="App.playSong(\''+song.mid+'\')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>';
       html+=makeDlBtn(song.mid);
@@ -286,7 +293,7 @@
       html+='<div class="playlist-item'+(isPlaying?' playing':'')+'">';
       html+='<input type="checkbox" '+checked+' onchange="App.toggleSelect(\''+song.mid+'\')">';
       html+=coverHtml;
-      html+='<div class="song-info"><div class="song-name">'+esc(song.name)+'</div><div class="song-artist">'+esc(song.artist)+'</div></div>';
+      html+='<div class="song-info"><div class="song-name">'+getSourceIcon(song.source)+' '+esc(song.name)+'</div><div class="song-artist">'+esc(song.artist)+'</div></div>';
       html+='<div class="playlist-item-actions">';
       html+='<div class="playlist-item-btns">';
       html+='<button class="btn-icon accent" title="试听" onclick="App.playSong(\''+song.mid+'\')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>';
@@ -574,13 +581,48 @@
     btn.classList.add('loading');
 
     try{
+      const qqPlaylistRe=/y\.qq\.com.*playlist\/(\d+)/;
+      const qqSongRe=/song\/(\w+)/;
+      const neteasePlaylistRe=/music\.163\.com.*playlist\?id=(\d+)/;
+      const neteaseSongRe=/music\.163\.com.*song\?id=(\d+)/;
       const playlistRe=/playlist\/(\d+)/;
       const songRe=/song\/(\w+)/;
       const idRe=/[?&]id=(\d+)/;
       const numRe=/^\d+$/;
 
       let m;
-      if((m=keyword.match(playlistRe))||(m=keyword.match(idRe))||(m=keyword.match(numRe))){
+
+      if((m=keyword.match(neteasePlaylistRe))){
+        const res=await Api.neteaseApi.getPlaylist(m[1]);
+        if(res.data&&res.data.list&&res.data.list.length>0){
+          res.data.list.forEach(s=>addToList(s));
+          state.searchResults=[];
+          state.searchKeyword='';
+          showToast('已导入网易云歌单: '+(res.data.name||'')+' ('+res.data.list.length+'首)','success');
+          renderSearchResults();
+          navigate('playlist');
+        } else {
+          showToast('歌单为空或获取失败','error');
+        }
+      } else if((m=keyword.match(neteaseSongRe))){
+        const searchRes=await Api.neteaseApi.search(keyword,1,1);
+        if(searchRes.data&&searchRes.data.length>0){
+          addToList(searchRes.data[0]);
+          state.searchResults=[];
+          state.searchKeyword='';
+          showToast('已导入: '+searchRes.data[0].name,'success');
+          renderSearchResults();
+        } else {
+          showToast('歌曲不存在','error');
+        }
+      } else if(state.searchSource==='netease'&&!keyword.match(/y\.qq\.com/)){
+        const res=await Api.neteaseApi.search(keyword);
+        state.searchResults=res.data||[];
+        state.searchTotal=res.total||0;
+        state.searchKeyword=keyword;
+        state.currentPage=1;
+        renderSearchResults();
+      } else if((m=keyword.match(playlistRe))||(m=keyword.match(idRe))||(m=keyword.match(numRe))){
         const id=typeof m==='object'?m[1]:m;
         const res=await Api.api.getPlaylist(id);
         if(res.data&&res.data.list&&res.data.list.length>0){
@@ -648,6 +690,14 @@
 
     const zoom=parseInt(localStorage.getItem('qqmusic_zoom')||'100');
     applyZoom(zoom);
+
+    loadNeteaseSettings();
+  }
+
+  function loadNeteaseSettings(){
+    const saved=localStorage.getItem('netease_cookie')||'';
+    setNeteaseCookieInputValue(saved);
+    updateNeteaseCookieStatus();
   }
 
   function renderRecentDirsManage(){
@@ -696,10 +746,25 @@
     $('search-input').addEventListener('keydown',e=>{if(e.key==='Enter') handleSearch();});
     $('search-btn').addEventListener('click',handleSearch);
 
+    document.querySelectorAll('.source-tab').forEach(tab=>{
+      tab.addEventListener('click',()=>{
+        document.querySelectorAll('.source-tab').forEach(t=>t.classList.remove('active'));
+        tab.classList.add('active');
+        state.searchSource=tab.dataset.source;
+        localStorage.setItem('search_source',state.searchSource);
+      });
+    });
+    const savedSourceTab=document.querySelector('.source-tab[data-source="'+state.searchSource+'"]');
+    if(savedSourceTab){
+      document.querySelectorAll('.source-tab').forEach(t=>t.classList.remove('active'));
+      savedSourceTab.classList.add('active');
+    }
+
     $('search-input').addEventListener('input',(e)=>{
       const val=e.target.value.trim();
       const isLink=/playlist\/(\d+)|song\/(\w+)|[?&]id=\d+|^\d+$/.test(val);
-      $('search-btn').classList.toggle('link-style',isLink);
+      const isNeteaseLink=/music\.163\.com/.test(val);
+      $('search-btn').classList.toggle('link-style',isLink||isNeteaseLink);
     });
 
     $('cookie-verify').addEventListener('click',async()=>{
@@ -746,6 +811,59 @@
       const txt=$('cookie-input-text');
       const eyeOpen=$('eye-open');
       const eyeClosed=$('eye-closed');
+      if(pw.style.display==='none'){
+        pw.value=txt.value;pw.style.display='';txt.style.display='none';
+        eyeOpen.style.display='';eyeClosed.style.display='none';
+      } else {
+        txt.value=pw.value;txt.style.display='';pw.style.display='none';
+        eyeOpen.style.display='none';eyeClosed.style.display='';
+      }
+    });
+
+    $('netease-cookie-verify').addEventListener('click',async()=>{
+      const cookie=getNeteaseCookieInputValue();
+      if(!cookie){showToast('请输入 MUSIC_U Cookie','error');return;}
+      const status=$('netease-cookie-status');
+      status.className='cookie-status';
+      status.querySelector('.status-text').textContent='验证中...';
+      try{
+        await Api.verifyNeteaseCookie(cookie);
+        localStorage.setItem('netease_cookie_status','valid');
+        status.className='cookie-status valid';
+        status.querySelector('.status-text').textContent='有效';
+        showToast('网易云 Cookie 验证通过','success');
+      }catch(err){
+        localStorage.setItem('netease_cookie_status','invalid');
+        status.className='cookie-status invalid';
+        status.querySelector('.status-text').textContent='无效';
+        showToast(err.message,'error');
+      }
+    });
+
+    $('netease-cookie-save').addEventListener('click',()=>{
+      const cookie=getNeteaseCookieInputValue();
+      if(!cookie){showToast('请输入 MUSIC_U Cookie','error');return;}
+      localStorage.setItem('netease_cookie',cookie);
+      localStorage.setItem('netease_cookie_status','pending');
+      updateNeteaseCookieStatus();
+      showToast('网易云 Cookie 已保存','success');
+    });
+
+    $('netease-cookie-clear').addEventListener('click',async()=>{
+      const ok=await showConfirm('确定清除已保存的网易云 Cookie 吗？');
+      if(!ok) return;
+      localStorage.removeItem('netease_cookie');
+      localStorage.removeItem('netease_cookie_status');
+      setNeteaseCookieInputValue('');
+      updateNeteaseCookieStatus();
+      showToast('网易云 Cookie 已清除','info');
+    });
+
+    $('netease-cookie-toggle-visibility').addEventListener('click',()=>{
+      const pw=$('netease-cookie-input-pw');
+      const txt=$('netease-cookie-input-text');
+      const eyeOpen=$('netease-eye-open');
+      const eyeClosed=$('netease-eye-closed');
       if(pw.style.display==='none'){
         pw.value=txt.value;pw.style.display='';txt.style.display='none';
         eyeOpen.style.display='';eyeClosed.style.display='none';
@@ -827,6 +945,35 @@
   function setCookieInputValue(v){
     $('cookie-input-pw').value=v;
     $('cookie-input-text').value=v;
+  }
+
+  function getNeteaseCookieInputValue(){
+    const pw=$('netease-cookie-input-pw');
+    return(pw.style.display==='none'?$('netease-cookie-input-text').value:pw.value).trim();
+  }
+
+  function setNeteaseCookieInputValue(v){
+    $('netease-cookie-input-pw').value=v;
+    $('netease-cookie-input-text').value=v;
+  }
+
+  function updateNeteaseCookieStatus(forceStatus){
+    const status=$('netease-cookie-status');
+    const saved=localStorage.getItem('netease_cookie')||'';
+    const cached=forceStatus||localStorage.getItem('netease_cookie_status')||'pending';
+    if(!saved){
+      status.className='cookie-status';
+      status.querySelector('.status-text').textContent='未配置';
+    } else if(cached==='valid'){
+      status.className='cookie-status valid';
+      status.querySelector('.status-text').textContent='有效';
+    } else if(cached==='invalid'){
+      status.className='cookie-status invalid';
+      status.querySelector('.status-text').textContent='无效';
+    } else {
+      status.className='cookie-status';
+      status.querySelector('.status-text').textContent='已保存（待验证）';
+    }
   }
 
   function showConfirm(message){
@@ -1093,9 +1240,13 @@
     },
 
     async viewLyric(mid){
+      const song=findSong(mid);
+      const source=song?song.source:'qq';
       Player.setOnTimeUpdate(null);
       try{
-        const res=await Api.api.getLyric(mid);
+        const res=source==='netease'
+          ?await Api.neteaseApi.getLyric(mid)
+          :await Api.api.getLyric(mid);
         const data=res.data;
         const rawLyric=data.lyric||'';
         const parsed=parseLRC(rawLyric);
@@ -1188,7 +1339,12 @@
     async changePage(page){
       if(!state.searchKeyword||page<1) return;
       try{
-        const res=await Api.api.search(state.searchKeyword,page);
+        let res;
+        if(state.searchSource==='netease'){
+          res=await Api.neteaseApi.search(state.searchKeyword,page);
+        } else {
+          res=await Api.api.search(state.searchKeyword,page);
+        }
         state.searchResults=res.data||[];
         state.searchTotal=res.total||0;
         state.currentPage=page;
@@ -1265,6 +1421,17 @@
           localStorage.setItem('qqmusic_cookie_status','invalid');
           updateCookieStatus('invalid');
           showToast('Cookie 已失效，请在设置中重新配置','error');
+        });
+      }
+
+      const savedNeteaseCookie=localStorage.getItem('netease_cookie');
+      if(savedNeteaseCookie){
+        Api.verifyNeteaseCookie(savedNeteaseCookie).then(()=>{
+          localStorage.setItem('netease_cookie_status','valid');
+          updateNeteaseCookieStatus('valid');
+        }).catch(()=>{
+          localStorage.setItem('netease_cookie_status','invalid');
+          updateNeteaseCookieStatus('invalid');
         });
       }
 

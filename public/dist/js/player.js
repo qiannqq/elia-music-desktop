@@ -165,7 +165,9 @@
       return;
     }
     try{
-      const res=await Api.api.getLyric(song.mid);
+      const res=song.source==='netease'
+        ?await Api.neteaseApi.getLyric(song.mid)
+        :await Api.api.getLyric(song.mid);
       const parsed=parseLRC(res.data&&res.data.lyric||'');
       lyricLines=parsed;
       activeLyricIndex=-1;

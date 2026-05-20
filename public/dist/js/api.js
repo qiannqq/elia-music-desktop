@@ -11,10 +11,16 @@
     return sanitizeCookie(localStorage.getItem('qqmusic_cookie'));
   }
 
+  function getNeteaseCookie(){
+    return sanitizeCookie(localStorage.getItem('netease_cookie'));
+  }
+
   function buildHeaders(extra){
     const h={'Content-Type':'application/json'};
     const c=getCookie();
     if(c) h['X-QQMusic-Cookie']=c;
+    const nc=getNeteaseCookie();
+    if(nc) h['X-NetEase-Cookie']=nc;
     if(extra) Object.assign(h,extra);
     return h;
   }
@@ -53,9 +59,11 @@
       if(!mid) return Promise.reject(new Error('mid 不能为空'));
       return request(BASE+'/api/song/detail?mid='+enc(mid)+'&highQuality='+!!highQuality);
     },
-    getLyric(mid){
+    getLyric(mid,source){
       if(!mid) return Promise.reject(new Error('mid 不能为空'));
-      return request(BASE+'/api/song/lyric?mid='+enc(mid));
+      let url=BASE+'/api/song/lyric?mid='+enc(mid);
+      if(source) url+='&source='+enc(source);
+      return request(url);
     },
     getPlaylist(id){
       if(!id) return Promise.reject(new Error('id 不能为空'));
@@ -69,6 +77,35 @@
     },
     getCookieStatus(){
       return request(BASE+'/api/cookie-status');
+    }
+  };
+
+  const neteaseApi={
+    search(keyword,page,pageSize){
+      if(!keyword) return Promise.reject(new Error('keyword 不能为空'));
+      page=page||1;pageSize=pageSize||30;
+      return request(BASE+'/api/netease/search?keyword='+enc(keyword)+'&page='+page+'&pageSize='+pageSize);
+    },
+    getSongUrl(song,quality){
+      if(!song||!song.id) return Promise.reject(new Error('song.id 不能为空'));
+      return request(BASE+'/api/netease/song/url',{method:'POST',body:JSON.stringify({song,quality:quality||'exhigh'})});
+    },
+    getLyric(id){
+      if(!id) return Promise.reject(new Error('id 不能为空'));
+      return request(BASE+'/api/netease/song/lyric?id='+enc(id));
+    },
+    getPlaylist(id){
+      if(!id) return Promise.reject(new Error('id 不能为空'));
+      return request(BASE+'/api/netease/playlist?id='+enc(id));
+    },
+    validateCookie(cookie){
+      return request(BASE+'/api/netease/validate-cookie',{method:'POST',body:JSON.stringify({cookie:sanitizeCookie(cookie)})});
+    },
+    getUserInfo(){
+      return request(BASE+'/api/netease/userinfo');
+    },
+    setCookie(cookie){
+      return request(BASE+'/api/netease/set-cookie',{method:'POST',body:JSON.stringify({cookie:sanitizeCookie(cookie)})});
     }
   };
 
@@ -89,6 +126,8 @@
     const hdrs={'Content-Type':'application/json'};
     const c=getCookie();
     if(c) hdrs['X-QQMusic-Cookie']=c;
+    const nc=getNeteaseCookie();
+    if(nc) hdrs['X-NetEase-Cookie']=nc;
     const resp=await fetch(BASE+'/api/song/download',{
       method:'POST',
       headers:hdrs,
@@ -119,5 +158,17 @@
     throw new Error('Cookie 验证未通过');
   }
 
-  window.Api={api,getProxyImageUrl,getProxyAudioUrl,downloadSong,verifyCookie,BASE,sanitizeCookie};
+  async function verifyNeteaseCookie(cookie){
+    const clean=sanitizeCookie(cookie);
+    if(!clean) throw new Error('Cookie 不能为空');
+    try{
+      const res=await neteaseApi.validateCookie(clean);
+      if(res.data&&res.data.isValid) return true;
+      throw new Error('Cookie 验证未通过');
+    }catch(err){
+      throw err;
+    }
+  }
+
+  window.Api={api,neteaseApi,getProxyImageUrl,getProxyAudioUrl,downloadSong,verifyCookie,verifyNeteaseCookie,BASE,sanitizeCookie};
 })();
