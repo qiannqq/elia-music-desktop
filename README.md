@@ -6,13 +6,16 @@
 
 > 一款基于 Electron 构建的桌面端音乐播放器，支持搜索、试听、歌单导入与批量下载。
 
+## 接入的平台
+- **网易云音乐**、**QQ音乐**、**Bilibili视频音频(已有计划，待接入)**
+
 ## 功能
 
-- **歌曲搜索** — 通过 QQ 音乐 API 搜索歌曲、歌手、专辑
-- **歌单导入** — 粘贴 QQ 音乐歌单 / 歌曲 / 专辑链接，一键导入
+- **歌曲搜索** — 通过 QQ/网易云 音乐 搜索歌曲、歌手、专辑
+- **歌单导入** — 粘贴 QQ/网易云 音乐歌单 / 歌曲 / 专辑链接，一键导入
 - **在线试听** — 内置播放器，支持歌词同步滚动显示
 - **歌曲下载** — 单首 / 批量下载 MP3，支持自定义保存路径
-- **高品质模式** — 配置 QQ 音乐 Cookie 后可获取 320kbps 资源及 VIP 歌曲
+- **高品质模式** — 配置 QQ/网易云 音乐 Cookie 后可获取 320kbps 资源及 VIP 歌曲
 - **歌单管理** — 本地歌单管理，支持全选、反选、导出 Markdown
 - **多主题** — 浅色 / 深色 / 跟随系统
 - **Windows SMTC** — 系统媒体控件集成（播放/暂停/上一曲/下一曲）
@@ -95,8 +98,10 @@ elia-music-desktop/
 
 - [Electron Egg](https://github.com/dromara/electron-egg) — 桌面应用框架
 - [QQ Music](https://y.qq.com) — 音乐数据来源
+- [NetEase Music](https://music.163.com) — 音乐数据来源
 - Xiaomi Mimo Token plan
 - pie-xian
+- OpenCode
 
 ## 许可证
 
