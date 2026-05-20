@@ -71,10 +71,10 @@ npm run build-l
 ## 使用说明
 
 ### Cookie 配置
-登录 [y.qq.com](https://y.qq.com)，按 F12 打开开发者工具 → Application → Cookies，复制 Cookie 字符串粘贴至"设置"页面。配置后即可下载高品质及 VIP 歌曲。
+登录 [y.qq.com](https://y.qq.com) / [music.163.com](https://music.163.com)，按 F12 打开开发者工具 → Application → Cookies，复制 Cookie 字符串粘贴至"设置"页面。配置后即可下载高品质及 VIP 歌曲。
 
 ### 歌单导入
-在搜索框粘贴 QQ 音乐歌单链接（如 `https://y.qq.com/n/yqq/playlist/123456.html`），自动解析并导入。
+在搜索框粘贴 QQ/网易云 音乐歌单链接（如 `https://y.qq.com/n/yqq/playlist/123456.html`，`https://music.163.com/playlist?id=123456789`），自动解析并导入。
 
 ## 目录结构
 
@@ -84,7 +84,7 @@ elia-music-desktop/
 │   ├── config/        # 配置文件
 │   ├── controller/    # IPC 控制器
 │   ├── preload/       # 预加载脚本与生命周期
-│   └── service/       # 业务服务（QQMusic API、HTTP Server、日志）
+│   └── service/       # 业务服务
 ├── public/
 │   ├── dist/          # 前端静态资源（HTML/CSS/JS）
 │   └── images/        # 图标资源
