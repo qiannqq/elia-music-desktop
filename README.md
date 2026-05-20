@@ -18,6 +18,9 @@
 - **Windows SMTC** — 系统媒体控件集成（播放/暂停/上一曲/下一曲）
 - **Lyricify Lite** — 第三方歌词同步工具兼容
 
+## UI/界面样式
+[Demo.md](./docs/demo.md)
+
 ## 技术栈
 
 | 层面 | 技术 |
