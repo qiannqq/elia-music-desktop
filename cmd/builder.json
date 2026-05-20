@@ -1,6 +1,6 @@
 {
   "productName": "EliaMusic",
-  "appId": "com.qqmusic.desktop",
+  "appId": "com.elia.music.desktop",
   "copyright": "© 2026 Elia Music",
   "directories": {
     "output": "out"

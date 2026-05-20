@@ -24,7 +24,7 @@ class QQMusicService {
     return this;
   }
 
-  async search(keyword, page = 1, pageSize = 10) {
+  async search(keyword, page = 1, pageSize = 50) {
     if (!keyword || !String(keyword).trim()) {
       throw new Error('keyword 不能为空');
     }
@@ -52,12 +52,14 @@ class QQMusicService {
     });
 
     if (!this._isOkCode(res.code)) {
-      return [];
+      return { list: [], total: 0 };
     }
 
     const data = res.search?.data?.body || {};
-    const list = data.song?.list || data.item_song || [];
-    const total = data.song?.totalnum || list.length;
+    const meta = res.search?.data?.meta || {};
+    const list = data.item_song || [];
+    const total = meta.estimate_sum || list.length;
+    
     return { list: list.map(item => this.normalizeSong(item)), total };
   }
 

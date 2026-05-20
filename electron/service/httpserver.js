@@ -180,7 +180,7 @@ class HttpServerService {
     this._getCookiesFromReq(req);
     const keyword = url.searchParams.get('keyword');
     const page = parseInt(url.searchParams.get('page') || '1');
-    const pageSize = parseInt(url.searchParams.get('pageSize') || '20');
+    const pageSize = parseInt(url.searchParams.get('pageSize') || '50');
     const result = await qqMusicService.search(keyword, page, pageSize);
     this._json(res, { code: 0, data: result.list, total: result.total });
   }

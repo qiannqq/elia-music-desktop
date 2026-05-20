@@ -45,7 +45,8 @@
     }
     return '<span class="add-btn" data-add-mid="'+mid+'" tabindex="0">'+
       '<span class="add-btn-header" onclick="App.toggleAddBtn(event,\''+mid+'\')"><span class="add-btn-icon"></span></span>'+
-      '<span class="add-btn-body">'+
+      '<span class="add-btn-popup">'+
+      '<span class="add-btn-popup-header" onclick="App.toggleAddBtn(event,\''+mid+'\')"><span class="add-btn-popup-icon"></span></span>'+
       '<span class="add-btn-item" onclick="App.addToTop(\''+mid+'\',event)">添加到歌单顶部</span>'+
       '<span class="add-btn-item" onclick="App.addSong(\''+mid+'\',event)">添加到歌单底部</span>'+
       '</span></span>';
@@ -243,7 +244,7 @@
     container.innerHTML=html;
 
     if(state.searchKeyword){
-      const totalPages=Math.max(1,Math.ceil(state.searchTotal/20));
+      const totalPages=Math.max(1,Math.ceil(state.searchTotal/50));
       const hasNext=state.currentPage<totalPages;
       pagination.style.display='flex';
       pagination.innerHTML='<button class="btn btn-secondary" onclick="App.changePage('+(state.currentPage-1)+')" '+(state.currentPage<=1?'disabled':'')+'>上一页</button>';
@@ -622,7 +623,11 @@
   function applyZoom(v){
     const clamped=Math.max(75,Math.min(150,v));
     const scale=clamped/100;
-    document.documentElement.style.zoom=scale;
+    
+    if(window.electronAPI&&window.electronAPI.setZoomFactor){
+      window.electronAPI.setZoomFactor(scale);
+    }
+    
     const slider=$('zoom-slider');
     const label=$('zoom-value');
     if(slider) slider.value=clamped;
@@ -1088,6 +1093,7 @@
     },
 
     async viewLyric(mid){
+      Player.setOnTimeUpdate(null);
       try{
         const res=await Api.api.getLyric(mid);
         const data=res.data;
@@ -1109,22 +1115,13 @@
         }
         body.innerHTML=html;
 
-        body.querySelectorAll('.lyric-line').forEach(el=>{
-          el.addEventListener('click',()=>{
-            const t=parseFloat(el.dataset.time);
-            if(isNaN(t)) return;
-            const dur=Player.getDuration();
-            if(!isFinite(dur)||dur<=0) return;
-            if(Player.currentSong&&Player.currentSong.mid===mid){
-              Player.seek(t/dur);
-            } else {
-              App.playSong(mid);
-              setTimeout(()=>{const d=Player.getDuration();if(isFinite(d)&&d>0) Player.seek(t/d);},1500);
-            }
-          });
-        });
-
         const syncModalLyric=()=>{
+          if(!Player.currentSong||Player.currentSong.mid!==mid){
+            body.querySelectorAll('.lyric-line').forEach(el=>{
+              el.classList.remove('active');
+            });
+            return;
+          }
           const ct=Player.currentTime;
           let activeIdx=-1;
           for(let i=0;i<parsed.length;i++){
@@ -1136,6 +1133,35 @@
             if(i===activeIdx) el.scrollIntoView({behavior:'smooth',block:'center'});
           });
         };
+
+        const lyricClickHandler=(el)=>{
+          const t=parseFloat(el.dataset.time);
+          if(isNaN(t)) return;
+          if(Player.currentSong&&Player.currentSong.mid===mid){
+            const dur=Player.getDuration();
+            if(isFinite(dur)&&dur>0){
+              Player.seek(t/dur);
+              syncModalLyric();
+            }
+          } else {
+            App.playSong(mid);
+            const waitForPlay=()=>{
+              const d=Player.getDuration();
+              if(isFinite(d)&&d>0){
+                Player.seek(t/d);
+                Player.setOnTimeUpdate(syncModalLyric);
+                syncModalLyric();
+              } else {
+                setTimeout(waitForPlay,200);
+              }
+            };
+            setTimeout(waitForPlay,500);
+          }
+        };
+
+        body.querySelectorAll('.lyric-line').forEach(el=>{
+          el.addEventListener('click',()=>lyricClickHandler(el));
+        });
 
         if(Player.currentSong&&Player.currentSong.mid===mid){
           Player.setOnTimeUpdate(syncModalLyric);

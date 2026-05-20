@@ -157,6 +157,7 @@ body{
   display:flex;
   height:calc(100vh - 32px);
   position:relative;
+  z-index:0;
 }
 
 /* ========== Sidebar ========== */
@@ -170,6 +171,7 @@ body{
   padding:8px;
   gap:2px;
   overflow-y:auto;
+  z-index:1;
 }
 .nav-item{
   display:flex;
@@ -223,6 +225,7 @@ body{
   overflow-x:hidden;
   padding:0;
   position:relative;
+  z-index:0;
 }
 .page{display:none;padding:24px 32px;min-height:100%;opacity:0;transform:translateX(30px);transition:opacity 0.25s ease,transform 0.25s ease}
 .page.active{display:block;opacity:1;transform:translateX(0)}
@@ -352,16 +355,19 @@ body{
 .results-actions{display:flex;gap:8px}
 #search-results{
   padding:0 32px;
-  margin-top:8px;
+  margin-top:16px;
 }
 #search-pagination{
   padding:0 32px;
+  margin-top:16px;
 }
 .results-grid{
   display:grid;
   grid-template-columns:repeat(auto-fill,minmax(320px,1fr));
   gap:8px;
   animation:fadeSlideUp 0.3s ease;
+  position:relative;
+  z-index:0;
 }
 @keyframes fadeSlideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 .song-card{
@@ -374,10 +380,16 @@ body{
   border:1px solid var(--border-subtle);
   transition:all 0.15s;
   cursor:default;
+  position:relative;
+  z-index:0;
 }
 .song-card:hover{
   background:var(--card-hover);
   border-color:var(--border);
+  z-index:1;
+}
+.song-card:has(.add-btn.expanded){
+  z-index:100;
 }
 .song-cover{
   width:44px;
@@ -422,6 +434,7 @@ body{
   transition:opacity 0.15s;
   flex-shrink:0;
   position:relative;
+  z-index:1;
 }
 .song-card:hover .song-actions,.song-actions:has(.add-btn.expanded){opacity:1}
 .song-actions .btn-icon{
@@ -543,8 +556,16 @@ body{
   padding:8px 12px;
   border-radius:var(--radius);
   transition:background 0.12s;
+  position:relative;
+  z-index:0;
 }
-.playlist-item:hover{background:var(--hover)}
+.playlist-item:hover{
+  background:var(--hover);
+  z-index:1;
+}
+.playlist-item:has(.add-btn.expanded){
+  z-index:100;
+}
 .playlist-item.playing{
   border:1.5px solid var(--accent);
   box-shadow:0 0 12px rgba(var(--accent-rgb),0.3),0 0 4px rgba(var(--accent-rgb),0.15);
@@ -1206,6 +1227,8 @@ body.has-player .page.active{
   gap:4px;
   margin-left:auto;
   flex-shrink:0;
+  position:relative;
+  z-index:1;
 }
 .playlist-item-btns{
   display:flex;
@@ -1314,9 +1337,7 @@ body.has-player .page.active{
   flex-shrink:0;
   background:var(--surface-alt);
   border:1px solid var(--border-subtle);
-  will-change:transform;
-  transition:transform 0.2s cubic-bezier(0.16,1,0.3,1),
-             box-shadow 0.2s ease;
+  transition:box-shadow 0.2s ease;
 }
 .add-btn:hover{
   background:var(--hover);
@@ -1326,17 +1347,7 @@ body.has-player .page.active{
   transform:scale(0.94);
 }
 .add-btn.expanded{
-  position:absolute;
-  right:0;
-  top:50%;
-  transform:translateY(-50%);
   z-index:100;
-  width:168px;
-  height:88px;
-  border-radius:8px;
-  background:var(--card);
-  box-shadow:0 4px 16px rgba(0,0,0,0.15);
-  overflow:hidden;
 }
 .add-btn.added{
   cursor:default;
@@ -1355,10 +1366,6 @@ body.has-player .page.active{
   justify-content:center;
   flex-shrink:0;
 }
-.add-btn.expanded .add-btn-header{
-  width:100%;
-  height:32px;
-}
 .add-btn-icon{
   width:14px;
   height:14px;
@@ -1370,7 +1377,7 @@ body.has-player .page.active{
   position:absolute;
   background:var(--accent);
   border-radius:1px;
-  transition:transform 0.3s cubic-bezier(0.16,1,0.3,1),background 0.2s;
+  transition:transform 0.35s cubic-bezier(0.16,1,0.3,1),background 0.25s ease;
 }
 .add-btn-icon::before{
   width:14px;height:2px;top:6px;left:0;
@@ -1390,33 +1397,107 @@ body.has-player .page.active{
 .add-btn.expanded .add-btn-icon::after{
   background:var(--text-tertiary);
 }
-.add-btn-body{
-  display:none;
-  flex-direction:column;
-  padding:0 4px 4px;
-  gap:2px;
+.add-btn-popup{
+  position:absolute;
+  top:0;
+  left:0;
+  width:168px;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:8px;
+  box-shadow:0 4px 16px rgba(0,0,0,0.15);
+  padding:36px 6px 6px;
+  z-index:100;
+  opacity:0;
+  pointer-events:none;
+  transform-origin:top left;
+  transform:scale(0.8);
+  transition:opacity 0.25s ease,transform 0.25s cubic-bezier(0.16,1,0.3,1);
 }
-.add-btn.expanded .add-btn-body{
+.add-btn.expanded .add-btn-popup{
+  opacity:1;
+  pointer-events:all;
+  transform:scale(1);
+}
+.add-btn-popup-header{
+  position:absolute;
+  top:0;
+  left:0;
+  width:32px;
+  height:32px;
   display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  z-index:1;
+  border-radius:8px 0 0 0;
+}
+.add-btn-popup-icon{
+  width:14px;
+  height:14px;
+  position:relative;
+}
+.add-btn-popup-icon::before,
+.add-btn-popup-icon::after{
+  content:'';
+  position:absolute;
+  background:var(--accent);
+  border-radius:1px;
+  transition:background 0.2s ease;
+}
+.add-btn-popup-header:hover .add-btn-popup-icon::before,
+.add-btn-popup-header:hover .add-btn-popup-icon::after{
+  background:var(--text-tertiary);
+}
+.add-btn-popup-icon::before{
+  width:14px;height:2px;top:6px;left:0;
+}
+.add-btn-popup-icon::after{
+  width:2px;height:14px;top:0;left:6px;
+}
+.add-btn-popup-icon{
+  transform:rotate(45deg);
 }
 .add-btn-item{
   display:block;
-  padding:6px 10px;
-  border-radius:4px;
-  font-size:12px;
+  padding:8px 12px;
+  border-radius:6px;
+  font-size:13px;
   font-weight:500;
   color:var(--text);
   white-space:nowrap;
   cursor:pointer;
-  transition:background 0.12s;
+  outline:none;
+  position:relative;
+  transform:translateY(4px);
+  opacity:0;
+  transition:transform 0.3s cubic-bezier(0.16,1,0.3,1),
+             opacity 0.3s cubic-bezier(0.16,1,0.3,1),
+             background 0.18s ease,
+             color 0.18s ease;
   border:none;
   background:transparent;
   font-family:inherit;
   text-align:left;
   width:100%;
 }
-.add-btn-item:hover{background:var(--hover)}
-.add-btn-item:active{transform:scale(0.985)}
+.add-btn-item:hover{
+  background:var(--accent-light);
+  color:var(--accent);
+}
+.add-btn-item:active{
+  transform:scale(0.985);
+}
+.add-btn.expanded .add-btn-item{
+  transform:translateY(0);
+  opacity:1;
+}
+.add-btn.expanded .add-btn-item:nth-child(2){
+  transition-delay:0.06s;
+}
+.add-btn.expanded .add-btn-item:nth-child(3){
+  transition-delay:0.12s;
+}
 
 .song-loading{
   opacity:0.6;

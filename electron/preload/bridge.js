@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   minimize: () => ipcRenderer.invoke('win:minimize'),
@@ -6,4 +6,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   close: () => ipcRenderer.invoke('win:close'),
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
   saveFile: (filePath, data) => ipcRenderer.invoke('fs:saveFile', filePath, data),
+  setZoomFactor: (factor) => webFrame.setZoomFactor(factor),
+  getZoomFactor: () => webFrame.getZoomFactor(),
 });

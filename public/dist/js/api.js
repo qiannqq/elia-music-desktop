@@ -36,7 +36,7 @@
   const api={
     search(keyword,page,pageSize){
       if(!keyword) return Promise.reject(new Error('keyword 不能为空'));
-      page=page||1;pageSize=pageSize||20;
+      page=page||1;pageSize=pageSize||50;
       return request(BASE+'/api/search?keyword='+enc(keyword)+'&page='+page+'&pageSize='+pageSize);
     },
     getSongUrl(mid,highQuality,songData){
