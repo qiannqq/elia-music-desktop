@@ -168,10 +168,16 @@
       return;
     }
     try{
-      const res=song.source==='netease'
-        ?await Api.neteaseApi.getLyric(song.mid)
-        :await Api.api.getLyric(song.mid);
-      const parsed=parseLRC(res.data&&res.data.lyric||'');
+      const localLrc=localStorage.getItem('custom_lyric_'+song.mid);
+      let parsed;
+      if(localLrc&&localLrc.trim()){
+        parsed=parseLRC(localLrc);
+      }else{
+        const res=song.source==='netease'
+          ?await Api.neteaseApi.getLyric(song.mid)
+          :await Api.api.getLyric(song.mid);
+        parsed=parseLRC(res.data&&res.data.lyric||'');
+      }
       lyricLines=parsed;
       activeLyricIndex=-1;
       let html='';

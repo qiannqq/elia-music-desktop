@@ -1193,7 +1193,7 @@ body.has-player .batch-bar{
 .recent-dir-item svg{flex-shrink:0;opacity:0.5}
 
 /* Lyrics Modal */
-.lyrics-modal{max-width:520px}
+.lyrics-modal{max-width:520px;height:70vh}
 .lyrics-body{
   line-height:2;
   font-size:14px;
@@ -1202,6 +1202,9 @@ body.has-player .batch-bar{
   overflow-y:auto;
   scroll-behavior:smooth;
   padding:8px 0;
+}
+.lyrics-body.no-smooth{
+  scroll-behavior:auto !important;
 }
 .lyric-line{
   padding:2px 8px;
@@ -1715,6 +1718,108 @@ body.has-player .page.active{
   color:var(--text-tertiary);
 }
 .player-btn-lyric:hover{color:var(--accent)}
+
+.lyrics-modal .modal-header{
+  gap:8px;
+}
+
+/* ========== Lyrics Edit Mode ========== */
+.lyrics-modal .modal-header-left{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  flex:1;
+  min-width:0;
+  flex-wrap:wrap;
+  row-gap:4px;
+}
+.lyrics-modal .modal-header-left h3{
+  flex:1;
+  min-width:0;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.lyrics-edit-btn{
+  transition:all 0.2s ease;
+  flex-shrink:0;
+}
+.lyrics-edit-btn:hover{
+  background:var(--accent-light);
+  color:var(--accent);
+  border-color:var(--accent);
+}
+.lyrics-edit-actions{
+  display:flex;
+  gap:6px;
+  animation:fadeSlideIn 0.2s ease;
+  flex-shrink:0;
+}
+@keyframes fadeSlideIn{
+  from{opacity:0;transform:translateX(-8px)}
+  to{opacity:1;transform:translateX(0)}
+}
+.lyrics-edit-area{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  height:100%;
+}
+.lyrics-display-area{
+  height:100%;
+}
+.lyric-textarea{
+  width:100%;
+  flex:1;
+  padding:12px 14px;
+  border:1.5px solid var(--input-border);
+  border-radius:var(--radius);
+  background:var(--input-bg);
+  color:var(--text);
+  font-family:'Cascadia Code','Consolas',monospace;
+  font-size:13px;
+  line-height:1.8;
+  outline:none;
+  resize:vertical;
+  transition:border-color 0.2s,box-shadow 0.2s;
+}
+.lyric-textarea:focus{
+  border-color:var(--accent);
+  box-shadow:0 0 0 1px var(--accent);
+}
+.lyrics-edit-footer{
+  font-size:11px;
+  color:var(--text-tertiary);
+  text-align:center;
+  opacity:0.6;
+  user-select:none;
+}
+
+/* Lyrics view/edit switch transitions */
+.lyrics-display-area,
+.lyrics-edit-area{
+  transition:opacity 0.25s ease,transform 0.25s ease;
+}
+.lyrics-display-area.mode-leaving{
+  opacity:0;
+  transform:translateY(-12px);
+  pointer-events:none;
+}
+.lyrics-edit-area.mode-entering{
+  animation:modeEnter 0.25s cubic-bezier(0.16,1,0.3,1);
+}
+.lyrics-edit-area.mode-exiting{
+  opacity:0;
+  transform:translateY(12px);
+  pointer-events:none;
+}
+.lyrics-display-area.mode-entering{
+  animation:modeEnter 0.25s cubic-bezier(0.16,1,0.3,1);
+}
+@keyframes modeEnter{
+  from{opacity:0;transform:translateY(12px)}
+  to{opacity:1;transform:translateY(0)}
+}
 
 /* ========== Confirm Dialog ========== */
 .confirm-modal{
