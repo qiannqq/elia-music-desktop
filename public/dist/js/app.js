@@ -456,10 +456,10 @@
     const batchBar=$('playlist-batch-bar');
     if(state.selectedMids.length>0){
       batchBar.style.display='flex';
-      batchBar.innerHTML='<div class="batch-info">已选择 <strong>'+state.selectedMids.length+'</strong> 首</div>';
-      batchBar.innerHTML+='<button class="btn btn-sm btn-secondary" onclick="App.invertSelect()">反选</button>';
-      batchBar.innerHTML+='<button class="btn btn-sm btn-secondary" onclick="App.deleteSelected()">删除</button>';
-      batchBar.innerHTML+='<button class="btn btn-sm btn-primary" onclick="App.batchDownloadSmart()">'+DOWNLOAD_ICON_SM+' 批量下载</button>';
+      batchBar.innerHTML='<div class="batch-info">已选择 <strong>'+state.selectedMids.length+'</strong> 首</div>'+
+        '<button class="btn btn-sm btn-secondary" onclick="App.invertSelect()">反选</button>'+
+        '<button class="btn btn-sm btn-secondary" onclick="App.deleteSelected()">删除</button>'+
+        '<button class="btn btn-sm btn-primary" onclick="App.batchDownloadSmart()">'+DOWNLOAD_ICON_SM+' 批量下载</button>';
     } else {
       batchBar.style.display='none';
     }
@@ -545,7 +545,7 @@
 
         setDlRing(song.mid,0);
         const data=await Api.downloadSong(song,result.filename);
-        const audioUrl=data.url;
+        const audioUrl=Api.getProxyAudioUrl(data.url);
         if(!audioUrl){setDlRing(song.mid,0,'fail');return;}
 
         const xhr=new XMLHttpRequest();
@@ -561,8 +561,7 @@
         xhr.onload=async()=>{
           if(xhr.status===200){
             const blob=xhr.response;
-            const arrayBuffer=await blob.arrayBuffer();
-            const uint8Array=Array.from(new Uint8Array(arrayBuffer));
+            const uint8Array=new Uint8Array(await blob.arrayBuffer());
             const savedPath=await window.electronAPI.saveFile(result.path+'/'+result.filename,uint8Array);
             if(savedPath){
               addRecentDir(result.path);
@@ -571,25 +570,28 @@
             }
           } else {
             setDlRing(song.mid,0,'fail');
+            console.error('[Download] HTTP',xhr.status,'url:',audioUrl);
             showToast('下载失败: HTTP '+xhr.status,'error');
           }
         };
 
         xhr.onerror=()=>{
           setDlRing(song.mid,0,'fail');
+          console.error('[Download] Network error url:',audioUrl);
           showToast('下载失败','error');
         };
 
         xhr.send();
       }catch(err){
         setDlRing(song.mid,0,'fail');
+        console.error('[Download] Error:',err.message);
         showToast('下载失败: '+err.message,'error');
       }
     } else {
       try{
         setDlRing(song.mid,0);
         const data=await Api.downloadSong(song,filename);
-        const audioUrl=data.url;
+        const audioUrl=Api.getProxyAudioUrl(data.url);
         if(!audioUrl){setDlRing(song.mid,0,'fail');return;}
 
         const xhr=new XMLHttpRequest();
@@ -605,24 +607,30 @@
         xhr.onload=()=>{
           if(xhr.status===200){
             const url=URL.createObjectURL(xhr.response);
-            triggerDownload(url,filename);
-            URL.revokeObjectURL(url);
-            setDlRing(song.mid,100,'done');
-            showToast('下载完成','success');
+            try{
+              triggerDownload(url,filename);
+              setDlRing(song.mid,100,'done');
+              showToast('下载完成','success');
+            }finally{
+              URL.revokeObjectURL(url);
+            }
           } else {
             setDlRing(song.mid,0,'fail');
+            console.error('[Download] HTTP',xhr.status,'url:',audioUrl);
             showToast('下载失败','error');
           }
         };
 
         xhr.onerror=()=>{
           setDlRing(song.mid,0,'fail');
+          console.error('[Download] Network error url:',audioUrl);
           showToast('下载失败','error');
         };
 
         xhr.send();
       }catch(err){
         setDlRing(song.mid,0,'fail');
+        console.error('[Download] Error:',err.message);
         showToast('下载失败: '+err.message,'error');
       }
     }
@@ -658,7 +666,7 @@
               const data=await Api.downloadSong(item,filename);
               if(data&&data.url){
                 const xhr=new XMLHttpRequest();
-                xhr.open('GET',data.url);xhr.responseType='blob';
+                xhr.open('GET',Api.getProxyAudioUrl(data.url));xhr.responseType='blob';
                 xhr.onprogress=(e)=>{
                   if(e.lengthComputable){
                     updateSongProgress(item.mid,Math.round(e.loaded/e.total*100));
@@ -667,10 +675,13 @@
                 await new Promise((resolve,reject)=>{
                   xhr.onload=async()=>{
                     if(xhr.status===200){
-                      const buf=Array.from(new Uint8Array(await xhr.response.arrayBuffer()));
+                      const buf=new Uint8Array(await xhr.response.arrayBuffer());
                       await window.electronAPI.saveFile(saveDir+'/'+filename,buf);
                       resolve();
-                    } else reject(new Error('HTTP '+xhr.status));
+                    } else {
+                      console.error('[Batch] HTTP',xhr.status,'url:',Api.getProxyAudioUrl(data.url));
+                      reject(new Error('HTTP '+xhr.status));
+                    }
                   };
                   xhr.onerror=()=>reject(new Error('网络错误'));
                   xhr.send();
@@ -682,7 +693,7 @@
               updateSongProgress(item.mid,0);
               const blob=await new Promise((resolve,reject)=>{
                 const xhr=new XMLHttpRequest();
-                xhr.open('GET',item.url);xhr.responseType='blob';
+                xhr.open('GET',Api.getProxyAudioUrl(item.url));xhr.responseType='blob';
                 xhr.onprogress=(e)=>{
                   if(e.lengthComputable){
                     updateSongProgress(item.mid,Math.round(e.loaded/e.total*100));
@@ -693,13 +704,16 @@
                 xhr.send();
               });
               const url=URL.createObjectURL(blob);
-              triggerDownload(url,filename);
-              URL.revokeObjectURL(url);
-              updateSongProgress(item.mid,100,'done');
-              ok++;
+              try{
+                triggerDownload(url,filename);
+                updateSongProgress(item.mid,100,'done');
+                ok++;
+              }finally{
+                URL.revokeObjectURL(url);
+              }
             }
-          }catch(e){updateSongProgress(item.mid,0,'fail');fail++;}
-        } else {updateSongProgress(item.mid,0,'fail');fail++;}
+          }catch(e){console.error('[Batch] Error:',e.message);updateSongProgress(item.mid,0,'fail');fail++;}
+        } else {console.error('[Batch] No url for item:',item?.name||'?');updateSongProgress(item.mid,0,'fail');fail++;}
       }
 
       if(ok>0){

@@ -296,12 +296,14 @@ class HttpServerService {
     this._getNeteaseCookiesFromReq(req);
     const body = await this._getBody(req);
     const { song, filename } = body;
+    console.log(`[Download] song="${song?.name||'?'}" mid=${song?.mid||'?'} source=${song?.source||'?'}`);
     let playUrl;
     if (song.source === 'netease') {
       playUrl = await neteaseMusicService.getMusicUrl(song, { quality: 'exhigh' });
     } else {
       playUrl = await qqMusicService.getMusicUrl(song, { highQuality: true });
     }
+    console.log(`[Download] url=${(playUrl||'(empty)').substring(0,250)}`);
     if (!playUrl) return this._json(res, { error: '无法获取播放链接' }, 500);
     this._json(res, { code: 0, data: { url: playUrl, filename: filename || `${song.name} - ${song.artist}.mp3` } });
   }
@@ -356,14 +358,14 @@ class HttpServerService {
   async _apiProxyAudio(req, res, url) {
     const rawUrl = url.searchParams.get('url');
     if (!rawUrl) {
-      fileLogger.error('AudioProxy', 'Missing url parameter');
+      console.error('[AudioProxy] Missing url parameter');
       res.writeHead(400); res.end(); return;
     }
     const targetUrl = decodeURIComponent(rawUrl);
     this._getCookiesFromReq(req);
 
     const rangeHeader = req.headers.range;
-    fileLogger.info('AudioProxy', `Fetching: ${targetUrl.substring(0, 200)} range=${rangeHeader||'none'}`);
+    console.log(`[AudioProxy] Fetching: target=${targetUrl.substring(0,250)} range=${rangeHeader||'none'}`);
     try {
       const isNetease = targetUrl.includes('music.126.net') || targetUrl.includes('music.163.com');
       const referer = isNetease ? 'https://music.163.com/' : 'https://y.qq.com/';
@@ -383,19 +385,19 @@ class HttpServerService {
       const ct = response.headers.get('content-type') || '';
       const cl = response.headers.get('content-length');
       const cr = response.headers.get('content-range');
-      fileLogger.info('AudioProxy', `Response: ${response.status} ${ct} ${cl||'chunked'} rng=${cr||'none'}`);
+      console.log(`[AudioProxy] Response: ${response.status} ct=${ct} cl=${cl||'chunked'} cr=${cr||'none'}`);
 
       if (response.status !== 200 && response.status !== 206) {
         let errBody = '';
         try { errBody = await response.text(); } catch (e) { /* ignore */ }
-        fileLogger.error('AudioProxy', `Failed: HTTP ${response.status} ct=${ct} body=${errBody.substring(0, 200)}`);
+        console.error(`[AudioProxy] Failed: HTTP ${response.status} target=${targetUrl.substring(0,250)} referer=${referer} ct=${ct} body=${errBody.substring(0,200)}`);
         res.writeHead(response.status); res.end(); return;
       }
 
       if (response.status !== 206 && !ct.includes('audio') && !ct.includes('octet-stream') && !ct.includes('mpeg')) {
         let warnBody = '';
         try { warnBody = await response.text(); } catch (e) { /* ignore */ }
-        fileLogger.error('AudioProxy', `Non-audio Content-Type: ${ct} body=${warnBody.substring(0, 300)}`);
+        console.error(`[AudioProxy] Non-audio Content-Type: ${ct} target=${targetUrl.substring(0,250)} referer=${referer} body=${warnBody.substring(0,300)}`);
         res.writeHead(415); res.end(); return;
       }
 

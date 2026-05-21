@@ -185,7 +185,7 @@ class QQMusicService {
     }
 
     const midurlinfo = res.req_0?.data?.midurlinfo || [];
-    const item = midurlinfo.find(info => info?.purl);
+    const item = midurlinfo.find(info => info?.purl && info.purl.includes('.mp3')) || midurlinfo.find(info => info?.purl);
     const purl = item?.purl || '';
 
     return {
