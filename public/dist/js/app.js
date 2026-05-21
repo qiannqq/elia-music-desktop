@@ -265,6 +265,14 @@
     const next=document.getElementById('page-'+page);
     if(current===next&&page!=='playlist'&&page!=='settings') return;
 
+    document.querySelectorAll('.page').forEach(p=>{
+      p.classList.remove('active');
+      p.style.transition='';
+      p.style.opacity='';
+      p.style.transform='';
+    });
+    next.classList.add('active');
+
     const fromIdx=PAGE_ORDER.indexOf(current?current.id.replace('page-',''):'');
     const toIdx=PAGE_ORDER.indexOf(page);
     const dir=toIdx>=fromIdx?1:-1;
@@ -278,7 +286,6 @@
       current.style.opacity='0';
       current.style.transform='translateX('+(-dir*30)+'px)';
       setTimeout(()=>{
-        current.classList.remove('active');
         current.style.transition='';
         current.style.opacity='';
         current.style.transform='';
@@ -288,7 +295,6 @@
     if(next){
       next.style.opacity='0';
       next.style.transform='translateX('+(dir*30)+'px)';
-      next.classList.add('active');
       requestAnimationFrame(()=>{
         requestAnimationFrame(()=>{
           next.style.transition='opacity 0.25s ease,transform 0.25s ease';
