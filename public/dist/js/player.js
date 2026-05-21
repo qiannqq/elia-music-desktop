@@ -101,11 +101,14 @@
     e.modeBtn.title=MODE_LABELS[playMode]||'播放模式';
   }
 
+  let onModeChangeCallback=null;
+
   function cycleMode(){
     const idx=MODES.indexOf(playMode);
     playMode=MODES[(idx+1)%MODES.length];
     localStorage.setItem('qqmusic_play_mode',playMode);
     updateModeUI();
+    if(onModeChangeCallback) onModeChangeCallback(playMode);
   }
 
   function setupMediaSession(){
@@ -472,9 +475,13 @@
     setupMediaSession();
   }
 
+  function setOnModeChange(cb){
+    onModeChangeCallback=cb;
+  }
+
   window.Player={
     init,play,close,togglePlay,seek,
-    setOnTimeUpdate,setOnEnded,setPlaylist,
+    setOnTimeUpdate,setOnEnded,setPlaylist,setOnModeChange,
     get currentSong(){return currentSong},
     get isPlaying(){return isPlaying},
     get isLoading(){return isLoading},

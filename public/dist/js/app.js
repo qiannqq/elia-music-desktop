@@ -15,8 +15,133 @@
     savePath:localStorage.getItem('qqmusic_save_path')||'',
     recentDirs:JSON.parse(localStorage.getItem('qqmusic_recent_dirs')||'[]'),
     pageScrolls:{},
-    searchSource:localStorage.getItem('search_source')||'qq'
+    searchSource:localStorage.getItem('search_source')||'qq',
+    shufflePlaylist:[],
+    shuffleIndex:-1,
+    playHistory:[],
+    historyIndex:-1
   };
+
+  function saveShuffleState(){
+    try{
+      localStorage.setItem('shuffle_playlist',JSON.stringify(state.shufflePlaylist));
+      localStorage.setItem('shuffle_index',String(state.shuffleIndex));
+    }catch(e){}
+  }
+
+  function loadShuffleState(){
+    try{
+      const pl=JSON.parse(localStorage.getItem('shuffle_playlist')||'[]');
+      const idx=parseInt(localStorage.getItem('shuffle_index')||'-1');
+      if(Array.isArray(pl)&&pl.length>0&&idx>=0&&idx<pl.length){
+        state.shufflePlaylist=pl;
+        state.shuffleIndex=idx;
+      }
+    }catch(e){}
+  }
+
+  function savePlayHistory(){
+    try{
+      localStorage.setItem('play_history',JSON.stringify(state.playHistory));
+      localStorage.setItem('history_index',String(state.historyIndex));
+    }catch(e){}
+  }
+
+  function loadPlayHistory(){
+    try{
+      const h=JSON.parse(localStorage.getItem('play_history')||'[]');
+      const idx=parseInt(localStorage.getItem('history_index')||'-1');
+      if(Array.isArray(h)){
+        state.playHistory=h;
+        state.historyIndex=idx;
+      }
+    }catch(e){}
+  }
+
+  function pushHistory(mid){
+    if(state.historyIndex>=0){
+      state.playHistory=state.playHistory.slice(0,state.historyIndex+1);
+    }
+    const existIdx=state.playHistory.indexOf(mid);
+    if(existIdx>=0) state.playHistory.splice(existIdx,1);
+    state.playHistory.push(mid);
+    if(state.playHistory.length>200) state.playHistory.shift();
+    state.historyIndex=-1;
+    savePlayHistory();
+  }
+
+  function buildShufflePlaylist(startMid){
+    const mids=state.songs.map(s=>s.mid);
+    for(let i=mids.length-1;i>0;i--){
+      const j=Math.floor(Math.random()*(i+1));
+      [mids[i],mids[j]]=[mids[j],mids[i]];
+    }
+    if(startMid&&mids.length>1&&mids[0]===startMid){
+      [mids[0],mids[1]]=[mids[1],mids[0]];
+    }
+    state.shufflePlaylist=mids;
+    state.shuffleIndex=0;
+    state.playHistory=[];
+    state.historyIndex=-1;
+    saveShuffleState();
+    savePlayHistory();
+  }
+
+  function getNextShuffleSong(){
+    if(state.songs.length===0) return null;
+    if(state.historyIndex>=0&&state.historyIndex<state.playHistory.length-1){
+      state.historyIndex++;
+      savePlayHistory();
+      const mid=state.playHistory[state.historyIndex];
+      return state.songs.find(s=>s.mid===mid)||null;
+    }
+    if(state.shufflePlaylist.length===0||state.shufflePlaylist.length!==state.songs.length){
+      buildShufflePlaylist(Player.currentSong?.mid);
+    }
+    state.shuffleIndex++;
+    if(state.shuffleIndex>=state.shufflePlaylist.length){
+      buildShufflePlaylist(Player.currentSong?.mid);
+    }
+    saveShuffleState();
+    const mid=state.shufflePlaylist[state.shuffleIndex];
+    const song=state.songs.find(s=>s.mid===mid);
+    if(!song){
+      buildShufflePlaylist(Player.currentSong?.mid);
+      return state.songs.find(s=>s.mid===state.shufflePlaylist[0])||null;
+    }
+    return song;
+  }
+
+  function reshuffleAndPlayFromEnd(){
+    buildShufflePlaylist(Player.currentSong?.mid);
+    if(state.shufflePlaylist.length===0) return null;
+    state.shuffleIndex=state.shufflePlaylist.length-1;
+    state.playHistory=[...state.shufflePlaylist];
+    state.historyIndex=state.shufflePlaylist.length-1;
+    saveShuffleState();
+    savePlayHistory();
+    return state.songs.find(s=>s.mid===state.shufflePlaylist[state.shuffleIndex])||null;
+  }
+
+  function getPrevShuffleSong(){
+    if(state.songs.length===0) return null;
+    if(state.playHistory.length===0){
+      return reshuffleAndPlayFromEnd();
+    }
+    if(state.historyIndex===-1){
+      if(state.playHistory.length<2){
+        return reshuffleAndPlayFromEnd();
+      }
+      state.historyIndex=state.playHistory.length-2;
+    } else if(state.historyIndex>0){
+      state.historyIndex--;
+    } else {
+      return reshuffleAndPlayFromEnd();
+    }
+    savePlayHistory();
+    const mid=state.playHistory[state.historyIndex];
+    return state.songs.find(s=>s.mid===mid)||null;
+  }
 
   const DOWNLOAD_ICON='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
   const DOWNLOAD_ICON_SM='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
@@ -1102,9 +1227,13 @@
   }
 
   const App={
-    playSong(mid){
+    playSong(mid, manual=true){
       const song=findSong(mid);
       if(!song){showToast('歌曲不存在','error');return;}
+      if(Player.playMode==='shuffle'){
+        if(manual) buildShufflePlaylist(mid);
+        pushHistory(mid);
+      }
       const card=document.querySelector('[data-mid="'+mid+'"]');
       if(card) card.classList.add('song-loading');
       Api.api.getSongUrl(mid,true,song).then(res=>{
@@ -1412,8 +1541,15 @@
     init(){
       setupErrorLogging();
       loadSongs();
+      loadShuffleState();
+      loadPlayHistory();
       ThemeManager.init();
       Player.init();
+      Player.setOnModeChange((mode)=>{
+        if(mode==='shuffle'){
+          buildShufflePlaylist(Player.currentSong?.mid);
+        }
+      });
       const playerCloseBtn=$('player-close-btn');
       if(playerCloseBtn){playerCloseBtn.addEventListener('click',()=>renderPlaylist());}
       setupEventListeners();
@@ -1484,31 +1620,33 @@
 
       Player.setOnEnded((action)=>{
         if(!Player.currentSong) return;
-        const idx=state.songs.findIndex(s=>s.mid===Player.currentSong.mid);
-        if(idx<0) return;
         let nextSong=null;
-        if(action==='next'){
-          const nextIdx=idx+1;
-          if(nextIdx<state.songs.length){
-            nextSong=state.songs[nextIdx];
-          } else if(Player.playMode==='repeat-all'){
-            nextSong=state.songs[0];
+        if(Player.playMode==='shuffle'){
+          if(action==='next'||action==='random'){
+            nextSong=getNextShuffleSong();
+          } else if(action==='prev'){
+            nextSong=getPrevShuffleSong();
           }
-        } else if(action==='prev'){
-          const prevIdx=idx-1;
-          if(prevIdx>=0){
-            nextSong=state.songs[prevIdx];
-          } else if(Player.playMode==='repeat-all'){
-            nextSong=state.songs[state.songs.length-1];
-          }
-        } else if(action==='random'){
-          if(state.songs.length>1){
-            let rIdx;
-            do{rIdx=Math.floor(Math.random()*state.songs.length);}while(rIdx===idx);
-            nextSong=state.songs[rIdx];
+        } else {
+          const idx=state.songs.findIndex(s=>s.mid===Player.currentSong.mid);
+          if(idx<0) return;
+          if(action==='next'){
+            const nextIdx=idx+1;
+            if(nextIdx<state.songs.length){
+              nextSong=state.songs[nextIdx];
+            } else if(Player.playMode==='repeat-all'){
+              nextSong=state.songs[0];
+            }
+          } else if(action==='prev'){
+            const prevIdx=idx-1;
+            if(prevIdx>=0){
+              nextSong=state.songs[prevIdx];
+            } else if(Player.playMode==='repeat-all'){
+              nextSong=state.songs[state.songs.length-1];
+            }
           }
         }
-        if(nextSong) App.playSong(nextSong.mid);
+        if(nextSong) App.playSong(nextSong.mid, false);
       });
     }
   };
