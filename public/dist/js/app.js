@@ -16,6 +16,8 @@
     recentDirs:JSON.parse(localStorage.getItem('qqmusic_recent_dirs')||'[]'),
     pageScrolls:{},
     searchSource:localStorage.getItem('search_source')||'qq',
+    isPlaylistPage:false,
+    isSearching:false,
     shufflePlaylist:[],
     shuffleIndex:-1,
     playHistory:[],
@@ -715,12 +717,15 @@
   }
 
   async function handleSearch(){
+    if(state.isSearching) return;
+    state.isSearching=true;
     const input=$('search-input');
     const keyword=input.value.trim();
-    if(!keyword) return;
+    if(!keyword){state.isSearching=false;return;}
 
     const btn=$('search-btn');
     btn.disabled=true;
+    document.querySelectorAll('.source-tab').forEach(t=>t.classList.add('searching'));
     btn.classList.add('loading');
 
     try{
@@ -744,6 +749,7 @@
             state.searchResults=res.data.list;
             state.searchKeyword=res.data.name||'网易云歌单';
             state.currentPage=1;
+            state.isPlaylistPage=true;
             showToast('歌曲加载完成~','success');
             renderSearchResults();
           } else {
@@ -770,6 +776,7 @@
         state.searchTotal=res.total||0;
         state.searchKeyword=keyword;
         state.currentPage=1;
+        state.isPlaylistPage=false;
         renderSearchResults();
       } else if((m=keyword.match(playlistRe))||(m=keyword.match(idRe))||(m=keyword.match(numRe))){
         const id=typeof m==='object'?m[1]:m;
@@ -781,6 +788,7 @@
             state.searchResults=res.data.list;
             state.searchKeyword=res.data.name||'QQ歌单';
             state.currentPage=1;
+            state.isPlaylistPage=true;
             showToast('歌曲加载完成~','success');
             renderSearchResults();
           } else {
@@ -807,6 +815,7 @@
         state.searchTotal=res.total||0;
         state.searchKeyword=keyword;
         state.currentPage=1;
+        state.isPlaylistPage=false;
         renderSearchResults();
       }
     }catch(err){
@@ -814,6 +823,8 @@
     } finally {
       btn.disabled=false;
       btn.classList.remove('loading');
+      state.isSearching=false;
+      document.querySelectorAll('.source-tab').forEach(t=>t.classList.remove('searching'));
     }
   }
 
@@ -898,15 +909,19 @@
       item.addEventListener('click',()=>navigate(item.dataset.page));
     });
 
-    $('search-input').addEventListener('keydown',e=>{if(e.key==='Enter') handleSearch();});
+    $('search-input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!state.isSearching) handleSearch();});
     $('search-btn').addEventListener('click',handleSearch);
 
     document.querySelectorAll('.source-tab').forEach(tab=>{
       tab.addEventListener('click',()=>{
+        if(state.isSearching) return;
         document.querySelectorAll('.source-tab').forEach(t=>t.classList.remove('active'));
         tab.classList.add('active');
         state.searchSource=tab.dataset.source;
         localStorage.setItem('search_source',state.searchSource);
+        if(state.searchKeyword&&state.searchResults.length>0&&!state.isPlaylistPage){
+          handleSearch();
+        }
       });
     });
     const savedSourceTab=document.querySelector('.source-tab[data-source="'+state.searchSource+'"]');

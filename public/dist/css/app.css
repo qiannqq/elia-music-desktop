@@ -357,6 +357,11 @@ body{
   background:var(--accent-light);
   color:var(--accent);
 }
+.source-tab.searching{
+  pointer-events:none;
+  opacity:0.5;
+  cursor:not-allowed;
+}
 .source-tab-icon{
   width:16px;
   height:16px;
