@@ -1485,6 +1485,33 @@ body.has-player .page.active{
   pointer-events:all;
   transform:scale(1);
 }
+.add-btn.popup-left .add-btn-popup{
+  left:auto;
+  right:0;
+  transform-origin:top right;
+}
+.add-btn.popup-up .add-btn-popup{
+  top:auto;
+  bottom:0;
+  padding:6px 6px 36px;
+  transform-origin:bottom left;
+}
+.add-btn.popup-left.popup-up .add-btn-popup{
+  transform-origin:bottom right;
+}
+.add-btn.popup-left .add-btn-popup-header{
+  left:auto;
+  right:0;
+  border-radius:0 8px 0 0;
+}
+.add-btn.popup-up .add-btn-popup-header{
+  top:auto;
+  bottom:0;
+  border-radius:0 0 0 8px;
+}
+.add-btn.popup-left.popup-up .add-btn-popup-header{
+  border-radius:0 0 8px 0;
+}
 .add-btn-popup-header{
   position:absolute;
   top:0;

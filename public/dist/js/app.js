@@ -1296,7 +1296,20 @@
       if(!btn) return;
       const wasExpanded=btn.classList.contains('expanded');
       collapseAllAddBtns();
-      if(!wasExpanded) btn.classList.add('expanded');
+      if(!wasExpanded){
+        btn.classList.add('expanded');
+        btn.classList.remove('popup-left','popup-up');
+        const popup=btn.querySelector('.add-btn-popup');
+        if(popup){
+          const r=btn.getBoundingClientRect();
+          const pw=popup.offsetWidth;
+          const ph=popup.offsetHeight;
+          const vw=window.innerWidth;
+          const vh=window.innerHeight;
+          if(r.left+pw>vw) btn.classList.add('popup-left');
+          if(r.top+ph>vh) btn.classList.add('popup-up');
+        }
+      }
     },
 
     removeSong(mid){
