@@ -15,6 +15,8 @@
   let isDragging=false;
   let lastLyricTimer=null;
   let retryCount=0;
+  let playTimeout=null;
+  let lyricLoadGeneration=0;
 
   const $=id=>document.getElementById(id);
   const MODES=['repeat-all','repeat-one','shuffle'];
@@ -161,6 +163,7 @@
   }
 
   async function loadLyrics(song){
+    const gen=++lyricLoadGeneration;
     const e=els();
     if(!song||!song.mid){
       e.lyricScroll.innerHTML='';
@@ -176,8 +179,10 @@
         const res=song.source==='netease'
           ?await Api.neteaseApi.getLyric(song.mid)
           :await Api.api.getLyric(song.mid);
+        if(gen!==lyricLoadGeneration) return;
         parsed=parseLRC(res.data&&res.data.lyric||'');
       }
+      if(gen!==lyricLoadGeneration) return;
       lyricLines=parsed;
       activeLyricIndex=-1;
       let html='';
@@ -190,6 +195,7 @@
       }
       e.lyricScroll.innerHTML=html;
     }catch(err){
+      if(gen!==lyricLoadGeneration) return;
       lyricLines=[];
       e.lyricScroll.innerHTML='<div class="player-lyric-line active">'+(song.name||'-')+'</div>';
     }
@@ -267,7 +273,8 @@
 
     loadLyrics(song);
 
-    setTimeout(()=>{
+    if(playTimeout) clearTimeout(playTimeout);
+    playTimeout=setTimeout(()=>{
       e.audio.play().then(()=>{
         setPlaying(true);
         setLoading(false);

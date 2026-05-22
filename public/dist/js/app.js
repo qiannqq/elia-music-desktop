@@ -23,8 +23,32 @@
     playHistory:[],
     historyIndex:-1,
     currentLyricMid:null,
-    currentLyricRaw:''
+    currentLyricRaw:'',
+    currentLyricParsed:null
   };
+
+  let currentLyricCloseHandler=null;
+  let lyricClickDelegated=false;
+
+  const TINY_COVER='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+  let playlistImageObserver=null;
+  function ensurePlaylistImageObserver(){
+    if(playlistImageObserver) return;
+    playlistImageObserver=new IntersectionObserver((entries)=>{
+      entries.forEach(entry=>{
+        const img=entry.target;
+        if(entry.isIntersecting){
+          if(img.dataset.src&&img.src!==img.dataset.src){
+            img.src=img.dataset.src;
+          }
+        } else {
+          if(img.dataset.src&&img.src===img.dataset.src){
+            img.src=TINY_COVER;
+          }
+        }
+      });
+    },{rootMargin:'1000px 0px'});
+  }
 
   function saveShuffleState(){
     try{
@@ -423,7 +447,7 @@
       const checked=state.selectedMids.includes(song.mid)?'checked':'';
       const isPlaying=Player.currentSong&&Player.currentSong.mid===song.mid;
       const coverHtml=song.pic
-        ?'<img class="song-cover" src="'+Api.getProxyImageUrl(song.pic)+'" alt="" loading="lazy">'
+        ?'<img class="song-cover" data-src="'+Api.getProxyImageUrl(song.pic)+'" src="'+TINY_COVER+'" alt="">'
         :'<div class="song-cover-placeholder"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>';
 
       html+='<div class="playlist-item'+(isPlaying?' playing':'')+'">';
@@ -441,6 +465,11 @@
     });
     content.innerHTML=html;
 
+    ensurePlaylistImageObserver();
+    content.querySelectorAll('img.song-cover[data-src]').forEach(img=>{
+      playlistImageObserver.observe(img);
+    });
+
     if(state.selectedMids.length>0){
       batchBar.style.display='flex';
       batchBar.innerHTML='<div class="batch-info">已选择 <strong>'+state.selectedMids.length+'</strong> 首</div>';
@@ -449,6 +478,16 @@
       batchBar.innerHTML+='<button class="btn btn-sm btn-primary" onclick="App.batchDownloadSmart()">'+DOWNLOAD_ICON_SM+' 批量下载</button>';
     } else {
       batchBar.style.display='none';
+    }
+  }
+
+  function updatePlaylistPlayingState(){
+    const content=$('playlist-content');
+    if(!content) return;
+    content.querySelectorAll('.playlist-item.playing').forEach(el=>el.classList.remove('playing'));
+    if(Player.currentSong){
+      const checkbox=content.querySelector('input[data-mid="'+Player.currentSong.mid+'"]');
+      if(checkbox) checkbox.closest('.playlist-item').classList.add('playing');
     }
   }
 
@@ -1304,7 +1343,7 @@ $('lyrics-overlay').addEventListener('click',e=>{
         if(res.data&&res.data.url){
           Player.play({...song,url:res.data.url});
           Player.setPlaylist(state.songs);
-          renderPlaylist();
+          updatePlaylistPlayingState();
         } else {
           showToast('无法获取播放链接','error');
         }
@@ -1512,6 +1551,7 @@ $('lyrics-overlay').addEventListener('click',e=>{
         }
         state.currentLyricRaw=rawLyric;
         const parsed=parseLRC(rawLyric);
+        state.currentLyricParsed=parsed;
         const transMap=transText?parseTransLRC(transText):{};
 
         const body=$('lyrics-body');
@@ -1551,14 +1591,15 @@ $('lyrics-overlay').addEventListener('click',e=>{
         const lyricClickHandler=(el)=>{
           const t=parseFloat(el.dataset.time);
           if(isNaN(t)) return;
-          if(Player.currentSong&&Player.currentSong.mid===mid){
+          const clickMid=state.currentLyricMid;
+          if(Player.currentSong&&Player.currentSong.mid===clickMid){
             const dur=Player.getDuration();
             if(isFinite(dur)&&dur>0){
               Player.seek(t/dur);
               syncModalLyric();
             }
           } else {
-            App.playSong(mid);
+            App.playSong(clickMid);
             const waitForPlay=()=>{
               const d=Player.getDuration();
               if(isFinite(d)&&d>0){
@@ -1573,9 +1614,13 @@ $('lyrics-overlay').addEventListener('click',e=>{
           }
         };
 
-        displayArea.querySelectorAll('.lyric-line').forEach(el=>{
-          el.addEventListener('click',()=>lyricClickHandler(el));
-        });
+        if(!lyricClickDelegated){
+          displayArea.addEventListener('click',(ev)=>{
+            const el=ev.target.closest('.lyric-line');
+            if(el) lyricClickHandler(el);
+          });
+          lyricClickDelegated=true;
+        }
 
         if(Player.currentSong&&Player.currentSong.mid===mid){
           if(!fromEdit) Player.setOnTimeUpdate(syncModalLyric);
@@ -1590,7 +1635,6 @@ $('lyrics-overlay').addEventListener('click',e=>{
         const closeHandler=()=>{
           hideModal('lyrics-overlay');
           Player.setOnTimeUpdate(null);
-          $('lyrics-close').removeEventListener('click',closeHandler);
           const ea=$('lyrics-edit-area');
           if(ea&&ea.style.display!=='none'){
             ea.style.display='none';
@@ -1601,8 +1645,9 @@ $('lyrics-overlay').addEventListener('click',e=>{
             $('lyrics-edit-actions').style.display='none';
           }
         };
-        $('lyrics-close').removeEventListener('click',closeHandler);
+        if(currentLyricCloseHandler) $('lyrics-close').removeEventListener('click',currentLyricCloseHandler);
         $('lyrics-close').addEventListener('click',closeHandler);
+        currentLyricCloseHandler=closeHandler;
       }catch(err){
         showToast('获取歌词失败: '+err.message,'error');
       }
@@ -1749,7 +1794,7 @@ $('lyrics-overlay').addEventListener('click',e=>{
         }
       });
       const playerCloseBtn=$('player-close-btn');
-      if(playerCloseBtn){playerCloseBtn.addEventListener('click',()=>renderPlaylist());}
+      if(playerCloseBtn){playerCloseBtn.addEventListener('click',()=>updatePlaylistPlayingState());}
       setupEventListeners();
       updatePlaylistBadge();
       loadSettings();
