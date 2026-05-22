@@ -449,6 +449,8 @@ body{
   cursor:default;
   position:relative;
   z-index:0;
+  content-visibility:auto;
+  contain-intrinsic-size:auto 66px;
 }
 .song-card:hover{
   background:var(--card-hover);
@@ -625,6 +627,8 @@ body{
   transition:background 0.12s;
   position:relative;
   z-index:0;
+  content-visibility:auto;
+  contain-intrinsic-size:auto 56px;
 }
 .playlist-item:hover{
   background:var(--hover);
