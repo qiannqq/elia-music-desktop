@@ -28,7 +28,12 @@
   };
 
   let currentLyricCloseHandler=null;
-  let lyricClickDelegated=false;
+  let currentLyricClickHandler=null;
+  let lyricAutoFollow=true;
+  let lyricScrollTimer=null;
+  let isProgrammaticScroll=false;
+  let lyricScrollDelegated=false;
+  let lyricRafId=null;
 
   const TINY_COVER='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   let playlistImageObserver=null;
@@ -1172,6 +1177,7 @@ $('lyrics-overlay').addEventListener('click',e=>{
     if(ea&&ea.style.display!=='none'){
       App.cancelEditLyric();
     }else{
+      if(lyricRafId){cancelAnimationFrame(lyricRafId);lyricRafId=null;}
       hideModal('lyrics-overlay');
     }
   }
@@ -1533,7 +1539,6 @@ $('lyrics-overlay').addEventListener('click',e=>{
     async viewLyric(mid, fromEdit){
       const song=findSong(mid);
       const source=song?song.source:'qq';
-      Player.setOnTimeUpdate(null);
       state.currentLyricMid=mid;
       try{
         let rawLyric='';
@@ -1569,7 +1574,7 @@ $('lyrics-overlay').addEventListener('click',e=>{
         }
         displayArea.innerHTML=html;
 
-        const syncModalLyric=(skipScroll)=>{
+        const syncModalLyric=()=>{
           if(!Player.currentSong||Player.currentSong.mid!==mid){
             displayArea.querySelectorAll('.lyric-line').forEach(el=>{
               el.classList.remove('active');
@@ -1584,9 +1589,26 @@ $('lyrics-overlay').addEventListener('click',e=>{
           }
           displayArea.querySelectorAll('.lyric-line').forEach((el,i)=>{
             el.classList.toggle('active',i===activeIdx);
-            if(i===activeIdx&&!skipScroll) el.scrollIntoView({behavior:'smooth',block:'center'});
           });
+          return activeIdx;
         };
+
+        if(lyricRafId) cancelAnimationFrame(lyricRafId);
+        let lastScrolledIdx=-1;
+        const rafLoop=()=>{
+          const activeIdx=syncModalLyric();
+          if(activeIdx>=0&&activeIdx!==lastScrolledIdx&&lyricAutoFollow){
+            const activeEl=displayArea.querySelector('.lyric-line[data-idx="'+activeIdx+'"]');
+            if(activeEl){
+              isProgrammaticScroll=true;
+              activeEl.scrollIntoView({block:'center'});
+              setTimeout(()=>{isProgrammaticScroll=false;},500);
+              lastScrolledIdx=activeIdx;
+            }
+          }
+          lyricRafId=requestAnimationFrame(rafLoop);
+        };
+        lyricRafId=requestAnimationFrame(rafLoop);
 
         const lyricClickHandler=(el)=>{
           const t=parseFloat(el.dataset.time);
@@ -1604,7 +1626,6 @@ $('lyrics-overlay').addEventListener('click',e=>{
               const d=Player.getDuration();
               if(isFinite(d)&&d>0){
                 Player.seek(t/d);
-                Player.setOnTimeUpdate(syncModalLyric);
                 syncModalLyric();
               } else {
                 setTimeout(waitForPlay,200);
@@ -1613,18 +1634,27 @@ $('lyrics-overlay').addEventListener('click',e=>{
             setTimeout(waitForPlay,500);
           }
         };
+        currentLyricClickHandler=lyricClickHandler;
 
-        if(!lyricClickDelegated){
+        if(!lyricScrollDelegated){
           displayArea.addEventListener('click',(ev)=>{
             const el=ev.target.closest('.lyric-line');
-            if(el) lyricClickHandler(el);
+            if(el&&currentLyricClickHandler) currentLyricClickHandler(el);
           });
-          lyricClickDelegated=true;
+          const body=$('lyrics-body');
+          if(body){
+            body.addEventListener('scroll',()=>{
+              if(isProgrammaticScroll) return;
+              lyricAutoFollow=false;
+              if(lyricScrollTimer) clearTimeout(lyricScrollTimer);
+              lyricScrollTimer=setTimeout(()=>{lyricAutoFollow=true;},5000);
+            },{passive:true});
+          }
+          lyricScrollDelegated=true;
         }
 
         if(Player.currentSong&&Player.currentSong.mid===mid){
-          if(!fromEdit) Player.setOnTimeUpdate(syncModalLyric);
-          syncModalLyric(!!fromEdit);
+          syncModalLyric();
         }
 
         $('lyrics-title').textContent=(Player.currentSong&&Player.currentSong.mid===mid
@@ -1634,7 +1664,9 @@ $('lyrics-overlay').addEventListener('click',e=>{
 
         const closeHandler=()=>{
           hideModal('lyrics-overlay');
-          Player.setOnTimeUpdate(null);
+          if(lyricRafId){cancelAnimationFrame(lyricRafId);lyricRafId=null;}
+          lyricAutoFollow=true;
+          if(lyricScrollTimer){clearTimeout(lyricScrollTimer);lyricScrollTimer=null;}
           const ea=$('lyrics-edit-area');
           if(ea&&ea.style.display!=='none'){
             ea.style.display='none';
@@ -1708,7 +1740,6 @@ $('lyrics-overlay').addEventListener('click',e=>{
         displayArea.style.display='';
         displayArea.style.opacity='0';
         displayArea.style.transform='translateY(-12px)';
-        Player.setOnTimeUpdate(null);
         App.viewLyric(mid, true);
         body.classList.add('no-smooth');
         const active=displayArea.querySelector('.lyric-line.active');
@@ -1730,23 +1761,6 @@ $('lyrics-overlay').addEventListener('click',e=>{
               displayArea.style.transition='';
               displayArea.style.opacity='';
               displayArea.style.transform='';
-              if(Player.currentSong&&Player.currentSong.mid===mid){
-                Player.setOnTimeUpdate((idx,ct)=>{
-                  const lines=displayArea.querySelectorAll('.lyric-line');
-                  let activeIdx=-1;
-                  const parsed=Player.lyricLines;
-                  for(let i=0;i<parsed.length;i++){
-                    const nextT=parsed[i+1]?parsed[i+1].time:Infinity;
-                    if(parsed[i].time<=ct&&nextT>ct) activeIdx=i;
-                  }
-                  lines.forEach((el,i)=>{
-                    el.classList.toggle('active',i===activeIdx);
-                    if(i===activeIdx) el.scrollIntoView({behavior:'smooth',block:'center'});
-                  });
-                });
-              }
-              const active2=displayArea.querySelector('.lyric-line.active');
-              if(active2) active2.scrollIntoView({behavior:'smooth',block:'center'});
             },320);
           });
         });

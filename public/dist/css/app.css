@@ -1213,14 +1213,13 @@ body.has-player .batch-bar{
 .lyric-line{
   padding:2px 8px;
   border-radius:6px;
-  transition:all 0.3s ease;
+  transition:background 0.2s ease;
   cursor:pointer;
 }
 .lyric-line:hover{background:var(--hover)}
 .lyric-line.active{
   color:var(--accent);
   font-weight:600;
-  font-size:15px;
   background:var(--accent-light);
 }
 .lyrics-body .lyric-trans{
