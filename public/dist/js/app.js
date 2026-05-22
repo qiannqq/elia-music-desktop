@@ -186,8 +186,7 @@
     const el=document.querySelector('[data-dl-mid="'+mid+'"]');
     if(!el) return;
     if(status==='done'){
-      el.innerHTML='<svg class="dl-ring" viewBox="0 0 28 28"><circle class="dl-ring-done" cx="14" cy="14" r="'+R+'"/></svg>';
-      setTimeout(()=>{el.innerHTML=DOWNLOAD_ICON;},3000);
+      el.outerHTML=makeDlBtn(mid);
     } else if(status==='fail'){
       el.innerHTML='<span class="song-progress-fail">✗</span>';
       setTimeout(()=>{el.innerHTML=DOWNLOAD_ICON;},3000);
@@ -197,7 +196,11 @@
     }
   }
 
-  function makeDlBtn(mid){
+  function makeDlBtn(mid,downloadedPaths){
+    const paths=downloadedPaths||JSON.parse(localStorage.getItem('qqmusic_downloaded_paths')||'{}');
+    if(paths[mid]){
+      return '<span class="dl-btn dl-downloaded" data-folder-mid="'+mid+'" onclick="App.openFileFolder(\''+mid+'\')" title="打开文件夹"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></span>';
+    }
     return '<span class="dl-btn" data-dl-mid="'+mid+'" onclick="App.downloadSong(\''+mid+'\')">'+DOWNLOAD_ICON+'</span>';
   }
 
@@ -216,6 +219,29 @@
 
   function collapseAllAddBtns(){
     document.querySelectorAll('.add-btn.expanded').forEach(el=>el.classList.remove('expanded'));
+  }
+
+  function saveDownloadedPath(mid,filePath){
+    const paths=JSON.parse(localStorage.getItem('qqmusic_downloaded_paths')||'{}');
+    paths[mid]=filePath;
+    localStorage.setItem('qqmusic_downloaded_paths',JSON.stringify(paths));
+  }
+
+  function removeDownloadedPath(mid){
+    const paths=JSON.parse(localStorage.getItem('qqmusic_downloaded_paths')||'{}');
+    delete paths[mid];
+    localStorage.setItem('qqmusic_downloaded_paths',JSON.stringify(paths));
+  }
+
+  async function verifyDownloadedPaths(){
+    if(!window.electronAPI||!window.electronAPI.fileExists) return;
+    const paths=JSON.parse(localStorage.getItem('qqmusic_downloaded_paths')||'{}');
+    let changed=false;
+    for(const mid of Object.keys(paths)){
+      const exists=await window.electronAPI.fileExists(paths[mid]);
+      if(!exists){delete paths[mid];changed=true;}
+    }
+    if(changed) localStorage.setItem('qqmusic_downloaded_paths',JSON.stringify(paths));
   }
 
   function getSourceIcon(source){
@@ -334,7 +360,7 @@
       });
     }
 
-    if(page==='playlist') renderPlaylist();
+    if(page==='playlist') verifyDownloadedPaths().then(()=>renderPlaylist());
     if(page==='settings') loadSettings();
 
     if(main) main.scrollTop=state.pageScrolls[page]||0;
@@ -447,33 +473,47 @@
     actions.innerHTML+='<button class="btn btn-sm btn-accent" onclick="App.exportPlaylist()">导出</button>';
     actions.innerHTML+='<button class="btn btn-sm btn-primary" onclick="App.batchDownloadPlaylist()">'+DOWNLOAD_ICON_SM+' 批量下载</button>';
 
-    let html='';
-    state.songs.forEach(song=>{
-      const checked=state.selectedMids.includes(song.mid)?'checked':'';
-      const isPlaying=Player.currentSong&&Player.currentSong.mid===song.mid;
-      const coverHtml=song.pic
-        ?'<img class="song-cover" data-src="'+Api.getProxyImageUrl(song.pic)+'" src="'+TINY_COVER+'" alt="">'
-        :'<div class="song-cover-placeholder"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>';
+    content.innerHTML='';
+    const downloadedPaths=JSON.parse(localStorage.getItem('qqmusic_downloaded_paths')||'{}');
+    const BATCH=100;
+    let idx=0;
 
-      html+='<div class="playlist-item'+(isPlaying?' playing':'')+'">';
-      html+='<input type="checkbox" '+checked+' data-mid="'+song.mid+'" onchange="App.toggleSelect(\''+song.mid+'\')">';
-      html+=coverHtml;
-      html+='<div class="song-info"><div class="song-name">'+getSourceIcon(song.source)+' '+esc(song.name)+'</div><div class="song-artist">'+esc(song.artist)+'</div></div>';
-      html+='<div class="playlist-item-actions">';
-      html+='<div class="playlist-item-btns">';
-      html+='<button class="btn-icon accent" title="试听" onclick="App.playSong(\''+song.mid+'\')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>';
-      html+=makeDlBtn(song.mid);
-      html+='<button class="btn-icon" title="歌词" onclick="App.viewLyric(\''+song.mid+'\')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></button>';
-      html+='<button class="btn-icon" title="删除" onclick="App.removeSong(\''+song.mid+'\')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>';
-      html+='</div>';
-      html+='</div></div>';
-    });
-    content.innerHTML=html;
+    function renderBatch(){
+      const frag=document.createDocumentFragment();
+      const end=Math.min(idx+BATCH,state.songs.length);
+      for(let i=idx;i<end;i++){
+        const song=state.songs[i];
+        const checked=state.selectedMids.includes(song.mid)?'checked':'';
+        const isPlaying=Player.currentSong&&Player.currentSong.mid===song.mid;
+        const div=document.createElement('div');
+        div.className='playlist-item'+(isPlaying?' playing':'');
+        const coverHtml=song.pic
+          ?'<img class="song-cover" data-src="'+Api.getProxyImageUrl(song.pic)+'" src="'+TINY_COVER+'" alt="">'
+          :'<div class="song-cover-placeholder"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>';
+        div.innerHTML='<input type="checkbox" '+checked+' data-mid="'+song.mid+'" onchange="App.toggleSelect(\''+song.mid+'\')">'
+          +coverHtml
+          +'<div class="song-info"><div class="song-name">'+getSourceIcon(song.source)+' '+esc(song.name)+'</div><div class="song-artist">'+esc(song.artist)+'</div></div>'
+          +'<div class="playlist-item-actions"><div class="playlist-item-btns">'
+          +'<button class="btn-icon accent" title="试听" onclick="App.playSong(\''+song.mid+'\')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg></button>'
+          +makeDlBtn(song.mid,downloadedPaths)
+          +'<button class="btn-icon" title="歌词" onclick="App.viewLyric(\''+song.mid+'\')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></button>'
+          +'<button class="btn-icon" title="删除" onclick="App.removeSong(\''+song.mid+'\')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>'
+          +'</div></div>';
+        frag.appendChild(div);
+      }
+      content.appendChild(frag);
+      idx=end;
+      if(idx<state.songs.length){
+        requestAnimationFrame(renderBatch);
+      } else {
+        ensurePlaylistImageObserver();
+        content.querySelectorAll('img.song-cover[data-src]').forEach(img=>{
+          playlistImageObserver.observe(img);
+        });
+      }
+    }
 
-    ensurePlaylistImageObserver();
-    content.querySelectorAll('img.song-cover[data-src]').forEach(img=>{
-      playlistImageObserver.observe(img);
-    });
+    requestAnimationFrame(renderBatch);
 
     if(state.selectedMids.length>0){
       batchBar.style.display='flex';
@@ -585,7 +625,11 @@
     if(useCustomDialog){
       try{
         const result=await showSaveDialog(filename,song);
-        if(!result||!result.path) return;
+        if(!result||!result.path){
+          const el=document.querySelector('[data-dl-mid="'+song.mid+'"]');
+          if(el) el.innerHTML=DOWNLOAD_ICON;
+          return;
+        }
 
         setDlRing(song.mid,0);
         const data=await Api.downloadSong(song,result.filename);
@@ -609,6 +653,7 @@
             const savedPath=await window.electronAPI.saveFile(result.path+'/'+result.filename,uint8Array);
             if(savedPath){
               addRecentDir(result.path);
+              saveDownloadedPath(song.mid,savedPath);
               setDlRing(song.mid,100,'done');
               showToast('下载完成: '+result.filename,'success');
             }
@@ -721,6 +766,7 @@
                     if(xhr.status===200){
                       const buf=new Uint8Array(await xhr.response.arrayBuffer());
                       await window.electronAPI.saveFile(saveDir+'/'+filename,buf);
+                      saveDownloadedPath(item.mid,saveDir+'/'+filename);
                       resolve();
                     } else {
                       console.error('[Batch] HTTP',xhr.status,'url:',Api.getProxyAudioUrl(data.url));
@@ -1364,6 +1410,15 @@ $('lyrics-overlay').addEventListener('click',e=>{
       if(!song){showToast('歌曲不存在','error');return;}
       setDlRing(mid,0);
       await doDownload(song);
+    },
+
+    async openFileFolder(mid){
+      const paths=JSON.parse(localStorage.getItem('qqmusic_downloaded_paths')||'{}');
+      const filePath=paths[mid];
+      if(!filePath){showToast('文件路径不存在','error');return;}
+      if(window.electronAPI&&window.electronAPI.showItemInFolder){
+        await window.electronAPI.showItemInFolder(filePath);
+      }
     },
 
     addSong(mid,ev){

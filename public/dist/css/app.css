@@ -1419,6 +1419,7 @@ body.has-player .page.active{
   transition:background 0.15s,color 0.15s;
 }
 .dl-btn:hover{background:var(--hover)}
+.dl-btn.dl-downloaded{color:var(--text-tertiary)}
 
 .add-btn{
   position:relative;

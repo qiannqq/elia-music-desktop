@@ -3,7 +3,7 @@
 const { logger } = require('ee-core/log');
 const { getConfig } = require('ee-core/config');
 const { getMainWindow } = require('ee-core/electron');
-const { ipcMain, dialog } = require('electron');
+const { ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { httpServerService } = require('../service/httpserver');
@@ -113,6 +113,14 @@ class Lifecycle {
         fileLogger.error('FS', `Save file failed: ${filePath} - ${err.message}`);
         throw err;
       }
+    });
+
+    ipcMain.handle('fs:fileExists', (event, filePath) => {
+      try { return fs.existsSync(filePath); } catch(e) { return false; }
+    });
+
+    ipcMain.handle('shell:showItemInFolder', (event, filePath) => {
+      try { shell.showItemInFolder(filePath); return true; } catch(e) { return false; }
     });
   }
 }
