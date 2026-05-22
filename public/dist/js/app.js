@@ -1413,7 +1413,7 @@ $('lyrics-overlay').addEventListener('click',e=>{
           const pw=popup.offsetWidth;
           const ph=popup.offsetHeight;
           const vw=window.innerWidth;
-          const vh=window.innerHeight;
+          const vh=window.innerHeight-(document.body.classList.contains('has-player')?72:0);
           if(r.left+pw>vw) btn.classList.add('popup-left');
           if(r.top+ph>vh) btn.classList.add('popup-up');
         }
