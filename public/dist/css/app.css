@@ -1863,9 +1863,10 @@ body.has-player .page.active{
 }
 
 /* ========== Responsive ========== */
-@media(max-width:768px){
+@media(max-width:800px){
   .sidebar{width:56px;min-width:56px;padding:8px 4px}
   .nav-item span:not(.nav-badge){display:none}
+  .nav-badge{display:none}
   .nav-item{padding:10px;justify-content:center}
   .nav-item.active::before{display:none}
   .page{padding:16px}
