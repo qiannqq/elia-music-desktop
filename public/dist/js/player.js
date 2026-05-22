@@ -480,9 +480,37 @@
       seek(pct);
     });
 
+    const savedVolume=parseFloat(localStorage.getItem('qqmusic_volume'));
+    if(!isNaN(savedVolume)){
+      e.audio.volume=savedVolume;
+      e.volume.value=savedVolume;
+    } else {
+      e.audio.volume=0.8;
+    }
+
+    function updateVolumeTooltip(){
+      const tooltip=$('volume-tooltip');
+      if(tooltip) tooltip.textContent=Math.round(e.audio.volume*100)+'%';
+    }
+
     e.volume.addEventListener('input',()=>{
       e.audio.volume=parseFloat(e.volume.value);
+      localStorage.setItem('qqmusic_volume',String(e.audio.volume));
+      updateVolumeTooltip();
     });
+
+    const volumeWrapper=e.volume.parentElement;
+    volumeWrapper.addEventListener('wheel',(ev)=>{
+      ev.preventDefault();
+      const delta=ev.deltaY<0?0.05:-0.05;
+      const newVol=Math.max(0,Math.min(1,e.audio.volume+delta));
+      e.audio.volume=newVol;
+      e.volume.value=newVol;
+      localStorage.setItem('qqmusic_volume',String(newVol));
+      updateVolumeTooltip();
+    },{passive:false});
+
+    volumeWrapper.addEventListener('mouseenter',updateVolumeTooltip);
 
     e.closeBtn.addEventListener('click',close);
     setupMediaSession();
