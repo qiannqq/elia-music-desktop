@@ -24,7 +24,8 @@
     historyIndex:-1,
     currentLyricMid:null,
     currentLyricRaw:'',
-    currentLyricParsed:null
+    currentLyricParsed:null,
+    currentLyricTrans:''
   };
 
   let currentLyricCloseHandler=null;
@@ -1609,7 +1610,10 @@ $('lyrics-overlay').addEventListener('click',e=>{
           rawLyric=data.lyric||'';
           transText=data.trans||'';
         }
+        const localTrans=localStorage.getItem('custom_lyric_trans_'+mid);
+        if(localTrans!==null) transText=localTrans;
         state.currentLyricRaw=rawLyric;
+        state.currentLyricTrans=transText;
         const parsed=parseLRC(rawLyric);
         state.currentLyricParsed=parsed;
         const transMap=transText?parseTransLRC(transText):{};
@@ -1746,7 +1750,9 @@ $('lyrics-overlay').addEventListener('click',e=>{
       const displayArea = $('lyrics-display-area');
       const editArea = $('lyrics-edit-area');
       const textarea = $('lyrics-textarea');
+      const transTextarea = $('lyrics-trans-textarea');
       textarea.value = state.currentLyricRaw || '';
+      transTextarea.value = state.currentLyricTrans || '';
       displayArea.classList.add('mode-leaving');
       $('lyrics-edit-btn').style.display = 'none';
       setTimeout(() => {
@@ -1767,13 +1773,21 @@ $('lyrics-overlay').addEventListener('click',e=>{
       const mid=state.currentLyricMid;
       if(!mid){showToast('无法保存：歌曲信息丢失','error');return;}
       const textarea=$('lyrics-textarea');
+      const transTextarea=$('lyrics-trans-textarea');
       const text=textarea.value;
+      const transText=transTextarea.value;
       if(!text.trim()){
         localStorage.removeItem('custom_lyric_'+mid);
       }else{
         localStorage.setItem('custom_lyric_'+mid,text);
       }
+      if(!transText.trim()){
+        localStorage.removeItem('custom_lyric_trans_'+mid);
+      }else{
+        localStorage.setItem('custom_lyric_trans_'+mid,transText);
+      }
       state.currentLyricRaw=text;
+      state.currentLyricTrans=transText;
       App._exitEditMode();
       showToast('歌词已保存','success');
     },

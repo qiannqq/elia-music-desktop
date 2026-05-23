@@ -1,11 +1,15 @@
 'use strict';
 
 const crypto = require('crypto');
+const zlib = require('zlib');
 const { logger } = require('ee-core/log');
 
 const MUSICU_URL = 'https://u.y.qq.com/cgi-bin/musicu.fcg';
 const STREAM_HOST = 'http://ws.stream.qqmusic.qq.com/';
 const LYRIC_URL = 'https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg';
+const QRC_LYRIC_URL = 'https://c.y.qq.com/qqmusic/fcgi-bin/lyric_download.fcg';
+const SONGID_URL = 'https://c.y.qq.com/v8/fcg-bin/fcg_play_single_song.fcg';
+const QRC_KEY = Buffer.from('!@#)(*$%123ZXC!@!@#)(NHL', 'ascii');
 
 class QQMusicService {
   constructor() {
@@ -211,23 +215,154 @@ class QQMusicService {
 
   async getLyric(song) {
     const mid = this._getSongMid(song);
+    if (!mid) throw new Error('song.mid 不能为空');
 
-    if (!mid) {
-      throw new Error('song.mid 不能为空');
+    let qrcLyric = '';
+    let qrcTrans = '';
+
+    try {
+      const songId = await this._getSongId(mid);
+      if (songId) {
+        const qrc = await this._getQrcLyric(songId);
+        qrcLyric = qrc.lyric || '';
+        qrcTrans = qrc.trans || '';
+      }
+    } catch (err) {
+      logger.warn('[QQMusic] QRC lyric error:', err.message);
     }
 
+    const hasValidLyric = qrcLyric && /\[\d{2}:\d{2}\.\d{2,3}\]/.test(qrcLyric);
+    const hasValidTrans = qrcTrans && /\[\d{2}:\d{2}\.\d{2,3}\]/.test(qrcTrans);
+
+    if (hasValidLyric) {
+      return { lyric: qrcLyric, trans: qrcTrans, raw: { source: 'qrc' } };
+    }
+
+    const simple = await this._getSimpleLyric(mid);
+    return {
+      lyric: simple.lyric || qrcLyric,
+      trans: hasValidTrans ? qrcTrans : (simple.trans || ''),
+      raw: simple.raw
+    };
+  }
+
+  async _getSongId(songmid) {
+    try {
+      const url = `${SONGID_URL}?songmid=${encodeURIComponent(songmid)}&format=jsonp&callback=cb`;
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Referer': 'https://y.qq.com/',
+          'Cookie': this.cookie
+        }
+      });
+      const text = await response.text();
+      const json = JSON.parse(text.replace(/^cb\(/, '').replace(/\)\s*;?\s*$/, ''));
+      return json?.data?.[0]?.id || 0;
+    } catch (err) {
+      logger.warn('[QQMusic] _getSongId error:', err.message);
+      return 0;
+    }
+  }
+
+  async _getQrcLyric(songId) {
+    const params = new URLSearchParams({
+      version: '15',
+      miniversion: '82',
+      lrctype: '4',
+      musicid: String(songId)
+    });
+
+    const response = await fetch(QRC_LYRIC_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Referer': 'https://y.qq.com/',
+        'Cookie': this.cookie
+      },
+      body: params.toString()
+    });
+
+    const xml = await response.text();
+    let clean = xml.replace(/<!--/g, '').replace(/-->/g, '')
+      .replace(/<!\[CDATA\[/g, '').replace(/\]\]>/g, '');
+
+    const extract = (tag) => {
+      const m = clean.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`));
+      return m?.[1]?.trim() || '';
+    };
+
+    const rawOrig = extract('content');
+    const rawTrans = extract('contentts');
+    logger.info('[QQMusic] QRC rawOrig len=%d, rawTrans len=%d, rawTrans starts with [=%s', rawOrig.length, rawTrans.length, rawTrans.startsWith('['));
+
+    const lyric = this._decryptQrc(rawOrig);
+    const decryptedTrans = this._decryptQrc(rawTrans);
+    const trans = decryptedTrans || (/^\[/.test(rawTrans) ? rawTrans : '');
+
+    return {
+      lyric: lyric || '',
+      trans: trans || '',
+      raw: clean
+    };
+  }
+
+  _decryptQrc(hex) {
+    if (!hex) return '';
+    hex = hex.replace(/[\s\r\n]/g, '');
+    if (!/^[0-9a-fA-F]+$/.test(hex) || hex.length < 16) return null;
+
+    try {
+      const enc = Buffer.from(hex, 'hex');
+      const out = Buffer.alloc(enc.length);
+
+      for (let i = 0; i < enc.length; i += 8) {
+        const blk = enc.subarray(i, i + 8);
+        if (blk.length < 8) break;
+
+        let t = crypto.createDecipheriv('des-ecb', QRC_KEY.subarray(16, 24), null);
+        t.setAutoPadding(false);
+        t = Buffer.from(t.update(blk));
+
+        let e = crypto.createCipheriv('des-ecb', QRC_KEY.subarray(8, 16), null);
+        e.setAutoPadding(false);
+        e = Buffer.from(e.update(t));
+
+        let d = crypto.createDecipheriv('des-ecb', QRC_KEY.subarray(0, 8), null);
+        d.setAutoPadding(false);
+        d = Buffer.from(d.update(e));
+        d.copy(out, i);
+      }
+
+      let decomp;
+      try { decomp = zlib.inflateRawSync(out); } catch { decomp = out; }
+
+      let str = decomp.toString('utf8');
+      if (str.charCodeAt(0) === 0xFEFF) str = str.substring(1);
+      if (str.includes('<?xml')) {
+        const m = str.match(/LyricContent[^>]*>([\s\S]*?)<\/Lyric/);
+        if (m) str = m[1];
+      }
+      return str || null;
+    } catch (err) {
+      logger.warn('[QQMusic] _decryptQrc error:', err.message);
+      return null;
+    }
+  }
+
+  async _getSimpleLyric(mid) {
     const url = `${LYRIC_URL}?_=${Date.now()}&cv=4747474&ct=24&format=json&inCharset=utf-8&outCharset=utf-8&notice=0&platform=yqq.json&needNewCode=1&uin=0&g_tk_new_20200303=5381&g_tk=5381&loginUin=0&songmid=${encodeURIComponent(mid)}`;
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/105.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Referer': 'https://y.qq.com/',
         'Cookie': this.cookie
       }
     });
     const res = await response.json();
-
     return {
       lyric: res.lyric ? Buffer.from(res.lyric, 'base64').toString('utf8') : '',
       trans: res.trans ? Buffer.from(res.trans, 'base64').toString('utf8') : '',

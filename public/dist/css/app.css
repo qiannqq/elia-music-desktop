@@ -1809,6 +1809,17 @@ body.has-player .page.active{
   border-color:var(--accent);
   box-shadow:0 0 0 1px var(--accent);
 }
+.lyrics-edit-separator{
+  font-size:12px;
+  font-weight:600;
+  color:var(--text-secondary);
+  padding:8px 0 4px;
+  user-select:none;
+}
+#lyrics-trans-textarea{
+  flex:0 0 140px;
+  min-height:80px;
+}
 .lyrics-edit-footer{
   font-size:11px;
   color:var(--text-tertiary);
