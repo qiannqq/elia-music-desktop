@@ -6,6 +6,7 @@ import '../../services/api_client.dart';
 import '../../state/app_state.dart';
 import '../icons.dart';
 import '../widgets/common.dart';
+import '../widgets/smooth_scroll.dart';
 import '../widgets/song_actions.dart';
 
 /// 搜索页 —— 对应 `#page-search`
@@ -41,7 +42,10 @@ class _SearchPageState extends State<SearchPage> {
     final state = widget.state;
     final hasResults = state.searchResults.isNotEmpty;
 
-    return SingleChildScrollView(
+    // 滚轮加过渡动画（不影响速度，只是不再一格一跳）
+    return SmoothWheelScroll(
+      controller: widget.scrollController,
+      child: SingleChildScrollView(
       controller: widget.scrollController,
       padding: const EdgeInsets.symmetric(vertical: 24),
       child: Column(
@@ -117,7 +121,7 @@ class _SearchPageState extends State<SearchPage> {
             ),
         ],
       ),
-    );
+    ));
   }
 
   Widget _buildSourceTabs(AppColors c, AppState state) {
@@ -271,6 +275,8 @@ class _SearchPageState extends State<SearchPage> {
           children: [
             for (final song in state.searchResults)
               SizedBox(
+                // 稳定 key：与歌单一致，避免列表变动时子项 State 错位
+                key: ValueKey('search-${song.mid}'),
                 width: itemWidth,
                 child: _SongCard(song: song, state: state),
               ),

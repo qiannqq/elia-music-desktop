@@ -33,10 +33,8 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
     duration: const Duration(milliseconds: 2400),
   );
 
-  bool _volumeHovered = false;
   bool _draggingProgress = false;
   double _dragProgress = 0;
-  bool _draggingVolume = false;
 
   @override
   void initState() {
@@ -347,9 +345,29 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
+        // ⚠️ 必须限宽：用 spaceEvenly 直接铺满整个中间区会让图标间距被拉得很宽
+        // （实测约 120px，参考图只有 40~60px）。固定 340 宽后间距与参考图一致。
+        SizedBox(
+          width: 340,
+          child: Row(
+            // 对齐参考图：模式 | 上一首 | 播放 | 下一首 | 音量（播放键正好居中）
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+            // ---- 播放模式（最左）----
+            AppIconButton(
+              icon: switch (player.playMode) {
+                PlayMode.repeatAll => AppIcons.repeatAll,
+                PlayMode.repeatOne => AppIcons.repeatOne,
+                PlayMode.shuffle => AppIcons.shuffle,
+              },
+              size: 28,
+              iconSize: 16,
+              baseColor: c.textTertiary,
+              hoverColor: c.accent,
+              hoverBg: Colors.transparent,
+              onTap: player.cycleMode,
+              tooltip: player.playMode.label,
+            ),
             AppIconButton(
               icon: AppIcons.prev,
               size: 28,
@@ -392,22 +410,13 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
               onTap: () => widget.state.handleEndedAction('next'),
               tooltip: '下一首',
             ),
-            const SizedBox(width: 12),
-            AppIconButton(
-              icon: switch (player.playMode) {
-                PlayMode.repeatAll => AppIcons.repeatAll,
-                PlayMode.repeatOne => AppIcons.repeatOne,
-                PlayMode.shuffle => AppIcons.shuffle,
-              },
-              size: 28,
-              iconSize: 16,
-              baseColor: c.textTertiary,
-              hoverColor: c.accent,
-              hoverBg: Colors.transparent,
-              onTap: player.cycleMode,
-              tooltip: player.playMode.label,
+            // ---- 音量（最右，悬浮向右展开滑块）----
+            _VolumeControl(
+              volume: player.volume,
+              onChanged: player.setVolume,
             ),
-          ],
+            ],
+          ),
         ),
         const SizedBox(height: 4),
         SizedBox(
@@ -464,66 +473,13 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
     );
   }
 
-  // ------------------------------------------------------------ 右侧：音量 + 按钮
+  // ------------------------------------------------------------ 右侧：歌词 + 关闭
 
   Widget _buildExtra(BuildContext context) {
     final c = context.c;
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
-        MouseRegion(
-          onEnter: (_) => setState(() => _volumeHovered = true),
-          onExit: (_) => setState(() => _volumeHovered = false),
-          child: Listener(
-            onPointerSignal: (event) {
-              if (event is PointerScrollEvent) {
-                final delta = event.scrollDelta.dy < 0 ? 0.05 : -0.05;
-                player.setVolume((player.volume + delta).clamp(0.0, 1.0));
-              }
-            },
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Row(
-                  children: [
-                    AppIcon(AppIcons.volume, size: 16, color: c.textTertiary),
-                    const SizedBox(width: 6),
-                    _VolumeSlider(
-                      value: player.volume,
-                      width: 80,
-                      onChanged: (v) {
-                        setState(() => _draggingVolume = true);
-                        player.setVolume(v);
-                      },
-                      onEnd: () => setState(() => _draggingVolume = false),
-                    ),
-                  ],
-                ),
-                if (_volumeHovered || _draggingVolume)
-                  Positioned(
-                    bottom: 22,
-                    left: 0,
-                    right: 0,
-                    child: Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: c.card,
-                          border: Border.all(color: c.border),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          '${(player.volume * 100).round()}%',
-                          style: TextStyle(fontSize: 12, color: c.text),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
         AppIconButton(
           icon: AppIcons.lyricDoc,
           size: 28,
@@ -548,6 +504,118 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
 }
 
 /// 音量条 —— 对应 `.player-volume-wrapper input[type=range]`（80×4）
+/// 音量控件 —— 默认只显示图标，**鼠标悬浮时向右展开**滑块（带展开/收起动画）。
+///
+/// 参考图里音量位只有图标；展开用「宽度 0→80 + 透明度」两个动画叠加，
+/// 里面的滑块用 OverflowBox 固定 80px，避免被 0 宽容器挤变形。
+class _VolumeControl extends StatefulWidget {
+  const _VolumeControl({required this.volume, required this.onChanged});
+
+  final double volume;
+  final ValueChanged<double> onChanged;
+
+  @override
+  State<_VolumeControl> createState() => _VolumeControlState();
+}
+
+class _VolumeControlState extends State<_VolumeControl> {
+  bool _hovered = false;
+  bool _dragging = false;
+
+  static const _expandDuration = Duration(milliseconds: 180);
+  static const _sliderWidth = 80.0;
+
+  bool get _expanded => _hovered || _dragging;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Listener(
+        // 滚轮调音量
+        onPointerSignal: (event) {
+          if (event is PointerScrollEvent) {
+            final delta = event.scrollDelta.dy < 0 ? 0.05 : -0.05;
+            widget.onChanged((widget.volume + delta).clamp(0.0, 1.0));
+          }
+        },
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.centerLeft,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AppIcon(
+                  AppIcons.volume,
+                  size: 16,
+                  color: _expanded ? c.accent : c.textTertiary,
+                ),
+                // 展开/收起动画：宽度 0 ↔ 80
+                // ⚠️ 必须同时给**有限高度**：里面是 OverflowBox（按父级约束定尺寸），
+                // 若高度无界会抛 "RenderConstrainedOverflowBox was given an
+                // infinite size during layout"（实测踩过）。
+                AnimatedContainer(
+                  duration: _expandDuration,
+                  curve: Curves.easeOut,
+                  width: _expanded ? _sliderWidth : 0,
+                  height: 20,
+                  child: ClipRect(
+                    child: AnimatedOpacity(
+                      opacity: _expanded ? 1 : 0,
+                      duration: _expandDuration,
+                      curve: Curves.easeOut,
+                      // OverflowBox：让滑块始终保持 80px，被外层宽度裁剪出「展开」效果
+                      child: OverflowBox(
+                        alignment: Alignment.centerLeft,
+                        minWidth: _sliderWidth,
+                        maxWidth: _sliderWidth,
+                        child: _VolumeSlider(
+                          value: widget.volume,
+                          width: _sliderWidth,
+                          onChanged: (v) {
+                            setState(() => _dragging = true);
+                            widget.onChanged(v);
+                          },
+                          onEnd: () => setState(() => _dragging = false),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            // 百分比提示
+            if (_expanded)
+              Positioned(
+                bottom: 22,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: c.card,
+                      border: Border.all(color: c.border),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      '${(widget.volume * 100).round()}%',
+                      style: TextStyle(fontSize: 12, color: c.text),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _VolumeSlider extends StatelessWidget {
   const _VolumeSlider({
     required this.value,

@@ -7,6 +7,7 @@ import '../../state/theme_controller.dart';
 import '../../state/toast.dart';
 import '../icons.dart';
 import '../widgets/common.dart';
+import '../widgets/smooth_scroll.dart';
 import '../widgets/dialogs.dart';
 
 /// 设置页 —— 对应 `#page-settings`
@@ -55,7 +56,10 @@ class _SettingsPageState extends State<SettingsPage> {
     final c = context.c;
     final state = widget.state;
 
-    return SingleChildScrollView(
+    // 滚轮加过渡动画（不影响速度，只是不再一格一跳）
+    return SmoothWheelScroll(
+      controller: widget.scrollController,
+      child: SingleChildScrollView(
       controller: widget.scrollController,
       padding: const EdgeInsets.fromLTRB(32, 24, 32, 32),
       child: Column(
@@ -398,7 +402,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ],
       ),
-    );
+    ));
   }
 
   Future<void> _verifyQq() async {

@@ -7,6 +7,7 @@ import '../../services/player_controller.dart';
 import '../../state/app_state.dart';
 import '../icons.dart';
 import '../widgets/common.dart';
+import '../widgets/smooth_scroll.dart';
 import '../widgets/dialogs.dart';
 import '../widgets/song_actions.dart';
 
@@ -92,18 +93,26 @@ class _PlaylistPageState extends State<PlaylistPage> {
                     hint: '搜索或粘贴歌单链接来添加歌曲',
                   ),
                 )
-              : Scrollbar(
+              : SmoothWheelScroll(
+                  controller: widget.scrollController,
+                  child: Scrollbar(
                   controller: widget.scrollController,
                   child: ListView.builder(
                     controller: widget.scrollController,
                     padding: const EdgeInsets.symmetric(horizontal: 32),
                     itemCount: songs.length,
                     itemBuilder: (ctx, i) => _PlaylistItem(
+                      // ⚠️ 必须给稳定 key（按 mid）：
+                      // 「添加到歌单顶部」会让歌曲换位置，若按索引复用 State，
+                      // 展开中的「+」二级菜单状态会跳到别的卡片上、
+                      // 收起动画被打断 —— 表现为「二级菜单突兀消失」。
+                      key: ValueKey(songs[i].mid),
                       song: songs[i],
                       state: state,
                       onOpenLyric: widget.onOpenLyric,
                     ),
                   ),
+                ),
                 ),
         ),
 
@@ -150,6 +159,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
 /// 歌单条目 —— 对应 `.playlist-item`
 class _PlaylistItem extends StatefulWidget {
   const _PlaylistItem({
+    super.key,
     required this.song,
     required this.state,
     required this.onOpenLyric,
