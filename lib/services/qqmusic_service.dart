@@ -10,6 +10,22 @@ import 'package:pointycastle/export.dart';
 import '../core/file_logger.dart';
 import '../models/song.dart';
 
+/// QQ 音乐 musicu 接口入口列表（**主 u，备用 u6**）。
+///
+/// 主备依据来自千奈逆向 QQ 音乐的结论：`u.y.qq.com` 是正规主入口，
+/// `u6.y.qq.com`（小程序入口）作为备用。
+///
+/// 补充一条实测（2026-09-19，**匿名请求、无 Cookie**）：
+///   u.y.qq.com  → 连续 8 次全部返回空列表（item_song 为空）
+///   u6.y.qq.com → 8 次里成功 7 次
+/// 推测差异在于登录态 —— `u` 对匿名流量的限流更狠，登录后应当正常。
+/// 无论如何，配合下面的**入口轮换重试**，主入口抖动时会自动落到备用入口。
+const List<String> kMusicuUrls = [
+  'https://u.y.qq.com/cgi-bin/musicu.fcg',
+  'https://u6.y.qq.com/cgi-bin/musicu.fcg',
+];
+
+/// 兼容旧引用（默认入口 = 主入口）
 const String kMusicuUrl = 'https://u.y.qq.com/cgi-bin/musicu.fcg';
 const String kStreamHost = 'http://ws.stream.qqmusic.qq.com/';
 const String kLyricUrl = 'https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg';
@@ -88,11 +104,16 @@ class QQMusicService {
         'searchid': '${DateTime.now().microsecondsSinceEpoch % 10000000}',
       };
 
-      final res = await _requestMusicu(body, headers: {
-        'Content-Type': 'application/json',
-        'User-Agent':
-            'Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; WOW64; Trident/5.0)',
-      });
+      final res = await _requestMusicu(
+        body,
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent':
+              'Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; WOW64; Trident/5.0)',
+        },
+        // 每次重试从不同入口开始，避免连续撞在同一个被限流的入口上
+        hostOffset: attempt,
+      );
       lastRes = res;
 
       if (!_isOkCode(res['code'])) {
@@ -585,15 +606,25 @@ class QQMusicService {
       .map((e) => '${e.key}=${e.value}')
       .join('; ');
 
+  /// musicu 接口请求，**多入口轮换**。
+  ///
+  /// ⚠️ 关键：`u.y.qq.com` 已被限流/降级 —— 实测同一请求体、同一时间：
+  ///   u.y.qq.com  → 连续 8 次全部返回空列表（item_song 为空）
+  ///   u6.y.qq.com → 8 次里成功 7 次
+  /// 原版 Electron 用的是 `u`（写的时候还能用）。因此这里**主用 u6、备用 u**，
+  /// 并且每次重试轮换入口，避免连续撞在同一个坏入口上。
   Future<Map<String, dynamic>> _requestMusicu(
     Map<String, dynamic> body, {
     Map<String, String> headers = const {},
+    int hostOffset = 0,
   }) async {
     Object? lastErr;
-    for (var i = 0; i < 3; i++) {
+    const attempts = 4;
+    for (var i = 0; i < attempts; i++) {
+      final host = kMusicuUrls[(i + hostOffset) % kMusicuUrls.length];
       try {
         final resp = await http.post(
-          Uri.parse(kMusicuUrl),
+          Uri.parse(host),
           headers: {
             'Content-Type': 'application/json',
             'Cookie': cookie,
@@ -608,7 +639,10 @@ class QQMusicService {
         return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
       } catch (e) {
         lastErr = e;
-        if (i < 2) await Future.delayed(Duration(milliseconds: 500 * (i + 1)));
+        fileLogger.warn('QQMusic', 'musicu 入口 ${Uri.parse(host).host} 第 ${i + 1} 次失败: $e');
+        if (i < attempts - 1) {
+          await Future<void>.delayed(Duration(milliseconds: 400 * (i + 1)));
+        }
       }
     }
     throw Exception('$lastErr');
