@@ -102,6 +102,18 @@ class _SearchPageState extends State<SearchPage> {
                   const SizedBox(height: 16),
                 ],
               ),
+            )
+          // 搜索完成但 0 条 —— 以前这里什么都不显示，看起来像「点了没反应」
+          else if (state.hasSearched &&
+              !state.isSearching &&
+              state.searchKeyword.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 64, vertical: 32),
+              child: EmptyState(
+                icon: AppIcons.search,
+                title: '没有找到「${state.searchKeyword}」相关的歌曲',
+                hint: '换个关键词，或切换到另一个音源试试',
+              ),
             ),
         ],
       ),

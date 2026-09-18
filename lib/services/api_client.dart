@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../core/file_logger.dart';
 import '../core/local_store.dart';
 import '../models/song.dart';
 
@@ -43,6 +45,12 @@ class ApiClient {
 
   static String _enc(Object? v) => Uri.encodeComponent('${v ?? ''}');
 
+  /// 只保留路径用于日志（避免把超长 query 写进日志）
+  static String _label(String url) => Uri.tryParse(url)?.path ?? url;
+
+  static String _clip(String s, [int n = 200]) =>
+      s.length <= n ? s : '${s.substring(0, n)}…';
+
   static Future<Map<String, dynamic>> _request(
     String url, {
     String method = 'GET',
@@ -51,22 +59,38 @@ class ApiClient {
     Duration timeout = const Duration(seconds: 60),
   }) async {
     final h = _headers(headers);
+    final sw = Stopwatch()..start();
+    final label = _label(url);
     late http.Response resp;
-    if (method == 'POST') {
-      resp = await _http
-          .post(Uri.parse(url), headers: h, body: body ?? '{}')
-          .timeout(timeout);
-    } else {
-      resp = await _http.get(Uri.parse(url), headers: h).timeout(timeout);
+    try {
+      if (method == 'POST') {
+        resp = await _http
+            .post(Uri.parse(url), headers: h, body: body ?? '{}')
+            .timeout(timeout);
+      } else {
+        resp = await _http.get(Uri.parse(url), headers: h).timeout(timeout);
+      }
+    } on TimeoutException {
+      fileLogger.error('API',
+          '$method $label 超时（上限 ${timeout.inSeconds}s，已等待 ${sw.elapsedMilliseconds}ms）');
+      rethrow;
+    } catch (e) {
+      fileLogger.error('API',
+          '$method $label 请求失败: $e（已用 ${sw.elapsedMilliseconds}ms）');
+      rethrow;
     }
 
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      final text = utf8.decode(resp.bodyBytes, allowMalformed: true);
+      fileLogger.error('API',
+          '$method $label HTTP ${resp.statusCode}（${sw.elapsedMilliseconds}ms）: ${_clip(text)}');
       Map<String, dynamic> err = {};
       try {
-        err = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+        err = jsonDecode(text) as Map<String, dynamic>;
       } catch (_) {}
       throw Exception(err['error']?.toString() ?? '请求失败: ${resp.statusCode}');
     }
+    fileLogger.debug('API', '$method $label OK ${resp.statusCode} ${sw.elapsedMilliseconds}ms');
     return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
   }
 

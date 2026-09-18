@@ -38,6 +38,11 @@ class AppState extends ChangeNotifier {
   bool isPlaylistPage = false;
   String searchSource = 'qq';
 
+  /// 是否已经完成过一次搜索。
+  /// 用来区分「还没搜过」与「搜过了但 0 条」—— 后者以前界面完全没提示，
+  /// 看起来就像「点了搜索没反应」（用户反馈）。
+  bool hasSearched = false;
+
   /// 搜索框里的链接样式（等价原 `link-style` 类）
   bool searchLinkStyle = false;
 
@@ -454,15 +459,20 @@ class AppState extends ChangeNotifier {
       if (manual) _buildShufflePlaylist(mid);
       _pushHistory(mid);
     }
+    // 先展开播放栏并进入加载态，再去取播放地址（对齐 Electron 的交互）
+    player.prepare(song);
+    notifyListeners();
     try {
       final url = await ApiClient.getSongUrl(mid, true, song);
       if (url.isNotEmpty) {
         await player.play(song, url);
         notifyListeners();
       } else {
+        player.cancelLoading();
         toast.show('无法获取播放链接', type: ToastType.error);
       }
     } catch (e) {
+      player.cancelLoading();
       toast.show('播放失败: $e', type: ToastType.error);
     }
   }
@@ -537,6 +547,7 @@ class AppState extends ChangeNotifier {
         searchKeyword = keyword;
         currentPage = 1;
         isPlaylistPage = false;
+        hasSearched = true;
         notifyListeners();
       } else if ((m = _playlistRe.firstMatch(keyword)?.group(1) ??
               _idRe.firstMatch(keyword)?.group(1) ??
@@ -579,9 +590,11 @@ class AppState extends ChangeNotifier {
         searchKeyword = keyword;
         currentPage = 1;
         isPlaylistPage = false;
+        hasSearched = true;
         notifyListeners();
       }
     } catch (e) {
+      hasSearched = true;
       toast.show('搜索失败: $e', type: ToastType.error);
     } finally {
       isSearching = false;

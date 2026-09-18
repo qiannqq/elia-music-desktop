@@ -91,6 +91,7 @@ class HttpServerService {
       return;
     }
 
+    final sw = Stopwatch()..start();
     try {
       if (pathname.startsWith('/api/')) {
         await _handleApi(req, res, pathname);
@@ -98,8 +99,21 @@ class HttpServerService {
         await _serveStatic(req, res, pathname);
       }
       responded = true;
+      // 请求级日志：这样「某次搜索/取歌词慢或失败」在日志里能直接看到，
+      // 不用靠猜（用户反馈过「发行版出问题时日志里什么都没有」）。
+      // 封面图代理不记（一次搜索会打几十条，纯噪音），失败时仍会走下面的 catch。
+      if (pathname.startsWith('/api/') && !pathname.startsWith('/api/proxy/image')) {
+        final ms = sw.elapsedMilliseconds;
+        if (ms >= 3000) {
+          fileLogger.warn('HTTP', '${req.method} $pathname 慢 ${ms}ms');
+        } else {
+          fileLogger.debug('HTTP', '${req.method} $pathname ${ms}ms');
+        }
+      }
     } catch (e, st) {
-      fileLogger.error('HTTP', 'Error: $e');
+      // 带上方法与路由，便于定位是哪一条接口挂了
+      fileLogger.error('HTTP',
+          '${req.method} $pathname → $e（${sw.elapsedMilliseconds}ms）');
       fileLogger.error('HTTP', 'Stack: $st');
       if (!responded) {
         try {
@@ -249,7 +263,13 @@ class HttpServerService {
     final keyword = q['keyword'] ?? '';
     final page = int.tryParse(q['page'] ?? '1') ?? 1;
     final pageSize = int.tryParse(q['pageSize'] ?? '50') ?? 50;
+    final sw = Stopwatch()..start();
     final result = await qqMusicService.search(keyword, page, pageSize);
+    // 记下条数：这样「0 条」与「报错」在日志里能区分开
+    //（用户反馈过「点搜索转圈后什么都没发生、也没报错」）
+    fileLogger.info('Search',
+        'qq keyword="$keyword" page=$page → ${result.list.length} 首'
+        '（total=${result.total}, ${sw.elapsedMilliseconds}ms）');
     _json(res, {
       'code': 0,
       'data': result.list.map((e) => _songToJson(e)).toList(),
@@ -604,7 +624,11 @@ class HttpServerService {
     final keyword = q['keyword'] ?? '';
     final page = int.tryParse(q['page'] ?? '1') ?? 1;
     final pageSize = int.tryParse(q['pageSize'] ?? '30') ?? 30;
+    final sw = Stopwatch()..start();
     final result = await neteaseMusicService.search(keyword, page, pageSize);
+    fileLogger.info('Search',
+        'netease keyword="$keyword" page=$page → ${result.list.length} 首'
+        '（total=${result.total}, ${sw.elapsedMilliseconds}ms）');
     _json(res, {
       'code': 0,
       'data': result.list.map((e) => _songToJson(e)).toList(),

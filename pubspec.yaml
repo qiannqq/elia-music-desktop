@@ -37,3 +37,7 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  assets:
+    # 来源平台图标（QQ音乐 / 网易云）—— 离线内置，避免远程 favicon 时有时无
+    - assets/source_icons/

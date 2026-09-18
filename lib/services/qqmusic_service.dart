@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -74,28 +75,55 @@ class QQMusicService {
       }
     };
 
-    final res = await _requestMusicu(body, headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': 'Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; WOW64; Trident/5.0)',
-    });
+    // QQ 搜索接口会**偶发返回「空列表 + 非零 total」**（疑似限流/服务端抖动），
+    // 用户看到的现象就是「点了搜索转圈后什么都没发生」。
+    // 这里对「total>0 却一条都没返回」这种明确异常做几次重试；
+    // 真正没有结果时 total 会是 0，不会触发重试。
+    Map<String, dynamic>? lastRes;
+    var lastTotal = 0;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      // 每次重试都换一个 searchid，避免命中同一份缓存
+      (body['search']! as Map)['param'] = {
+        ...(body['search']! as Map)['param'] as Map,
+        'searchid': '${DateTime.now().microsecondsSinceEpoch % 10000000}',
+      };
 
-    if (!_isOkCode(res['code'])) {
-      return (list: <Song>[], total: 0);
-    }
+      final res = await _requestMusicu(body, headers: {
+        'Content-Type': 'application/json',
+        'User-Agent':
+            'Mozilla/5.0 (compatible; MSIE 9.0; Windows NT 6.1; WOW64; Trident/5.0)',
+      });
+      lastRes = res;
 
-    final search = res['search'] as Map?;
-    final data = (search?['data'] as Map?)?['body'] as Map? ?? {};
-    final meta = (search?['data'] as Map?)?['meta'] as Map? ?? {};
-    final rawList = (data['item_song'] as List?) ?? const [];
-    final total = (meta['estimate_sum'] as num?)?.toInt() ?? rawList.length;
+      if (!_isOkCode(res['code'])) {
+        return (list: <Song>[], total: 0);
+      }
 
-    return (
-      list: rawList
+      final search = res['search'] as Map?;
+      final data = (search?['data'] as Map?)?['body'] as Map? ?? {};
+      final meta = (search?['data'] as Map?)?['meta'] as Map? ?? {};
+      final rawList = (data['item_song'] as List?) ?? const [];
+      final total = (meta['estimate_sum'] as num?)?.toInt() ?? rawList.length;
+      lastTotal = total;
+
+      final list = rawList
           .whereType<Map>()
           .map((e) => normalizeSong(e.cast<String, dynamic>()))
-          .toList(),
-      total: total,
-    );
+          .toList();
+
+      if (list.isNotEmpty || total == 0) {
+        return (list: list, total: total);
+      }
+
+      fileLogger.warn('QQMusic',
+          'search "$keyword" 返回空列表但 total=$total，重试 ${attempt + 1}/3');
+      await Future<void>.delayed(Duration(milliseconds: 400 * (attempt + 1)));
+    }
+
+    fileLogger.error('QQMusic',
+        'search "$keyword" 连续 3 次返回空列表（total=$lastTotal），放弃；'
+        'response keys=${lastRes?.keys.toList()}');
+    return (list: <Song>[], total: lastTotal);
   }
 
   Song normalizeSong(Map<String, dynamic> data) {
@@ -256,34 +284,72 @@ class QQMusicService {
     final mid = _getSongMid(song);
     if (mid.isEmpty) throw Exception('song.mid 不能为空');
 
+    final sw = Stopwatch()..start();
+
+    // 并行发起两条线：
+    //  * QRC（逐字歌词，需要先取 songId 再解密，**明显更慢**）
+    //  * 普通 LRC（快）
+    // QRC 超过 10s 就放弃、直接用普通歌词 —— 否则慢的时候用户会长时间
+    // 看不到歌词 / 拉不到翻译（用户反馈过）。
+    final Future<({String lyric, String trans, dynamic raw})> qrcFuture = _fetchQrc(mid);
+
+    final simpleFuture = () async {
+      try {
+        return await _getSimpleLyric(mid);
+      } catch (e) {
+        fileLogger.warn('QQMusic', 'simple lyric error: $e');
+        return (lyric: '', trans: '', raw: null);
+      }
+    }();
+
     var qrcLyric = '';
     var qrcTrans = '';
-
+    var qrcTimedOut = false;
     try {
-      final songId = await _getSongId(mid);
-      if (songId != 0) {
-        final qrc = await _getQrcLyric(songId);
-        qrcLyric = qrc.lyric;
-        qrcTrans = qrc.trans;
-      }
-    } catch (e) {
-      fileLogger.warn('QQMusic', 'QRC lyric error: $e');
+      final qrc = await qrcFuture.timeout(const Duration(seconds: 10));
+      qrcLyric = qrc.lyric;
+      qrcTrans = qrc.trans;
+    } on TimeoutException {
+      qrcTimedOut = true;
+      fileLogger.warn('QQMusic', 'QRC 歌词 10s 未返回，改用普通歌词 mid=$mid');
     }
 
-    final hasValidLyric = qrcLyric.isNotEmpty && RegExp(r'\[\d{2}:\d{2}\.\d{2,3}\]').hasMatch(qrcLyric);
-    final hasValidTrans = qrcTrans.isNotEmpty && RegExp(r'\[\d{2}:\d{2}\.\d{2,3}\]').hasMatch(qrcTrans);
+    final hasValidLyric = _hasTimestamp(qrcLyric);
+    final hasValidTrans = _hasTimestamp(qrcTrans);
 
     if (hasValidLyric) {
+      fileLogger.info('QQMusic',
+          'lyric(qrc) mid=$mid ${sw.elapsedMilliseconds}ms '
+          'lyric=${qrcLyric.length} trans=${qrcTrans.length}');
       return (lyric: qrcLyric, trans: qrcTrans, raw: {'source': 'qrc'});
     }
 
-    final simple = await _getSimpleLyric(mid);
+    final simple = await simpleFuture;
+    fileLogger.info('QQMusic',
+        'lyric(${qrcTimedOut ? 'simple-after-qrc-timeout' : 'simple'}) mid=$mid '
+        '${sw.elapsedMilliseconds}ms lyric=${simple.lyric.length} trans=${simple.trans.length}');
     return (
       lyric: simple.lyric.isNotEmpty ? simple.lyric : qrcLyric,
       trans: hasValidTrans ? qrcTrans : simple.trans,
       raw: simple.raw,
     );
   }
+
+  /// 取 QRC 逐字歌词（内部已吞掉异常，失败返回空串）
+  Future<({String lyric, String trans, dynamic raw})> _fetchQrc(String mid) async {
+    try {
+      final songId = await _getSongId(mid);
+      if (songId == 0) return (lyric: '', trans: '', raw: null);
+      return await _getQrcLyric(songId);
+    } catch (e) {
+      fileLogger.warn('QQMusic', 'QRC lyric error: $e');
+      return (lyric: '', trans: '', raw: null);
+    }
+  }
+
+  /// 歌词是否含时间戳（`[mm:ss.xx]` 或网易云那种 `[mm:ss:xx]`）
+  static bool _hasTimestamp(String text) =>
+      text.isNotEmpty && RegExp(r'\[\d{1,2}:\d{1,2}[.:]\d{1,3}\]').hasMatch(text);
 
   Future<int> _getSongId(String songmid) async {
     try {

@@ -1,3 +1,4 @@
+import '../core/file_logger.dart';
 import '../core/local_store.dart';
 import '../core/lyric.dart';
 import 'api_client.dart';
@@ -84,9 +85,21 @@ class LyricCache {
         lines: parseLrc(raw),
         transMap: parseTransLrc(trans),
       );
+      // 记下长度与解析结果：歌词「显示不出来 / 没有翻译」时能直接从日志判断
+      // 是接口没给、还是解析没吃进去。
+      fileLogger.info(
+        'Lyric',
+        '$mid ${isNetease ? 'netease' : 'qq'} raw=${raw.length} trans=${trans.length}'
+        ' → lines=${bundle.lines.length} transMap=${bundle.transMap.length}',
+      );
+      if (raw.isNotEmpty && bundle.lines.isEmpty) {
+        fileLogger.warn('Lyric', '$mid 歌词非空但解析出 0 行，原文首行: '
+            '${raw.split('\n').firstWhere((l) => l.trim().isNotEmpty, orElse: () => '')}');
+      }
       _cache[mid] = bundle;
       return bundle;
-    } catch (_) {
+    } catch (e) {
+      fileLogger.error('Lyric', '$mid 获取失败: $e');
       return null;
     }
   }

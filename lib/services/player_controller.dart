@@ -113,6 +113,30 @@ class PlayerController extends ChangeNotifier {
 
   // ------------------------------------------------------------ 播放控制
 
+  /// 立刻把歌曲挂上并进入**加载态**，让播放栏马上展开。
+  ///
+  /// 对齐 Electron：点播放时播放栏立刻出现并转圈，而不是等网络取回播放地址
+  /// 之后才「突然」弹出来（用户反馈「播放要等一会」）。
+  void prepare(Song song) {
+    currentSong = song;
+    currentUrl = '';
+    position = Duration.zero;
+    duration = Duration.zero;
+    lyricLines = const [];
+    activeLyricIndex = -1;
+    lyricPaused = false;
+    isLoading = true;
+    _retryCount = 0;
+    _lastLyricTimer?.cancel();
+    notifyListeners();
+  }
+
+  /// 取播放地址失败时收掉加载态（播放栏保留，由调用方提示错误）
+  void cancelLoading() {
+    isLoading = false;
+    notifyListeners();
+  }
+
   Future<void> play(Song song, String url) async {
     currentSong = song;
     currentUrl = url;

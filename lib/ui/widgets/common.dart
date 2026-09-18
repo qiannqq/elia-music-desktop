@@ -448,15 +448,19 @@ class SongCover extends StatelessWidget {
 }
 
 /// 来源角标 —— 对应 `.source-icon.source-qq` / `.source-netease`
-/// 优先加载站点 favicon，失败时回退为字母 Q / N（与原 `onerror` 行为一致）
+///
+/// ⚠️ 图标**内置在 assets 里**，不再从 `https://y.qq.com/favicon.ico` 远程加载。
+/// 原版是 `<img src=favicon onerror=隐藏>`，网络一抖图标就消失/闪烁
+/// （用户反馈「QQ音乐图标有时显示有时不显示」）；而且 Flutter 也解不了 ICO 格式。
+/// 这里用离线 PNG，永远稳定显示。
 class SourceIcon extends StatelessWidget {
   const SourceIcon({super.key, required this.source, this.size = 16});
 
   final String source;
   final double size;
 
-  static const _qqFavicon = 'https://y.qq.com/favicon.ico';
-  static const _neFavicon = 'https://music.163.com/favicon.ico';
+  static const _qqAsset = 'assets/source_icons/qq.png';
+  static const _neAsset = 'assets/source_icons/netease.png';
 
   @override
   Widget build(BuildContext context) {
@@ -469,11 +473,12 @@ class SourceIcon extends StatelessWidget {
       child: SizedBox(
         width: size,
         height: size,
-        child: Image.network(
-          isQq ? _qqFavicon : _neFavicon,
+        child: Image.asset(
+          isQq ? _qqAsset : _neAsset,
           width: size,
           height: size,
           fit: BoxFit.cover,
+          // 资源缺失时才退化成字母（正常不会走到）
           errorBuilder: (_, _, _) => Center(
             child: Text(
               letter,

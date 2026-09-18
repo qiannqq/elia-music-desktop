@@ -9,13 +9,18 @@ import 'app_paths.dart';
 /// 行为保持一致：
 /// - 按天分文件：`logs/YYYY-MM-DD.log`
 /// - 行格式：`[HH:mm:ss.SSS] [LEVEL] [Category] message`
-/// - 首次写入时惰性创建目录与文件流
+///
+/// ⚠️ 与早期实现的关键差别：**同步写入 + 每行 flush**。
+/// 早期用 `File.openWrite()` 得到的 `IOSink` 是**带缓冲**的，且从不 flush：
+/// 进程被强杀（窗口关闭时我们就是直接 `exit(0)`）或崩溃时，最近的日志会整段丢失，
+/// 导致「发行版出问题时日志里什么都没有」。日志量很小（每次操作几行），
+/// 同步写 + flushSync 的开销可以忽略。
 class FileLogger {
   FileLogger._();
 
   static final FileLogger instance = FileLogger._();
 
-  IOSink? _sink;
+  RandomAccessFile? _raf;
   String? _currentDate;
   bool _disabled = false;
 
@@ -36,14 +41,16 @@ class FileLogger {
     if (_disabled) return;
     try {
       final date = _dateStr();
-      if (_sink == null || _currentDate != date) {
-        _sink?.close();
-        _sink = null;
+      if (_raf == null || _currentDate != date) {
+        _raf?.closeSync();
+        _raf = null;
         final file = File(p.join(AppPaths.logsDir, '$date.log'));
-        _sink = file.openWrite(mode: FileMode.append);
+        file.parent.createSync(recursive: true);
+        _raf = file.openSync(mode: FileMode.append);
         _currentDate = date;
       }
-      _sink!.writeln('[${_timeStr()}] [$level] [$category] $message');
+      _raf!.writeStringSync('[${_timeStr()}] [$level] [$category] $message\n');
+      _raf!.flushSync(); // 保证进程被强杀时日志仍在磁盘上
     } catch (e) {
       // 日志失败不能影响主流程
       _disabled = true;
@@ -56,12 +63,13 @@ class FileLogger {
   void error(String category, String message) => _write('ERROR', category, message);
   void debug(String category, String message) => _write('DEBUG', category, message);
 
+  /// 同步落盘（同步写已经保证落盘，这里只用于关闭句柄）
   Future<void> close() async {
     try {
-      await _sink?.flush();
-      await _sink?.close();
+      _raf?.flushSync();
+      _raf?.closeSync();
     } catch (_) {}
-    _sink = null;
+    _raf = null;
   }
 }
 
