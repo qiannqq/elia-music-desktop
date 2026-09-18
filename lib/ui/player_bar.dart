@@ -353,68 +353,83 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
             // 对齐参考图：模式 | 上一首 | 播放 | 下一首 | 音量（播放键正好居中）
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-            // ---- 播放模式（最左）----
-            AppIconButton(
-              icon: switch (player.playMode) {
-                PlayMode.repeatAll => AppIcons.repeatAll,
-                PlayMode.repeatOne => AppIcons.repeatOne,
-                PlayMode.shuffle => AppIcons.shuffle,
-              },
-              size: 28,
-              iconSize: 16,
-              baseColor: c.textTertiary,
-              hoverColor: c.accent,
-              hoverBg: Colors.transparent,
-              onTap: player.cycleMode,
-              tooltip: player.playMode.label,
-            ),
-            AppIconButton(
-              icon: AppIcons.prev,
-              size: 28,
-              iconSize: 16,
-              filled: true,
-              onTap: () => widget.state.handleEndedAction('prev'),
-              tooltip: '上一首',
-            ),
-            const SizedBox(width: 12),
-            MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: GestureDetector(
-                onTap: player.togglePlay,
-                child: HoverBuilder(
-                  builder: (ctx, hovered) => Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: hovered ? c.accentHover : c.accent,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Center(
-                      child: AppIcon(
-                        player.isPlaying ? AppIcons.pause : AppIcons.play,
-                        size: 20,
-                        color: c.accentText,
-                        filled: true,
+              // ⚠️ 每个控件都套**统一 36×36 占位**并居中。
+              // 五个控件自身宽度并不相同（28 / 28 / 36 / 28 / 16），
+              // 而 spaceEvenly 平分的是「间隙」——元素宽度不同，中心距就不同，
+              // 看上去间距就不一致（用户反馈「播放键像有隐形宽」正是这个）。
+              // 统一占位后间距才真正相等。
+              // 另外这里原本还夹着两个 SizedBox(width:12)，它们会被 spaceEvenly
+              // 当成独立元素参与平分，进一步把间距打乱，已一并去掉。
+              // ---- 播放模式（最左）----
+              _ctrlSlot(
+                AppIconButton(
+                  icon: switch (player.playMode) {
+                    PlayMode.repeatAll => AppIcons.repeatAll,
+                    PlayMode.repeatOne => AppIcons.repeatOne,
+                    PlayMode.shuffle => AppIcons.shuffle,
+                  },
+                  size: 28,
+                  iconSize: 16,
+                  baseColor: c.textTertiary,
+                  hoverColor: c.accent,
+                  hoverBg: Colors.transparent,
+                  onTap: player.cycleMode,
+                  tooltip: player.playMode.label,
+                ),
+              ),
+              _ctrlSlot(
+                AppIconButton(
+                  icon: AppIcons.prev,
+                  size: 28,
+                  iconSize: 16,
+                  filled: true,
+                  onTap: () => widget.state.handleEndedAction('prev'),
+                  tooltip: '上一首',
+                ),
+              ),
+              _ctrlSlot(
+                MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    onTap: player.togglePlay,
+                    child: HoverBuilder(
+                      builder: (ctx, hovered) => Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: hovered ? c.accentHover : c.accent,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Center(
+                          child: AppIcon(
+                            player.isPlaying ? AppIcons.pause : AppIcons.play,
+                            size: 20,
+                            color: c.accentText,
+                            filled: true,
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 12),
-            AppIconButton(
-              icon: AppIcons.next,
-              size: 28,
-              iconSize: 16,
-              filled: true,
-              onTap: () => widget.state.handleEndedAction('next'),
-              tooltip: '下一首',
-            ),
-            // ---- 音量（最右，悬浮向右展开滑块）----
-            _VolumeControl(
-              volume: player.volume,
-              onChanged: player.setVolume,
-            ),
+              _ctrlSlot(
+                AppIconButton(
+                  icon: AppIcons.next,
+                  size: 28,
+                  iconSize: 16,
+                  filled: true,
+                  onTap: () => widget.state.handleEndedAction('next'),
+                  tooltip: '下一首',
+                ),
+              ),
+              // ---- 音量（最右，悬浮向右展开滑块）----
+              _ctrlSlot(
+                _VolumeControl(
+                  volume: player.volume,
+                  onChanged: player.setVolume,
+                ),
+              ),
             ],
           ),
         ),
@@ -472,6 +487,17 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
       ],
     );
   }
+
+  /// 控件行的统一占位格。
+  ///
+  /// 五个控件的实际宽度不同（28 / 28 / 36 / 28 / 16），而 spaceEvenly
+  /// 平分的是「间隙」—— 宽度不同则中心距不同，看起来间距就不一致。
+  /// 统一套 36×36 并居中后，间距才真正相等。
+  Widget _ctrlSlot(Widget child) => SizedBox(
+        width: 36,
+        height: 36,
+        child: Center(child: child),
+      );
 
   // ------------------------------------------------------------ 右侧：歌词 + 关闭
 
