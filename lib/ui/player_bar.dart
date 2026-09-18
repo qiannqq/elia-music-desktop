@@ -506,8 +506,11 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
 /// 音量条 —— 对应 `.player-volume-wrapper input[type=range]`（80×4）
 /// 音量控件 —— 默认只显示图标，**鼠标悬浮时向右展开**滑块（带展开/收起动画）。
 ///
-/// 参考图里音量位只有图标；展开用「宽度 0→80 + 透明度」两个动画叠加，
-/// 里面的滑块用 OverflowBox 固定 80px，避免被 0 宽容器挤变形。
+/// 关键：滑块是**浮层**（Positioned + Clip.none），不参与布局 ——
+/// 控件占位宽度恒等于图标，所以
+///   * 控件行里每个元素的间距完全一致（spaceEvenly 不会因为宽度变化而重排）；
+///   * 展开时不挤动任何其他元素。
+/// 滑块本身用 OverflowBox 固定 80px，避免被 0 宽容器挤变形。
 class _VolumeControl extends StatefulWidget {
   const _VolumeControl({required this.volume, required this.onChanged});
 
@@ -544,18 +547,28 @@ class _VolumeControlState extends State<_VolumeControl> {
         },
         child: Stack(
           clipBehavior: Clip.none,
-          alignment: Alignment.centerLeft,
+          alignment: Alignment.center,
           children: [
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // 展开/收起动画：宽度 0 ↔ 80，**在图标左侧**展开
-                // （对齐参考图：音量图标锚在控件组最右，滑块往组内长，
-                //  而不是往右伸到右侧空白区）。
-                // ⚠️ 必须同时给**有限高度**：里面是 OverflowBox（按父级约束定尺寸），
-                // 若高度无界会抛 "RenderConstrainedOverflowBox was given an
-                // infinite size during layout"（实测踩过）。
-                AnimatedContainer(
+            // 唯一的**非定位**子节点 —— Stack 的尺寸因此等于图标本身（16×16），
+            // 于是这个控件在控件行里的占位宽度恒定：
+            //   * spaceEvenly 分出的间距每个元素都一样（用户要求）；
+            //   * 展开时也不会挤动左右两侧的按钮。
+            AppIcon(
+              AppIcons.volume,
+              size: 16,
+              color: _expanded ? c.accent : c.textTertiary,
+            ),
+            // 滑块：**浮层**画在图标右侧，完全不参与布局。
+            // ⚠️ 里面必须给有限高度：OverflowBox 按父级约束定尺寸，
+            //    高度无界会抛 "RenderConstrainedOverflowBox was given an
+            //    infinite size during layout"（实测踩过）。
+            Positioned(
+              left: 20,
+              top: -2,
+              child: MouseRegion(
+                onEnter: (_) => setState(() => _hovered = true),
+                onExit: (_) => setState(() => _hovered = false),
+                child: AnimatedContainer(
                   duration: _expandDuration,
                   curve: Curves.easeOut,
                   width: _expanded ? _sliderWidth : 0,
@@ -565,10 +578,10 @@ class _VolumeControlState extends State<_VolumeControl> {
                       opacity: _expanded ? 1 : 0,
                       duration: _expandDuration,
                       curve: Curves.easeOut,
-                      // OverflowBox：让滑块始终保持 80px，被外层宽度裁剪出「展开」效果。
-                      // 右对齐 → 宽度变小时从左侧收起。
+                      // OverflowBox：滑块始终保持 80px，被外层宽度裁剪出「展开」效果。
+                      // 左对齐 → 宽度变小时从右侧收起。
                       child: OverflowBox(
-                        alignment: Alignment.centerRight,
+                        alignment: Alignment.centerLeft,
                         minWidth: _sliderWidth,
                         maxWidth: _sliderWidth,
                         child: _VolumeSlider(
@@ -584,19 +597,14 @@ class _VolumeControlState extends State<_VolumeControl> {
                     ),
                   ),
                 ),
-                AppIcon(
-                  AppIcons.volume,
-                  size: 16,
-                  color: _expanded ? c.accent : c.textTertiary,
-                ),
-              ],
+              ),
             ),
-            // 百分比提示
+            // 百分比提示（同样是浮层）
             if (_expanded)
               Positioned(
                 bottom: 22,
-                left: 0,
-                right: 0,
+                left: -28,
+                width: 96,
                 child: Center(
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
