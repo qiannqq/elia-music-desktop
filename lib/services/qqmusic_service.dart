@@ -123,7 +123,10 @@ class QQMusicService {
     fileLogger.error('QQMusic',
         'search "$keyword" 连续 3 次返回空列表（total=$lastTotal），放弃；'
         'response keys=${lastRes?.keys.toList()}');
-    return (list: <Song>[], total: lastTotal);
+    // ⚠️ 抛异常而不是返回「0 条结果」：
+    // 返回空结果会让界面显示「没有找到 xxx」，误导用户以为真的没有这首歌；
+    // 实际这是接口异常（限流/返回结构异常），应当明确报错。
+    throw Exception('搜索接口返回异常（连续 3 次空列表），请稍后重试');
   }
 
   Song normalizeSong(Map<String, dynamic> data) {

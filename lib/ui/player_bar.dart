@@ -15,6 +15,8 @@ import 'widgets/common.dart';
 const double kPlayerBarHeight = 72;
 const double kLyricLineHeight = 24;
 
+
+
 /// 底部播放器栏 —— 对应 `.player-bar`
 class PlayerBar extends StatefulWidget {
   const PlayerBar({super.key, required this.state});

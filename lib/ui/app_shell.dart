@@ -154,26 +154,35 @@ class _AppShellState extends State<AppShell> {
                       scale: state.zoom / 100,
                       child: Stack(
                         children: [
-                          Row(
-                            children: [
-                              AppSidebar(state: state),
-                              Expanded(
-                                child: ClipRect(
-                                  child: Stack(
-                                    children: [
-                                      _PageSlot(
-                                        key: ValueKey(state.page),
-                                        direction: state.pageDirection,
-                                        child: switch (state.page) {
-                                          'playlist' => PlaylistPage(
-                                              state: state,
-                                              scrollController: _playlistScroll,
-                                              onOpenLyric: state.requestLyricDialog,
-                                            ),
-                                          'settings' => SettingsPage(
-                                              state: state,
-                                              scrollController: _settingsScroll,
-                                            ),
+                          // ⚠️ 播放栏出现时**必须为它让出高度**（等价原版
+                          // `body.has-player .page.active{padding-bottom:88px}`），
+                          // 否则它会盖住页面底部内容（设置页的「外观」区）。
+                          // 注意只让出**播放栏本体高度**：多让的部分在页面外层，
+                          // 露出的是窗口底色，会变成播放栏上方一条灰边。
+                          Padding(
+                            padding: EdgeInsets.only(
+                              bottom: player.currentSong != null ? kPlayerBarHeight : 0,
+                            ),
+                            child: Row(
+                              children: [
+                                AppSidebar(state: state),
+                                Expanded(
+                                  child: ClipRect(
+                                    child: Stack(
+                                      children: [
+                                        _PageSlot(
+                                          key: ValueKey(state.page),
+                                          direction: state.pageDirection,
+                                          child: switch (state.page) {
+                                            'playlist' => PlaylistPage(
+                                                state: state,
+                                                scrollController: _playlistScroll,
+                                                onOpenLyric: state.requestLyricDialog,
+                                              ),
+                                            'settings' => SettingsPage(
+                                                state: state,
+                                                scrollController: _settingsScroll,
+                                              ),
                                           'about' =>
                                             AboutPage(scrollController: _aboutScroll),
                                           _ => SearchPage(
@@ -187,6 +196,7 @@ class _AppShellState extends State<AppShell> {
                                 ),
                               ),
                             ],
+                            ),
                           ),
                           // 播放器栏（有歌曲时显示，等价 body.has-player）
                           if (player.currentSong != null)

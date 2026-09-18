@@ -594,7 +594,7 @@ class AppState extends ChangeNotifier {
         notifyListeners();
       }
     } catch (e) {
-      hasSearched = true;
+      // 不置 hasSearched：失败只弹错误提示，不要再显示「没有找到 xxx」空状态
       toast.show('搜索失败: $e', type: ToastType.error);
     } finally {
       isSearching = false;
