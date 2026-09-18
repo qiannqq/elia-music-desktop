@@ -113,6 +113,9 @@ class QQMusicService {
         },
         // 每次重试从不同入口开始，避免连续撞在同一个被限流的入口上
         hostOffset: attempt,
+        // 搜索响应很快（正常 <1s）；卡住时尽快失败换入口，
+        // 否则「切备用入口」要等 20 秒才发生。
+        timeout: const Duration(seconds: 8),
       );
       lastRes = res;
 
@@ -617,6 +620,10 @@ class QQMusicService {
     Map<String, dynamic> body, {
     Map<String, String> headers = const {},
     int hostOffset = 0,
+    // 单次尝试的超时。默认保持宽松（取播放地址那类接口本身可能慢到 20s，
+    // 收紧反而会误杀）；**搜索**由调用方传 8s —— 它响应很快（正常 <1s），
+    // 卡住时应尽快换入口，否则用户感受到的就是「搜索要等 20 秒」。
+    Duration timeout = const Duration(seconds: 30),
   }) async {
     Object? lastErr;
     const attempts = 4;
@@ -631,11 +638,15 @@ class QQMusicService {
             ...headers,
           },
           body: jsonEncode(body),
-        ).timeout(const Duration(seconds: 30));
+        ).timeout(timeout);
 
         if (resp.statusCode < 200 || resp.statusCode >= 300) {
           throw Exception('QQ音乐接口请求失败：${resp.statusCode}');
         }
+        // 记下**实际生效的入口**：否则「搜索成功」时无法从日志判断
+        // 走的是主入口还是备用入口（之前只能靠「没有重试日志」反推，不算证据）。
+        fileLogger.debug('QQMusic',
+            'musicu ${Uri.parse(host).host} 第 ${i + 1} 次成功');
         return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
       } catch (e) {
         lastErr = e;
