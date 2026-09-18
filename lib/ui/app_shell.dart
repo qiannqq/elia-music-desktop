@@ -36,6 +36,7 @@ class _AppShellState extends State<AppShell> {
 
   int _lastLyricRequest = 0;
   int _zoomWheelAccum = 0;
+  String _lastPage = 'search';
 
   @override
   void initState() {
@@ -65,7 +66,36 @@ class _AppShellState extends State<AppShell> {
       _lastLyricRequest = state.lyricDialogRequest;
       WidgetsBinding.instance.addPostFrameCallback((_) => _openLyricsDialog());
     }
+    // 只挂载当前页（等价原 `.page{display:none}`），因此切换时需手动
+    // 保存/恢复各页滚动位置 —— 对应原 `state.pageScrolls`
+    if (state.page != _lastPage) {
+      _saveScroll(_lastPage);
+      _lastPage = state.page;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _restoreScroll(state.page));
+    }
     setState(() {});
+  }
+
+  ScrollController _controllerFor(String page) => switch (page) {
+        'playlist' => _playlistScroll,
+        'settings' => _settingsScroll,
+        'about' => _aboutScroll,
+        _ => _searchScroll,
+      };
+
+  void _saveScroll(String page) {
+    final ctrl = _controllerFor(page);
+    if (ctrl.hasClients) state.pageScrolls[page] = ctrl.offset;
+  }
+
+  void _restoreScroll(String page) {
+    final ctrl = _controllerFor(page);
+    final saved = state.pageScrolls[page];
+    if (!ctrl.hasClients || saved == null) return;
+    ctrl.jumpTo(saved.clamp(
+      ctrl.position.minScrollExtent,
+      ctrl.position.maxScrollExtent,
+    ));
   }
 
   void _onPlayer() {
@@ -134,34 +164,25 @@ class _AppShellState extends State<AppShell> {
                                   child: Stack(
                                     children: [
                                       _PageSlot(
-                                        active: state.page == 'search',
+                                        key: ValueKey(state.page),
                                         direction: state.pageDirection,
-                                        child: SearchPage(
-                                          state: state,
-                                          scrollController: _searchScroll,
-                                        ),
-                                      ),
-                                      _PageSlot(
-                                        active: state.page == 'playlist',
-                                        direction: state.pageDirection,
-                                        child: PlaylistPage(
-                                          state: state,
-                                          scrollController: _playlistScroll,
-                                          onOpenLyric: state.requestLyricDialog,
-                                        ),
-                                      ),
-                                      _PageSlot(
-                                        active: state.page == 'settings',
-                                        direction: state.pageDirection,
-                                        child: SettingsPage(
-                                          state: state,
-                                          scrollController: _settingsScroll,
-                                        ),
-                                      ),
-                                      _PageSlot(
-                                        active: state.page == 'about',
-                                        direction: state.pageDirection,
-                                        child: AboutPage(scrollController: _aboutScroll),
+                                        child: switch (state.page) {
+                                          'playlist' => PlaylistPage(
+                                              state: state,
+                                              scrollController: _playlistScroll,
+                                              onOpenLyric: state.requestLyricDialog,
+                                            ),
+                                          'settings' => SettingsPage(
+                                              state: state,
+                                              scrollController: _settingsScroll,
+                                            ),
+                                          'about' =>
+                                            AboutPage(scrollController: _aboutScroll),
+                                          _ => SearchPage(
+                                              state: state,
+                                              scrollController: _searchScroll,
+                                            ),
+                                        },
                                       ),
                                     ],
                                   ),
@@ -191,38 +212,38 @@ class _AppShellState extends State<AppShell> {
   }
 }
 
-/// 页面槽位 —— 等价 CSS `.page` 的 `opacity/translateX` 过渡
+/// 页面槽位 —— 等价 CSS `.page.active` 的入场过渡
+/// （`translateX(30px) → 0` + `opacity 0 → 1`，250ms）
+///
+/// 注意：**只挂载当前页**，与原始实现的 `.page{display:none}` 一致。
+/// 早期版本为了让滚动位置自然保留而把 4 个页面全部常驻挂载，
+/// 会让渲染树与无障碍语义树大出数倍（并伴随 Windows 无障碍桥报错）。
 class _PageSlot extends StatelessWidget {
   const _PageSlot({
-    required this.active,
+    super.key,
     required this.direction,
     required this.child,
   });
 
-  final bool active;
+  /// 1 = 向右进入，-1 = 向左进入
   final int direction;
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    final targetX = active ? 0.0 : -direction * 30.0;
     return Positioned.fill(
-      child: IgnorePointer(
-        ignoring: !active,
-        child: TweenAnimationBuilder<double>(
-          tween: Tween(begin: targetX, end: targetX),
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOut,
-          builder: (ctx, x, inner) => Transform.translate(
-            offset: Offset(x, 0),
-            child: AnimatedOpacity(
-              duration: const Duration(milliseconds: 250),
-              opacity: active ? 1 : 0,
-              child: inner,
-            ),
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: direction * 30.0, end: 0),
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+        builder: (ctx, x, inner) => Transform.translate(
+          offset: Offset(x, 0),
+          child: Opacity(
+            opacity: (1 - (x.abs() / 30.0)).clamp(0.0, 1.0),
+            child: inner,
           ),
-          child: child,
         ),
+        child: child,
       ),
     );
   }
@@ -275,14 +296,28 @@ class _EscapeIntent extends Intent {
 }
 
 /// Toast 覆盖层（放在最外层，避免被页面裁剪）
+///
+/// ⚠️ 三个关键点（前两个曾导致「界面正常但什么都点不动」，第三个导致崩溃）：
+///  1. `Material` 默认是 `MaterialType.canvas`，其 `_InkFeatures.absorbHitTest = true`，
+///     `_RenderInkFeatures.hitTestSelf` 恒为 true —— 即**会吸收命中测试**。
+///     透明背景也必须显式用 `MaterialType.transparency` 才不会吃掉点击。
+///  2. Toast 本身是纯展示、不需要交互，外面再包一层 `IgnorePointer` 双保险。
+///  3. 它作为 `MaterialApp.builder` 的 Stack 子节点，位于应用语义根**之外**，
+///     会让 Windows 无障碍桥出现 "0 will not be in the tree and is not the new root"
+///     并最终在引擎层触发 ACCESS_VIOLATION 崩溃（0xC0000005）。
+///     用 `ExcludeSemantics` 让它不参与语义树即可。
 class ToastLayer extends StatelessWidget {
   const ToastLayer({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return const Material(
-      color: Colors.transparent,
-      child: Stack(children: [ToastOverlay()]),
+    return const ExcludeSemantics(
+      child: IgnorePointer(
+        child: Material(
+          type: MaterialType.transparency,
+          child: Stack(children: [ToastOverlay()]),
+        ),
+      ),
     );
   }
 }
