@@ -70,25 +70,33 @@ class AppModalCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     final screen = MediaQuery.sizeOf(context);
-    return ConstrainedBox(
-      constraints: BoxConstraints(
-        maxWidth: maxWidth,
-        maxHeight: screen.height * maxHeightFactor,
-        minHeight: 0,
-      ),
-      // Material 祖先：模态框内的 TextField / 涟漪等需要它
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          width: maxWidth,
-          height: height,
-          decoration: BoxDecoration(
-            color: c.surface,
-            border: Border.all(color: c.border),
-            borderRadius: BorderRadius.circular(c.radiusLg),
-            boxShadow: c.shadowLg,
+    // ⚠️ 必须先用 Align 把**紧约束**放松，ConstrainedBox 才压得住尺寸。
+    // `showDialog` 给子节点的是紧约束（整屏），而 `BoxConstraints.enforce`
+    // 会把 maxWidth 向上钳到父级 min —— 结果 maxWidth:520 被钳成整屏宽，
+    // 弹窗直接铺满整个客户端（歌词弹窗就踩过这个坑）。
+    // Align 自身撑满父级、却给子节点**松约束**，于是 520 才真正生效。
+    return Align(
+      alignment: Alignment.center,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: maxWidth,
+          maxHeight: screen.height * maxHeightFactor,
+          minHeight: 0,
+        ),
+        // Material 祖先：模态框内的 TextField / 涟漪等需要它
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            width: maxWidth,
+            height: height,
+            decoration: BoxDecoration(
+              color: c.surface,
+              border: Border.all(color: c.border),
+              borderRadius: BorderRadius.circular(c.radiusLg),
+              boxShadow: c.shadowLg,
+            ),
+            child: Padding(padding: padding, child: child),
           ),
-          child: Padding(padding: padding, child: child),
         ),
       ),
     );

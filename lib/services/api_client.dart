@@ -5,7 +5,15 @@ import 'package:http/http.dart' as http;
 import '../core/local_store.dart';
 import '../models/song.dart';
 
-const String kApiBase = 'http://127.0.0.1:17071';
+/// 本地 API 基地址。
+///
+/// 端口**不固定**：启动时由系统分配一个空闲端口（绑定端口 0），
+/// 避免与原版 Electron 的固定 17071 冲突 —— 两个版本可同时运行。
+/// 因此这里是变量而非常量，由 main() 调用 [setApiPort] 写入。
+String apiBase = 'http://127.0.0.1:17071';
+
+/// 由 main() 在 HTTP 服务启动后写入实际端口
+void setApiPort(int port) => apiBase = 'http://127.0.0.1:$port';
 
 String sanitizeCookie(String? raw) =>
     (raw ?? '').replaceAll(RegExp(r'[\r\n\t\x00]'), '').trim();
@@ -93,7 +101,7 @@ class ApiClient {
   ]) async {
     if (keyword.isEmpty) throw Exception('keyword 不能为空');
     final res = await _request(
-      '$kApiBase/api/search?keyword=${_enc(keyword)}&page=$page&pageSize=$pageSize',
+      '$apiBase/api/search?keyword=${_enc(keyword)}&page=$page&pageSize=$pageSize',
     );
     return (
       list: parseSongsFull(res['data']),
@@ -103,7 +111,7 @@ class ApiClient {
 
   static Future<String> getSongUrl(String mid, bool highQuality, Song? songData) async {
     if (mid.isEmpty) throw Exception('mid 不能为空');
-    final url = '$kApiBase/api/song/url?mid=${_enc(mid)}&highQuality=$highQuality';
+    final url = '$apiBase/api/song/url?mid=${_enc(mid)}&highQuality=$highQuality';
     final res = await _request(
       url,
       method: 'POST',
@@ -118,7 +126,7 @@ class ApiClient {
   ) async {
     if (songs.isEmpty) throw Exception('songs 不能为空');
     final res = await _request(
-      '$kApiBase/api/song/batch-url',
+      '$apiBase/api/song/batch-url',
       method: 'POST',
       body: jsonEncode({
         'songs': songs.map((e) => e.toApiJson()).toList(),
@@ -134,7 +142,7 @@ class ApiClient {
   static Future<Song?> getSongDetail(String mid, [bool highQuality = false]) async {
     if (mid.isEmpty) throw Exception('mid 不能为空');
     final res = await _request(
-      '$kApiBase/api/song/detail?mid=${_enc(mid)}&highQuality=$highQuality',
+      '$apiBase/api/song/detail?mid=${_enc(mid)}&highQuality=$highQuality',
     );
     final data = res['data'];
     if (data is! Map) return null;
@@ -143,7 +151,7 @@ class ApiClient {
 
   static Future<({String lyric, String trans})> getLyric(String mid, [String? source]) async {
     if (mid.isEmpty) throw Exception('mid 不能为空');
-    var url = '$kApiBase/api/song/lyric?mid=${_enc(mid)}';
+    var url = '$apiBase/api/song/lyric?mid=${_enc(mid)}';
     if (source != null && source.isNotEmpty) url += '&source=${_enc(source)}';
     final res = await _request(url);
     final data = res['data'] as Map?;
@@ -157,7 +165,7 @@ class ApiClient {
     String id,
   ) async {
     if (id.isEmpty) throw Exception('id 不能为空');
-    final res = await _request('$kApiBase/api/playlist?id=${_enc(id)}');
+    final res = await _request('$apiBase/api/playlist?id=${_enc(id)}');
     final data = res['data'] as Map?;
     return (
       list: parseSongsFull(data?['list']),
@@ -168,11 +176,11 @@ class ApiClient {
   }
 
   static Future<Map<String, dynamic>> parseUrl(String url) =>
-      _request('$kApiBase/api/parse-url', method: 'POST', body: jsonEncode({'url': url}));
+      _request('$apiBase/api/parse-url', method: 'POST', body: jsonEncode({'url': url}));
 
   static Future<bool> setCookie(String cookie) async {
     final res = await _request(
-      '$kApiBase/api/set-cookie',
+      '$apiBase/api/set-cookie',
       method: 'POST',
       body: jsonEncode({'cookie': sanitizeCookie(cookie)}),
     );
@@ -180,7 +188,7 @@ class ApiClient {
   }
 
   static Future<Map<String, dynamic>> getCookieStatus() =>
-      _request('$kApiBase/api/cookie-status');
+      _request('$apiBase/api/cookie-status');
 
   // ------------------------------------------------------------ 网易云
 
@@ -191,7 +199,7 @@ class ApiClient {
   ]) async {
     if (keyword.isEmpty) throw Exception('keyword 不能为空');
     final res = await _request(
-      '$kApiBase/api/netease/search?keyword=${_enc(keyword)}&page=$page&pageSize=$pageSize',
+      '$apiBase/api/netease/search?keyword=${_enc(keyword)}&page=$page&pageSize=$pageSize',
     );
     return (
       list: parseSongsFull(res['data']),
@@ -202,7 +210,7 @@ class ApiClient {
   static Future<String> neSongUrl(Song song, [String quality = 'exhigh']) async {
     if (song.mid.isEmpty) throw Exception('song.id 不能为空');
     final res = await _request(
-      '$kApiBase/api/netease/song/url',
+      '$apiBase/api/netease/song/url',
       method: 'POST',
       body: jsonEncode({'song': song.toApiJson(), 'quality': quality}),
     );
@@ -211,7 +219,7 @@ class ApiClient {
 
   static Future<({String lyric, String trans})> neLyric(String id) async {
     if (id.isEmpty) throw Exception('id 不能为空');
-    final res = await _request('$kApiBase/api/netease/song/lyric?id=${_enc(id)}');
+    final res = await _request('$apiBase/api/netease/song/lyric?id=${_enc(id)}');
     final data = res['data'] as Map?;
     return (
       lyric: (data?['lyric'] ?? '').toString(),
@@ -223,7 +231,7 @@ class ApiClient {
     String id,
   ) async {
     if (id.isEmpty) throw Exception('id 不能为空');
-    final res = await _request('$kApiBase/api/netease/playlist?id=${_enc(id)}');
+    final res = await _request('$apiBase/api/netease/playlist?id=${_enc(id)}');
     final data = res['data'] as Map?;
     return (
       list: parseSongsFull(data?['list']),
@@ -235,7 +243,7 @@ class ApiClient {
 
   static Future<bool> neValidateCookie(String cookie) async {
     final res = await _request(
-      '$kApiBase/api/netease/validate-cookie',
+      '$apiBase/api/netease/validate-cookie',
       method: 'POST',
       body: jsonEncode({'cookie': sanitizeCookie(cookie)}),
     );
@@ -243,7 +251,7 @@ class ApiClient {
   }
 
   static Future<Map<String, dynamic>?> neUserInfo() async {
-    final res = await _request('$kApiBase/api/netease/userinfo');
+    final res = await _request('$apiBase/api/netease/userinfo');
     final data = res['data'];
     return data is Map ? data.cast<String, dynamic>() : null;
   }
@@ -252,8 +260,8 @@ class ApiClient {
 
   static String getProxyImageUrl(String? url) {
     if (url == null || url.isEmpty) return '';
-    if (url.startsWith('$kApiBase/api/proxy/image')) return url;
-    return '$kApiBase/api/proxy/image?url=${Uri.encodeComponent(url)}';
+    if (url.startsWith('$apiBase/api/proxy/image')) return url;
+    return '$apiBase/api/proxy/image?url=${Uri.encodeComponent(url)}';
   }
 
   /// 推断音频扩展名。
@@ -276,8 +284,8 @@ class ApiClient {
 
   static String getProxyAudioUrl(String? url) {
     if (url == null || url.isEmpty) return '';
-    if (url.startsWith('$kApiBase/api/proxy/audio')) return url;
-    return '$kApiBase/api/proxy/audio${_audioExt(url)}'
+    if (url.startsWith('$apiBase/api/proxy/audio')) return url;
+    return '$apiBase/api/proxy/audio${_audioExt(url)}'
         '?url=${Uri.encodeComponent(url)}';
   }
 
@@ -290,7 +298,7 @@ class ApiClient {
     if (song.mid.isEmpty) throw Exception('song.mid 不能为空');
     final resp = await _http
         .post(
-          Uri.parse('$kApiBase/api/song/download'),
+          Uri.parse('$apiBase/api/song/download'),
           headers: _headers(),
           body: jsonEncode({'song': song.toApiJson(), 'filename': filename}),
         )
@@ -319,7 +327,7 @@ class ApiClient {
 
     final resp = await _http
         .post(
-          Uri.parse('$kApiBase/api/song/url?mid=003aCYLn3L8H17&highQuality=true'),
+          Uri.parse('$apiBase/api/song/url?mid=003aCYLn3L8H17&highQuality=true'),
           headers: {'Content-Type': 'application/json', 'X-QQMusic-Cookie': clean},
           body: '{}',
         )
@@ -357,7 +365,7 @@ class ApiClient {
     try {
       await _http
           .post(
-            Uri.parse('$kApiBase/api/log'),
+            Uri.parse('$apiBase/api/log'),
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({
               'level': level,

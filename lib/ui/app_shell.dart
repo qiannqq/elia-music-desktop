@@ -15,6 +15,7 @@ import 'player_bar.dart';
 import 'sidebar.dart';
 import 'titlebar.dart';
 import 'toast_overlay.dart';
+import 'widgets/modal.dart';
 
 /// 应用外壳：标题栏 + 侧边栏 + 主内容 + 播放器栏 + Toast
 class AppShell extends StatefulWidget {
@@ -104,11 +105,8 @@ class _AppShellState extends State<AppShell> {
 
   Future<void> _openLyricsDialog() async {
     if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      barrierColor: Colors.transparent,
-      builder: (ctx) => LyricsDialog(state: state),
-    );
+    // 用统一 modal 外壳：深色遮罩 + 入场动画（等价原版 showModal('lyrics-overlay')）
+    await showAppModal<void>(context, LyricsDialog(state: state));
   }
 
   @override

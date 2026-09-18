@@ -7,6 +7,7 @@ import '../core/local_store.dart';
 import '../core/lyric.dart';
 import '../models/song.dart';
 import 'api_client.dart';
+import 'lyric_cache.dart';
 
 enum PlayMode { repeatAll, repeatOne, shuffle }
 
@@ -252,19 +253,10 @@ class PlayerController extends ChangeNotifier {
       return;
     }
     try {
-      final localLrc = LocalStore.get('custom_lyric_${song.mid}');
-      List<LyricLine> parsed;
-      if (localLrc != null && localLrc.trim().isNotEmpty) {
-        parsed = parseLrc(localLrc);
-      } else {
-        final res = song.isNetease
-            ? await ApiClient.neLyric(song.mid)
-            : await ApiClient.getLyric(song.mid);
-        if (gen != _lyricGeneration) return;
-        parsed = parseLrc(res.lyric);
-      }
+      // 走共享缓存：播放时即预取，歌词弹窗稍后打开可直接命中（不再重复拉网络）
+      final bundle = await LyricCache.load(song.mid, isNetease: song.isNetease);
       if (gen != _lyricGeneration) return;
-      lyricLines = parsed;
+      lyricLines = bundle?.lines ?? const [];
       activeLyricIndex = -1;
       notifyListeners();
     } catch (e) {

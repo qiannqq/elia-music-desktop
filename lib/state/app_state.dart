@@ -11,6 +11,7 @@ import '../core/local_store.dart';
 import '../core/lyric.dart';
 import '../models/song.dart';
 import '../services/api_client.dart';
+import '../services/lyric_cache.dart';
 import '../services/player_controller.dart';
 import 'toast.dart';
 
@@ -941,46 +942,63 @@ class AppState extends ChangeNotifier {
   List<LyricLineBox> currentLyricParsed = [];
   Map<double, String> currentLyricTransMap = {};
 
+  /// 正在拉取歌词（弹窗用来显示加载态，避免「点了没反应」）
+  bool lyricLoading = false;
+
   /// 歌词弹窗打开请求计数器（UI 层监听该值变化来弹出对话框）
   int lyricDialogRequest = 0;
 
-  /// 请求打开歌词弹窗（先加载歌词，再通知 UI）
+  /// 请求打开歌词弹窗。
+  ///
+  /// ⚠️ 顺序很重要：**先递增请求计数器把弹窗弹出来**，再取歌词。
+  /// 早期实现是「await 取完歌词再弹窗」，于是弹窗出现时间完全取决于网络，
+  /// 表现为「点歌词按钮时快时慢」。现在命中缓存瞬间显示，未命中则先显示加载态。
   Future<void> requestLyricDialog(String mid) async {
-    await loadLyricForModal(mid);
-    lyricDialogRequest++;
+    currentLyricMid = mid;
+    final song = findSong(mid);
+    final cached = LyricCache.peek(mid);
+
+    if (cached != null) {
+      _applyLyricBundle(cached);
+      lyricLoading = false;
+    } else {
+      currentLyricRaw = '';
+      currentLyricTrans = '';
+      currentLyricParsed = [];
+      currentLyricTransMap = {};
+      lyricLoading = true;
+    }
+    lyricDialogRequest++; // 先弹窗
+    notifyListeners();
+
+    if (cached != null) return;
+
+    final bundle = await LyricCache.load(mid, isNetease: song?.isNetease ?? false);
+    if (currentLyricMid != mid) return; // 期间用户又切了别的歌
+    if (bundle != null) _applyLyricBundle(bundle);
+    lyricLoading = false;
     notifyListeners();
   }
 
+  void _applyLyricBundle(LyricBundle b) {
+    currentLyricRaw = b.raw;
+    currentLyricTrans = b.trans;
+    currentLyricParsed =
+        b.lines.map((e) => LyricLineBox(e.time, e.text)).toList();
+    currentLyricTransMap = b.transMap;
+  }
+
+  /// 只加载歌词、不弹窗（供编辑态重载等场景使用）
   Future<void> loadLyricForModal(String mid) async {
     final song = findSong(mid);
-    final source = song?.source ?? 'qq';
     currentLyricMid = mid;
-    try {
-      var rawLyric = '';
-      var transText = '';
-
-      final localLrc = LocalStore.get('custom_lyric_$mid');
-      if (localLrc != null && localLrc.trim().isNotEmpty) {
-        rawLyric = localLrc;
-      } else {
-        final res = source == 'netease'
-            ? await ApiClient.neLyric(mid)
-            : await ApiClient.getLyric(mid);
-        rawLyric = res.lyric;
-        transText = res.trans;
-      }
-      final localTrans = LocalStore.get('custom_lyric_trans_$mid');
-      if (localTrans != null) transText = localTrans;
-
-      currentLyricRaw = rawLyric;
-      currentLyricTrans = transText;
-      currentLyricParsed =
-          parseLrc(rawLyric).map((e) => LyricLineBox(e.time, e.text)).toList();
-      currentLyricTransMap = parseTransLrc(transText);
-      notifyListeners();
-    } catch (e) {
-      toast.show('获取歌词失败: $e', type: ToastType.error);
-    }
+    lyricLoading = true;
+    notifyListeners();
+    final bundle = await LyricCache.load(mid, isNetease: song?.isNetease ?? false);
+    if (currentLyricMid != mid) return;
+    if (bundle != null) _applyLyricBundle(bundle);
+    lyricLoading = false;
+    notifyListeners();
   }
 
   void saveLyric(String raw, String trans) {
@@ -999,6 +1017,7 @@ class AppState extends ChangeNotifier {
     } else {
       LocalStore.set('custom_lyric_trans_$mid', trans);
     }
+    LyricCache.invalidate(mid); // 自定义歌词已变，缓存作废
     currentLyricRaw = raw;
     currentLyricTrans = trans;
     notifyListeners();

@@ -307,11 +307,18 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
           ),
         ),
         const SizedBox(height: 2),
-        Text(
-          song.name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(fontSize: 11, color: c.textTertiary),
+        // 歌曲名也可点击打开歌词（等价原版 `e.name.addEventListener('click',openLyricModal)`）
+        MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: _openLyric,
+            child: Text(
+              song.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 11, color: c.textTertiary),
+            ),
+          ),
         ),
       ],
     );
@@ -319,7 +326,9 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
 
   void _openLyric() {
     final song = player.currentSong;
-    if (song != null) widget.state.loadLyricForModal(song.mid);
+    // ⚠️ 必须用 requestLyricDialog：它先弹窗再取歌词。
+    // 早期误用 loadLyricForModal（只加载不弹窗），导致「点歌词没有任何反应」。
+    if (song != null) widget.state.requestLyricDialog(song.mid);
   }
 
   // ------------------------------------------------------------ 中间：控制 + 进度

@@ -30,6 +30,14 @@ class _LyricsDialogState extends State<LyricsDialog> {
   bool _programmaticScroll = false;
   int _scrollResumeTimer = 0;
 
+  /// 每行一个 GlobalKey —— 自动跟随靠 `Scrollable.ensureVisible` 按**实际布局**
+  /// 定位，而不是用假定的行高去算偏移。
+  /// （带翻译的行高约为不带翻译的两倍，用固定行高会让当前行慢慢跑出视野。）
+  final Map<int, GlobalKey> _lineKeys = {};
+  String? _keyMid;
+
+  GlobalKey _keyFor(int i) => _lineKeys.putIfAbsent(i, () => GlobalKey());
+
   @override
   void initState() {
     super.initState();
@@ -80,21 +88,29 @@ class _LyricsDialogState extends State<LyricsDialog> {
   }
 
   void _syncActive({bool scroll = false}) {
+    // 换歌后重置跟随状态
+    final mid = widget.state.currentLyricMid;
+    if (mid != _keyMid) {
+      _keyMid = mid;
+      _lastScrolledIdx = -1;
+      _autoFollow = true;
+    }
+
     final idx = _activeIndex();
     setState(() {});
     if (!scroll || idx < 0 || idx == _lastScrolledIdx || !_autoFollow) return;
+
+    final ctx = _lineKeys[idx]?.currentContext;
+    if (ctx == null) return;
     _lastScrolledIdx = idx;
-    if (!_scroll.hasClients) return;
-    const lineHeight = 28.0; // 14px 字号 * line-height 2
-    final target = (idx * lineHeight) - (_scroll.position.viewportDimension / 2) + lineHeight / 2;
     _programmaticScroll = true;
-    _scroll
-        .animateTo(
-          target.clamp(_scroll.position.minScrollExtent, _scroll.position.maxScrollExtent),
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        )
-        .whenComplete(() => _programmaticScroll = false);
+    // 等价原版 `activeEl.scrollIntoView({block:'center'})`：把当前行居中
+    Scrollable.ensureVisible(
+      ctx,
+      alignment: 0.5,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    ).whenComplete(() => _programmaticScroll = false);
   }
 
   void _startEdit() {
@@ -241,6 +257,19 @@ class _LyricsDialogState extends State<LyricsDialog> {
     int activeIdx,
   ) {
     if (lines.isEmpty) {
+      // 未命中缓存时先显示加载态，避免「点了没反应」
+      if (widget.state.lyricLoading) {
+        return Center(
+          child: SizedBox(
+            width: 22,
+            height: 22,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: c.accent,
+            ),
+          ),
+        );
+      }
       return Center(
         child: Text(
           '暂无歌词',
@@ -249,51 +278,59 @@ class _LyricsDialogState extends State<LyricsDialog> {
       );
     }
 
+    // 刻意**不做虚拟化**（与原版一致：所有行都在 DOM 里）：
+    // 只有全部行都挂载，`Scrollable.ensureVisible` 才能按真实布局把当前行居中。
+    // 歌词行数通常在几百以内，性能没有问题。
     return Scrollbar(
       controller: _scroll,
-      child: ListView.builder(
+      child: SingleChildScrollView(
         controller: _scroll,
         padding: const EdgeInsets.symmetric(vertical: 8),
-        itemCount: lines.length,
-        itemBuilder: (ctx, i) {
-          final line = lines[i];
-          final trans = transMap[line.time] ?? '';
-          final active = i == activeIdx;
-          return HoverBuilder(
-            builder: (_, hovered) => GestureDetector(
-              onTap: () => _seekTo(line.time),
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: active
-                      ? c.accentLight
-                      : (hovered ? c.hover : Colors.transparent),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      line.text,
-                      style: TextStyle(
-                        fontSize: 14,
-                        height: 2,
-                        color: active ? c.accent : c.textTertiary,
-                        fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-                      ),
-                    ),
-                    if (trans.isNotEmpty)
-                      Text(
-                        trans,
-                        style: TextStyle(fontSize: 12, color: c.textTertiary, height: 1.8),
-                      ),
-                  ],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < lines.length; i++)
+              KeyedSubtree(
+                key: _keyFor(i),
+                child: _buildLine(c, lines[i], transMap[lines[i].time] ?? '', i == activeIdx),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLine(AppColors c, LyricLineBox line, String trans, bool active) {
+    return HoverBuilder(
+      builder: (_, hovered) => GestureDetector(
+        onTap: () => _seekTo(line.time),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: active ? c.accentLight : (hovered ? c.hover : Colors.transparent),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                line.text,
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 2,
+                  color: active ? c.accent : c.textTertiary,
+                  fontWeight: active ? FontWeight.w600 : FontWeight.w400,
                 ),
               ),
-            ),
-          );
-        },
+              if (trans.isNotEmpty)
+                Text(
+                  trans,
+                  style: TextStyle(fontSize: 12, color: c.textTertiary, height: 1.8),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }

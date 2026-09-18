@@ -44,18 +44,24 @@ class HttpServerService {
 
   bool get isRunning => _server != null;
 
-  Future<void> start([int? p]) async {
-    if (_server != null) return;
-    port = p ?? 17071;
+  /// 启动服务并返回**实际监听端口**。
+  ///
+  /// 传 0（或不传）时由系统分配一个空闲端口 —— 这是默认行为，用于避免
+  /// 与原版 Electron 的固定 17071 端口冲突（两个版本可同时运行）。
+  Future<int> start([int p = 0]) async {
+    if (_server != null) return port;
     try {
-      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, port, shared: false);
+      final server =
+          await HttpServer.bind(InternetAddress.loopbackIPv4, p, shared: false);
       _server = server;
+      port = server.port;
       fileLogger.info('HTTP', 'Server running at http://127.0.0.1:$port');
       server.listen(_handle, onError: (Object e) {
         fileLogger.error('HTTP', 'listen error: $e');
       });
+      return port;
     } catch (e) {
-      fileLogger.error('HTTP', 'bind failed on $port: $e');
+      fileLogger.error('HTTP', 'bind failed on $p: $e');
       rethrow;
     }
   }

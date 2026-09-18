@@ -15,8 +15,6 @@ import 'state/app_state.dart';
 import 'state/theme_controller.dart';
 import 'ui/app_shell.dart';
 
-const int kHttpPort = 17071;
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -30,27 +28,25 @@ Future<void> main() async {
 
   _setupErrorLogging();
 
+  // ---- 单实例：用**独占文件锁**，不用端口 ----
+  // 早期版本靠「固定端口 17071 绑定失败」判定单实例，结果与原版 Electron
+  // 互相抢占：打开重构版后，原版渲染进程加载页面时报 Not Found。
+  // 现在两者各用各的锁/端口，可以同时运行。
+  if (!await _acquireSingleInstanceLock()) {
+    fileLogger.info('App', 'another instance is already running, exit');
+    stderr.writeln('Elia Music 已在运行，本次启动退出。');
+    _forceExit(0);
+  }
+
   themeController.init();
   await app.init();
   await player.init();
 
-  // ---- 本地 HTTP API 服务（等价原 `httpServerService.start(port)`）----
-  // 端口被占用说明已有实例在运行 —— 等价原 `singleLock: true`。
-  // 注意：Flutter 3.47 在 Windows 上关闭窗口后引擎会卡在关闭流程，
-  // 进程可能残留并继续占用端口，因此这里先重试等待，再明确报错。
-  for (var attempt = 0; attempt < 3; attempt++) {
-    try {
-      await httpServerService.start(kHttpPort);
-      break;
-    } on SocketException catch (e) {
-      if (attempt == 2) {
-        fileLogger.error('App', 'port $kHttpPort unavailable: $e');
-        stderr.writeln('端口 $kHttpPort 被占用（可能已有实例在运行），本次启动退出。');
-        _forceExit(0);
-      }
-      await Future<void>.delayed(const Duration(milliseconds: 800));
-    }
-  }
+  // ---- 本地 HTTP API 服务 ----
+  // 端口**由系统分配空闲端口**（不再固定 17071），避免与原版 Electron 冲突。
+  final apiPort = await httpServerService.start();
+  setApiPort(apiPort);
+  fileLogger.info('App', 'local API listening on $apiPort');
 
   // ---- 窗口（无边框 + 自绘标题栏，等价 frame:false）----
   await windowManager.ensureInitialized();
@@ -88,6 +84,39 @@ class _AppLifecycle with WindowListener {
   void onWindowClose() {
     fileLogger.info('App', 'window close requested, shutting down');
     _forceExit(0);
+  }
+}
+
+/// 单实例锁（独占文件锁）。
+///
+/// 返回 false 表示已有实例在运行。
+/// 用文件锁而不用端口，是为了不与原版 Electron 的固定 17071 端口互相干扰。
+/// 持有单实例锁的文件句柄。
+/// **必须保持打开**：句柄一旦关闭锁就释放了（进程退出时由系统自动释放）。
+RandomAccessFile? instanceLockFile;
+
+Future<bool> _acquireSingleInstanceLock() async {
+  try {
+    final f = File('${AppPaths.dataDir}${Platform.pathSeparator}.instance.lock');
+    await f.parent.create(recursive: true);
+    // 用 append 打开，避免 FileMode.write 把锁文件截断
+    final raf = await f.open(mode: FileMode.append);
+    if (await raf.length() == 0) {
+      await raf.writeString('lock');
+      await raf.flush();
+    }
+    // ⚠️ 必须显式给出字节范围。`lock()` 的 end 默认是 -1（= 锁到文件末尾），
+    // 对**空文件**会退化成「锁 0 个字节」—— 等于完全没锁，
+    // 两个实例都能拿到锁（实测踩过）。这里固定锁 offset 0 的 1 个字节。
+    await raf.lock(FileLock.exclusive, 0, 1);
+    instanceLockFile = raf;
+    return true;
+  } on FileSystemException {
+    return false; // 锁被占用 —— 已有实例
+  } catch (e) {
+    // 其它异常（如权限）不应阻止启动
+    fileLogger.error('App', 'instance lock error: $e');
+    return true;
   }
 }
 
