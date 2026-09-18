@@ -549,12 +549,9 @@ class _VolumeControlState extends State<_VolumeControl> {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                AppIcon(
-                  AppIcons.volume,
-                  size: 16,
-                  color: _expanded ? c.accent : c.textTertiary,
-                ),
-                // 展开/收起动画：宽度 0 ↔ 80
+                // 展开/收起动画：宽度 0 ↔ 80，**在图标左侧**展开
+                // （对齐参考图：音量图标锚在控件组最右，滑块往组内长，
+                //  而不是往右伸到右侧空白区）。
                 // ⚠️ 必须同时给**有限高度**：里面是 OverflowBox（按父级约束定尺寸），
                 // 若高度无界会抛 "RenderConstrainedOverflowBox was given an
                 // infinite size during layout"（实测踩过）。
@@ -568,9 +565,10 @@ class _VolumeControlState extends State<_VolumeControl> {
                       opacity: _expanded ? 1 : 0,
                       duration: _expandDuration,
                       curve: Curves.easeOut,
-                      // OverflowBox：让滑块始终保持 80px，被外层宽度裁剪出「展开」效果
+                      // OverflowBox：让滑块始终保持 80px，被外层宽度裁剪出「展开」效果。
+                      // 右对齐 → 宽度变小时从左侧收起。
                       child: OverflowBox(
-                        alignment: Alignment.centerLeft,
+                        alignment: Alignment.centerRight,
                         minWidth: _sliderWidth,
                         maxWidth: _sliderWidth,
                         child: _VolumeSlider(
@@ -585,6 +583,11 @@ class _VolumeControlState extends State<_VolumeControl> {
                       ),
                     ),
                   ),
+                ),
+                AppIcon(
+                  AppIcons.volume,
+                  size: 16,
+                  color: _expanded ? c.accent : c.textTertiary,
                 ),
               ],
             ),

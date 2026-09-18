@@ -99,7 +99,10 @@ class _SearchPageState extends State<SearchPage> {
                 children: [
                   const SizedBox(height: 16),
                   _buildResultsHeader(c, state),
-                  const SizedBox(height: 16),
+                  // ⚠️ 比上面那个 16 小：结果头部的按钮比文字高，
+                  // 文字垂直居中后下方天然多出约 6px，这里减掉才能让
+                  // 「搜索框→标题」与「标题→卡片」两段视觉间距一致。
+                  const SizedBox(height: 10),
                   _buildGrid(context, state),
                   if (state.searchKeyword.isNotEmpty && !state.isPlaylistPage)
                     _buildPagination(c, state),
@@ -157,7 +160,13 @@ class _SearchPageState extends State<SearchPage> {
         borderRadius: BorderRadius.circular(c.radiusLg),
       ),
       padding: const EdgeInsets.only(left: 16, right: 4),
-      child: Row(
+      // ⚠️ 整条都聚焦输入框：
+      // TextField 用了 isDense，实际高度只有 ~20px，而外框 44px ——
+      // 点到上下留白时不会聚焦，用户会觉得「可点击区域很小」。
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _focus.requestFocus(),
+        child: Row(
         children: [
           AppIcon(AppIcons.search, size: 18, color: c.textTertiary),
           Expanded(
@@ -212,6 +221,7 @@ class _SearchPageState extends State<SearchPage> {
             ),
           ),
         ],
+        ),
       ),
     );
   }
