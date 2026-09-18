@@ -311,55 +311,106 @@ class _Popup extends StatelessWidget {
     final c = context.c;
     final song = state.findSong(mid);
 
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        width: 168,
-        padding: EdgeInsets.only(
-          left: 6,
-          right: 6,
-          top: flipUp ? 6 : 36,
-          bottom: flipUp ? 36 : 6,
+    // 等价原 CSS `.add-btn-popup`：
+    //   transform: scale(0.8) → scale(1) + opacity 0 → 1，
+    //   250ms，cubic-bezier(0.16,1,0.3,1)，transform-origin 按翻转方向取角。
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 250),
+      curve: const Cubic(0.16, 1, 0.3, 1),
+      builder: (ctx, t, child) => Opacity(
+        opacity: t.clamp(0.0, 1.0),
+        child: Transform.scale(
+          scale: 0.8 + 0.2 * t,
+          alignment: flipUp
+              ? (flipLeft ? Alignment.bottomRight : Alignment.bottomLeft)
+              : (flipLeft ? Alignment.topRight : Alignment.topLeft),
+          child: child,
         ),
-        decoration: BoxDecoration(
-          color: c.card,
-          border: Border.all(color: c.border),
-          borderRadius: BorderRadius.circular(8),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.15),
-              blurRadius: 16,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _PopupItem(
-              label: '添加到歌单顶部',
-              onTap: () {
-                onClose();
-                if (song == null) return;
-                if (state.isAdded(song.mid)) {
-                  state.showInfo('已存在: ${song.name}');
-                  return;
-                }
-                state.addToTop(song);
-                state.showSuccess('已置顶: ${song.name}');
-              },
-            ),
-            _PopupItem(
-              label: '添加到歌单底部',
-              onTap: () {
-                onClose();
-                if (song == null) return;
-                if (state.addToList(song)) {
-                  state.showSuccess('已添加: ${song.name}');
-                }
-              },
-            ),
-          ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          width: 168,
+          decoration: BoxDecoration(
+            color: c.card,
+            border: Border.all(color: c.border),
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.15),
+                blurRadius: 16,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          // Stack 放在 padding 外层：原版的 `.add-btn-popup-header` 是相对弹窗
+          // 左上角（0,0）定位的，不在 36px 留白之内。
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Padding(
+                padding: EdgeInsets.only(
+                  left: 6,
+                  right: 6,
+                  top: flipUp ? 6 : 36,
+                  bottom: flipUp ? 36 : 6,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _PopupItem(
+                      label: '添加到歌单顶部',
+                      onTap: () {
+                        onClose();
+                        if (song == null) return;
+                        if (state.isAdded(song.mid)) {
+                          state.showInfo('已存在: ${song.name}');
+                          return;
+                        }
+                        state.addToTop(song);
+                        state.showSuccess('已置顶: ${song.name}');
+                      },
+                    ),
+                    _PopupItem(
+                      label: '添加到歌单底部',
+                      onTap: () {
+                        onClose();
+                        if (song == null) return;
+                        if (state.addToList(song)) {
+                          state.showSuccess('已添加: ${song.name}');
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              // 展开态的头像按钮：弹窗背景会盖住原来那个「+」，
+              // 所以这里按原版渲染一个已旋转 45°（即「×」）的关闭按钮。
+              Positioned(
+                left: flipLeft ? null : 0,
+                right: flipLeft ? 0 : null,
+                top: flipUp ? null : 0,
+                bottom: flipUp ? 0 : null,
+                child: GestureDetector(
+                  onTap: onClose,
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: SizedBox(
+                      width: 32,
+                      height: 32,
+                      child: Center(
+                        child: Transform.rotate(
+                          angle: 0.7853981633974483, // 45°
+                          child: _PlusIcon(color: c.accent),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -260,7 +260,7 @@ class NeteaseMusicService {
         if (resp.statusCode < 200 || resp.statusCode >= 300) {
           throw Exception('网易云接口请求失败：${resp.statusCode}');
         }
-        return jsonDecode(resp.body) as Map<String, dynamic>;
+        return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
       } catch (e) {
         lastErr = e;
         if (i < 2) await Future.delayed(Duration(milliseconds: 500 * (i + 1)));
@@ -279,7 +279,7 @@ class NeteaseMusicService {
         if (resp.statusCode < 200 || resp.statusCode >= 300) {
           throw Exception('网易云接口请求失败：${resp.statusCode}');
         }
-        return jsonDecode(resp.body) as Map<String, dynamic>;
+        return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
       } catch (e) {
         lastErr = e;
         if (i < 2) await Future.delayed(Duration(milliseconds: 500 * (i + 1)));

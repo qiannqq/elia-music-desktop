@@ -20,6 +20,13 @@ const String kSongIdUrl = 'https://c.y.qq.com/v8/fcg-bin/fcg_play_single_song.fc
 const String _qrcKeyStr = r'!@#)(*$%123ZXC!@!@#)(NHL';
 
 /// QQ 音乐服务 —— `electron/service/qqmusic.js` 的 Dart 移植。
+///
+/// ⚠️ 所有响应体都用 `utf8.decode(resp.bodyBytes)` 解码，**不要用 `resp.body`**：
+/// QQ 音乐接口返回的响应头是 `text/plain; charset=utf-8;`（**末尾多一个分号**），
+/// 而 `package:http` 的 `Response.body` 会用 `ContentType.parse()` 解析该头，
+/// Dart 的解析器遇到多余分号会抛
+/// `FormatException: Invalid media type: expected /; ...`，
+/// 导致所有接口调用直接失败。
 class QQMusicService {
   QQMusicService();
 
@@ -287,7 +294,7 @@ class QQMusicService {
         'Cookie': cookie,
       }).timeout(const Duration(seconds: 30));
 
-      var text = resp.body;
+      var text = utf8.decode(resp.bodyBytes);
       text = text.replaceFirst(RegExp(r'^cb\('), '');
       text = text.replaceFirst(RegExp(r'\)\s*;?\s*$'), '');
       final json = jsonDecode(text) as Map?;
@@ -323,7 +330,7 @@ class QQMusicService {
           .join('&'),
     ).timeout(const Duration(seconds: 30));
 
-    final xml = resp.body;
+    final xml = utf8.decode(resp.bodyBytes);
     final clean = xml
         .replaceAll('<!--', '')
         .replaceAll('-->', '')
@@ -403,7 +410,7 @@ class QQMusicService {
       'Cookie': cookie,
     }).timeout(const Duration(seconds: 30));
 
-    final res = jsonDecode(resp.body) as Map<String, dynamic>;
+    final res = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
     String b64(Object? v) {
       if (v == null) return '';
       final s = v.toString();
@@ -434,7 +441,7 @@ class QQMusicService {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       }).timeout(const Duration(seconds: 30));
 
-      final res = jsonDecode(resp.body) as Map?;
+      final res = jsonDecode(utf8.decode(resp.bodyBytes)) as Map?;
       return _isOkCode(res?['code']);
     } catch (_) {
       return false;
@@ -472,7 +479,7 @@ class QQMusicService {
       body: jsonEncode(body),
     ).timeout(const Duration(seconds: 30));
 
-    final data = jsonDecode(resp.body) as Map<String, dynamic>;
+    final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
     final req0 = data['req_0'] as Map?;
     if (!_isOkCode(req0?['code'])) throw Exception('获取歌单失败');
 
@@ -529,7 +536,7 @@ class QQMusicService {
         if (resp.statusCode < 200 || resp.statusCode >= 300) {
           throw Exception('QQ音乐接口请求失败：${resp.statusCode}');
         }
-        return jsonDecode(resp.body) as Map<String, dynamic>;
+        return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
       } catch (e) {
         lastErr = e;
         if (i < 2) await Future.delayed(Duration(milliseconds: 500 * (i + 1)));

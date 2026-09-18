@@ -225,60 +225,77 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
               height: kLyricLineHeight,
               child: ClipRect(
                 child: Stack(
+                  // 只有 Positioned 子节点 → Stack 尺寸取 constraints.biggest（=24），
+                  // 不会被超长的歌词 Column 撑开
                   children: [
                     // 歌词滚动区
-                    AnimatedOpacity(
-                      duration: const Duration(milliseconds: 300),
-                      opacity: showLyric ? 1 : 0,
-                      child: TweenAnimationBuilder<double>(
-                        tween: Tween(
-                          begin: 0,
-                          end: -(idx.clamp(0, math.max(0, lines.length - 1))) * kLyricLineHeight,
-                        ),
-                        duration: const Duration(milliseconds: 400),
-                        curve: Curves.easeOutCubic,
-                        builder: (ctx, offset, _) => Transform.translate(
-                          offset: Offset(0, offset),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              for (var i = 0; i < lines.length; i++)
-                                SizedBox(
-                                  height: kLyricLineHeight,
-                                  child: Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: Text(
-                                      lines[i].text,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: i == idx ? 13 : 12,
-                                        fontWeight:
-                                            i == idx ? FontWeight.w600 : FontWeight.w400,
-                                        color: i == idx ? c.accent : c.textTertiary,
+                    Positioned.fill(
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 300),
+                        opacity: showLyric ? 1 : 0,
+                        child: TweenAnimationBuilder<double>(
+                          tween: Tween(
+                            begin: 0,
+                            end: -(idx.clamp(0, math.max(0, lines.length - 1))) *
+                                kLyricLineHeight,
+                          ),
+                          duration: const Duration(milliseconds: 400),
+                          curve: Curves.easeOutCubic,
+                          builder: (ctx, offset, child) => Transform.translate(
+                            offset: Offset(0, offset),
+                            child: child,
+                          ),
+                          // ⚠️ 必须用 OverflowBox 解除高度约束：Positioned.fill 给的是
+                          // **紧约束**，而歌词总高（几十行 × 24px）远超 24px，
+                          // 直接放 Column 会触发 RenderFlex overflow（实测溢出 1584px）。
+                          child: OverflowBox(
+                            alignment: Alignment.topLeft,
+                            minHeight: 0,
+                            maxHeight: double.infinity,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                for (var i = 0; i < lines.length; i++)
+                                  SizedBox(
+                                    height: kLyricLineHeight,
+                                    child: Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: Text(
+                                        lines[i].text,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: i == idx ? 13 : 12,
+                                          fontWeight: i == idx
+                                              ? FontWeight.w600
+                                              : FontWeight.w400,
+                                          color: i == idx ? c.accent : c.textTertiary,
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ),
                     // 歌名浮层（歌词暂停态显示）
-                    AnimatedOpacity(
-                      duration: const Duration(milliseconds: 300),
-                      opacity: showLyric ? 0 : 1,
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          song.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: c.text,
+                    Positioned.fill(
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 300),
+                        opacity: showLyric ? 0 : 1,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            song.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: c.text,
+                            ),
                           ),
                         ),
                       ),
@@ -555,7 +572,10 @@ class _VolumeSlider extends StatelessWidget {
               onHorizontalDragEnd: (_) => onEnd(),
               onTapUp: (_) => onEnd(),
               child: Center(
+                // ⚠️ 同 AppProgressBar：轨道必须显式撑满宽度，
+                // 否则 Center 的松约束会让它缩成填充条宽度并居中。
                 child: Container(
+                  width: double.infinity,
                   height: 4,
                   decoration: BoxDecoration(
                     color: c.progressBg,

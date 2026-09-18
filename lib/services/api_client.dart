@@ -256,10 +256,29 @@ class ApiClient {
     return '$kApiBase/api/proxy/image?url=${Uri.encodeComponent(url)}';
   }
 
+  /// 推断音频扩展名。
+  ///
+  /// ⚠️ 这个后缀是**必需的**：`audioplayers_windows` 走 Media Foundation 的
+  /// `CreateObjectFromURL`，它**靠 URL 路径后缀**挑选字节流处理器。
+  /// 若代理地址形如 `/api/proxy/audio?url=...`（无后缀），会直接抛
+  /// `PlatformException(WindowsAudioError, Failed to set source)`（0xC00D2EE3），
+  /// 表现为「能取到流但播不出声」。
+  static String _audioExt(String url) {
+    const known = {'.mp3', '.m4a', '.flac', '.ogg', '.wav', '.aac', '.opus', '.wma'};
+    final path = Uri.tryParse(url)?.path ?? '';
+    final dot = path.lastIndexOf('.');
+    if (dot >= 0) {
+      final ext = path.substring(dot).toLowerCase();
+      if (known.contains(ext)) return ext;
+    }
+    return '.mp3';
+  }
+
   static String getProxyAudioUrl(String? url) {
     if (url == null || url.isEmpty) return '';
     if (url.startsWith('$kApiBase/api/proxy/audio')) return url;
-    return '$kApiBase/api/proxy/audio?url=${Uri.encodeComponent(url)}';
+    return '$kApiBase/api/proxy/audio${_audioExt(url)}'
+        '?url=${Uri.encodeComponent(url)}';
   }
 
   // ------------------------------------------------------------ 下载 / 校验

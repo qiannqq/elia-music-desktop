@@ -201,22 +201,33 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget _buildResultsHeader(AppColors c, AppState state) {
+    // ⚠️ 标题组用 Expanded 占满剩余空间，**不要**再用 Spacer：
+    // `Flexible`(flex:1) 与 `Spacer`(flex:1) 会平分剩余空间，标题只取自身宽度、
+    // 留下一段空白，右侧按钮就被推到中间而不是最右侧（等价原 CSS 的
+    // `.results-header{justify-content:space-between}`）。
     return Row(
       children: [
-        Flexible(
-          child: Text(
-            state.searchKeyword.isEmpty ? '搜索结果' : state.searchKeyword,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: c.text),
+        Expanded(
+          child: Row(
+            children: [
+              Flexible(
+                child: Text(
+                  state.searchKeyword.isEmpty ? '搜索结果' : state.searchKeyword,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: c.text),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${state.searchResults.length} 首',
+                style: TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w500, color: c.textTertiary),
+              ),
+            ],
           ),
         ),
-        const SizedBox(width: 8),
-        Text(
-          '${state.searchResults.length} 首',
-          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: c.textTertiary),
-        ),
-        const Spacer(),
+        const SizedBox(width: 12),
         AppButton(
           label: '全部添加',
           small: true,

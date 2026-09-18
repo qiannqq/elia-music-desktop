@@ -176,6 +176,18 @@ class HttpServerService {
     final url = req.uri;
     final q = url.queryParameters;
 
+    // 代理路由用**前缀匹配**：客户端会在路径上带音频后缀
+    // （`/api/proxy/audio.mp3?url=...`），因为 audioplayers 的 Windows 后端
+    // 依赖 URL 后缀来判断容器格式。同时保留无后缀的旧路径以兼容。
+    if (req.method == 'GET') {
+      if (pathname.startsWith('/api/proxy/audio')) {
+        return _apiProxyAudio(req, res, q);
+      }
+      if (pathname.startsWith('/api/proxy/image')) {
+        return _apiProxyImage(req, res, q);
+      }
+    }
+
     switch (key) {
       case 'GET:/api/search':
         return _apiSearch(req, res, q);

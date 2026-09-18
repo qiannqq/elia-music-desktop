@@ -80,35 +80,40 @@ class AppButton extends StatelessWidget {
         break;
     }
 
-    return HoverBuilder(
-      cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
-      builder: (ctx, hovered) {
-        var hoverBg = bg;
-        var hoverFg = fg;
-        if (enabled && hovered) {
-          switch (variant) {
-            case AppButtonVariant.primary:
-              hoverBg = c.accentHover;
-              break;
-            case AppButtonVariant.accent:
-              hoverBg = c.accent;
-              hoverFg = c.accentText;
-              break;
-            case AppButtonVariant.secondary:
-            case AppButtonVariant.ghost:
-              hoverBg = c.hover;
-              hoverFg = c.text;
-              break;
+    // ⚠️ GestureDetector 是必需的：早期版本只写了 HoverBuilder（hover 样式），
+    // 忘了接点击处理，导致全应用的按钮都点不动。
+    return GestureDetector(
+      onTap: enabled ? onPressed : null,
+      child: HoverBuilder(
+        cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        builder: (ctx, hovered) {
+          var hoverBg = bg;
+          var hoverFg = fg;
+          if (enabled && hovered) {
+            switch (variant) {
+              case AppButtonVariant.primary:
+                hoverBg = c.accentHover;
+                break;
+              case AppButtonVariant.accent:
+                hoverBg = c.accent;
+                hoverFg = c.accentText;
+                break;
+              case AppButtonVariant.secondary:
+              case AppButtonVariant.ghost:
+                hoverBg = c.hover;
+                hoverFg = c.text;
+                break;
+            }
           }
-        }
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          padding: EdgeInsets.symmetric(horizontal: small ? 10 : 16, vertical: small ? 4 : 6),
-          decoration: BoxDecoration(
-            color: hoverBg,
-            borderRadius: BorderRadius.circular(c.radius),
-            border: border,
-          ),
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            padding:
+                EdgeInsets.symmetric(horizontal: small ? 10 : 16, vertical: small ? 4 : 6),
+            decoration: BoxDecoration(
+              color: hoverBg,
+              borderRadius: BorderRadius.circular(c.radius),
+              border: border,
+            ),
           child: Opacity(
             opacity: enabled ? 1 : 0.5,
             child: Row(
@@ -130,8 +135,9 @@ class AppButton extends StatelessWidget {
               ],
             ),
           ),
-        );
-      },
+          );
+        },
+      ),
     );
   }
 }
@@ -172,21 +178,33 @@ class AppIconButton extends StatelessWidget {
     final c = context.c;
     final base = baseColor ?? c.textSecondary;
 
-    Widget child = HoverBuilder(
-      builder: (ctx, hovered) {
-        final fg = hovered ? (hoverColor ?? (accentHover ? c.accent : c.text)) : base;
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            color: hovered ? (hoverBg ?? (accentHover ? c.accentLight : c.hover)) : Colors.transparent,
-            borderRadius: BorderRadius.circular(6),
-            border: bordered ? Border.all(color: hovered && accentHover ? c.accent : c.borderSubtle) : null,
-          ),
-          child: Center(child: AppIcon(icon, size: iconSize, color: fg, filled: filled)),
-        );
-      },
+    // ⚠️ GestureDetector 是必需的：早期版本只写了 HoverBuilder（hover 样式），
+    // 忘了接点击处理，导致全应用的图标按钮（试听/下载/歌词/删除等）都点不动。
+    Widget child = GestureDetector(
+      onTap: onTap,
+      child: HoverBuilder(
+        cursor: onTap == null
+            ? SystemMouseCursors.basic
+            : SystemMouseCursors.click,
+        builder: (ctx, hovered) {
+          final fg = hovered ? (hoverColor ?? (accentHover ? c.accent : c.text)) : base;
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              color: hovered
+                  ? (hoverBg ?? (accentHover ? c.accentLight : c.hover))
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(6),
+              border: bordered
+                  ? Border.all(color: hovered && accentHover ? c.accent : c.borderSubtle)
+                  : null,
+            ),
+            child: Center(child: AppIcon(icon, size: iconSize, color: fg, filled: filled)),
+          );
+        },
+      ),
     );
 
     if (tooltip != null) {
@@ -333,8 +351,13 @@ class AppProgressBar extends StatelessWidget {
             child: SizedBox(
               height: math.max(height, draggable ? hoverHeight : height),
               child: Center(
+                // ⚠️ 轨道必须显式撑满宽度（width: double.infinity）：
+                // 否则 Center 给的**松约束**会让轨道缩成「填充条」的宽度，
+                // 而填充条又是按轨道宽度算比例 —— 两者互相约束，
+                // 结果进度条只有一小截且居中（实测宽度只剩 ~15%、还跑到中间）。
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 120),
+                  width: double.infinity,
                   height: draggable && hovered ? hoverHeight : height,
                   decoration: BoxDecoration(
                     color: c.progressBg,
