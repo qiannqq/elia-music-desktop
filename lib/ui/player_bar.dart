@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
@@ -34,6 +35,9 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
   );
 
   bool _draggingProgress = false;
+
+  /// 拖动进度条前的播放状态 —— 松手后据此决定要不要恢复播放
+  bool _wasPlayingBeforeSeek = false;
   double _dragProgress = 0;
 
   @override
@@ -308,15 +312,21 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
         ),
         const SizedBox(height: 2),
         // 歌曲名也可点击打开歌词（等价原版 `e.name.addEventListener('click',openLyricModal)`）
-        MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: GestureDetector(
-            onTap: _openLyric,
-            child: Text(
-              song.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 11, color: c.textTertiary),
+        // ⚠️ 命中区要**撑满整行宽**：只包住 Text 的话，可点击范围就只有文字那点宽度，
+        // 点到文字旁边的空白就无效（用户反馈「点歌名不弹歌词」正是这个）。
+        SizedBox(
+          width: double.infinity,
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _openLyric,
+              child: Text(
+                song.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11, color: c.textTertiary),
+              ),
             ),
           ),
         ),
@@ -457,13 +467,23 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
                   height: 4,
                   hoverHeight: 6,
                   draggable: true,
-                  onSeek: (v) {
-                    setState(() {
-                      _draggingProgress = true;
-                      _dragProgress = v;
-                    });
+                  // 拖动过程中**只更新本地预览**，不真的 seek ——
+                  // 边拖边 seek 会让音频不停跳转，听感很鬼畜（用户反馈）。
+                  onSeek: (v) => setState(() {
+                    _draggingProgress = true;
+                    _dragProgress = v;
+                  }),
+                  // 按下/开始拖动：先暂停，并记住拖动前的播放状态
+                  onSeekStart: () {
+                    _wasPlayingBeforeSeek = player.isPlaying;
+                    player.pause();
+                  },
+                  // 松手/抬起：真正 seek，然后还原拖动前的播放状态
+                  onSeekEnd: () {
+                    final v = _dragProgress;
+                    setState(() => _draggingProgress = false);
                     player.seekPercent(v).then((_) {
-                      if (mounted) setState(() => _draggingProgress = false);
+                      if (_wasPlayingBeforeSeek) player.resume();
                     });
                   },
                 ),
@@ -550,19 +570,43 @@ class _VolumeControl extends StatefulWidget {
 class _VolumeControlState extends State<_VolumeControl> {
   bool _hovered = false;
   bool _dragging = false;
+  Timer? _collapseTimer;
 
   static const _expandDuration = Duration(milliseconds: 180);
   static const _sliderWidth = 80.0;
 
+  /// 收起延迟：图标与滑块之间有几像素空隙，鼠标从图标移向滑块时会
+  /// 短暂离开两者的命中区。若立刻收起，就变成「刚要去拖，它先缩回去了」
+  /// （用户反馈）。延迟一点、期间重新进入就取消，手感就正常了。
+  static const _collapseDelay = Duration(milliseconds: 220);
+
   bool get _expanded => _hovered || _dragging;
+
+  void _enter() {
+    _collapseTimer?.cancel();
+    if (!_hovered) setState(() => _hovered = true);
+  }
+
+  void _exit() {
+    _collapseTimer?.cancel();
+    _collapseTimer = Timer(_collapseDelay, () {
+      if (mounted) setState(() => _hovered = false);
+    });
+  }
+
+  @override
+  void dispose() {
+    _collapseTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onEnter: (_) => _enter(),
+      onExit: (_) => _exit(),
       child: Listener(
         // 滚轮调音量
         onPointerSignal: (event) {
@@ -592,8 +636,8 @@ class _VolumeControlState extends State<_VolumeControl> {
               left: 20,
               top: -2,
               child: MouseRegion(
-                onEnter: (_) => setState(() => _hovered = true),
-                onExit: (_) => setState(() => _hovered = false),
+                onEnter: (_) => _enter(),
+                onExit: (_) => _exit(),
                 child: AnimatedContainer(
                   duration: _expandDuration,
                   curve: Curves.easeOut,

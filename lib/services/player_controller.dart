@@ -227,6 +227,22 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
+  /// 暂停（拖动进度条时用；已在暂停状态则忽略）
+  Future<void> pause() async {
+    if (!isPlaying) return;
+    try {
+      await _player.pause();
+    } catch (_) {}
+  }
+
+  /// 恢复播放（拖完进度条后还原拖动前的状态）
+  Future<void> resume() async {
+    if (isPlaying || currentSong == null) return;
+    try {
+      await _player.resume();
+    } catch (_) {}
+  }
+
   Future<void> close() async {
     try {
       await _player.stop();

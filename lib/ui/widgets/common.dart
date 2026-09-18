@@ -322,13 +322,24 @@ class AppProgressBar extends StatelessWidget {
     this.height = 4,
     this.hoverHeight = 6,
     this.onSeek,
+    this.onSeekStart,
+    this.onSeekEnd,
     this.draggable = false,
   });
 
   final double value;
   final double height;
   final double hoverHeight;
+
+  /// 拖动/点击过程中回调（用于更新本地预览值，不要在这里真的 seek）
   final ValueChanged<double>? onSeek;
+
+  /// 开始拖动（按下或拖动起点）—— 用于暂停播放
+  final VoidCallback? onSeekStart;
+
+  /// 结束拖动（松手或点击抬起）—— 用于真正 seek + 恢复播放
+  final VoidCallback? onSeekEnd;
+
   final bool draggable;
 
   @override
@@ -346,8 +357,15 @@ class AppProgressBar extends StatelessWidget {
           builder: (_, hovered) => GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTapDown: draggable ? (d) => seekAt(d.localPosition) : null,
-            onHorizontalDragStart: draggable ? (d) => seekAt(d.localPosition) : null,
+            onTapUp: draggable ? (_) => onSeekEnd?.call() : null,
+            onHorizontalDragStart: draggable
+                ? (d) {
+                    seekAt(d.localPosition);
+                    onSeekStart?.call();
+                  }
+                : null,
             onHorizontalDragUpdate: draggable ? (d) => seekAt(d.localPosition) : null,
+            onHorizontalDragEnd: draggable ? (_) => onSeekEnd?.call() : null,
             child: SizedBox(
               height: math.max(height, draggable ? hoverHeight : height),
               child: Center(
