@@ -1,0 +1,278 @@
+import 'package:flutter/material.dart';
+
+import '../../core/app_theme.dart';
+import '../../models/song.dart';
+import '../../services/api_client.dart';
+import '../../services/player_controller.dart';
+import '../../state/app_state.dart';
+import '../icons.dart';
+import '../widgets/common.dart';
+import '../widgets/dialogs.dart';
+import '../widgets/song_actions.dart';
+
+/// 歌单页 —— 对应 `#page-playlist`
+class PlaylistPage extends StatefulWidget {
+  const PlaylistPage({
+    super.key,
+    required this.state,
+    required this.scrollController,
+    required this.onOpenLyric,
+  });
+
+  final AppState state;
+  final ScrollController scrollController;
+  final ValueChanged<String> onOpenLyric;
+
+  @override
+  State<PlaylistPage> createState() => _PlaylistPageState();
+}
+
+class _PlaylistPageState extends State<PlaylistPage> {
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final state = widget.state;
+    final songs = state.songs;
+
+    return Column(
+      children: [
+        // ---- 页头 ----
+        Padding(
+          padding: const EdgeInsets.fromLTRB(32, 24, 32, 20),
+          child: Row(
+            children: [
+              Text(
+                '歌单',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: c.text),
+              ),
+              const Spacer(),
+              if (songs.isNotEmpty) ...[
+                AppButton(
+                  label: '全选',
+                  small: true,
+                  onPressed: state.selectAll,
+                ),
+                const SizedBox(width: 8),
+                AppButton(
+                  label: '清空',
+                  small: true,
+                  onPressed: () async {
+                    final ok = await showConfirmDialog(context, '确定清空所有歌曲吗？');
+                    if (ok) state.clearList();
+                  },
+                ),
+                const SizedBox(width: 8),
+                AppButton(
+                  label: '导出',
+                  small: true,
+                  variant: AppButtonVariant.accent,
+                  onPressed: state.exportPlaylist,
+                ),
+                const SizedBox(width: 8),
+                AppButton(
+                  label: '批量下载',
+                  small: true,
+                  variant: AppButtonVariant.primary,
+                  icon: AppIcons.download,
+                  iconSize: 14,
+                  onPressed: () => state.batchDownload(state.songsForBatchDownload),
+                ),
+              ],
+            ],
+          ),
+        ),
+
+        // ---- 内容 ----
+        Expanded(
+          child: songs.isEmpty
+              ? const SingleChildScrollView(
+                  child: EmptyState(
+                    icon: AppIcons.playlist,
+                    title: '暂无歌曲',
+                    hint: '搜索或粘贴歌单链接来添加歌曲',
+                  ),
+                )
+              : Scrollbar(
+                  controller: widget.scrollController,
+                  child: ListView.builder(
+                    controller: widget.scrollController,
+                    padding: const EdgeInsets.symmetric(horizontal: 32),
+                    itemCount: songs.length,
+                    itemBuilder: (ctx, i) => _PlaylistItem(
+                      song: songs[i],
+                      state: state,
+                      onOpenLyric: widget.onOpenLyric,
+                    ),
+                  ),
+                ),
+        ),
+
+        // ---- 批量操作栏 ----
+        if (state.selectedMids.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(32, 16, 32, 16),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: c.surface,
+                border: Border.all(color: c.border),
+                borderRadius: BorderRadius.circular(c.radius),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '已选择 ${state.selectedMids.length} 首',
+                      style: TextStyle(fontSize: 13, color: c.textSecondary),
+                    ),
+                  ),
+                  AppButton(label: '反选', small: true, onPressed: state.invertSelect),
+                  const SizedBox(width: 8),
+                  AppButton(label: '删除', small: true, onPressed: state.deleteSelected),
+                  const SizedBox(width: 8),
+                  AppButton(
+                    label: '批量下载',
+                    small: true,
+                    variant: AppButtonVariant.primary,
+                    icon: AppIcons.download,
+                    iconSize: 14,
+                    onPressed: () => state.batchDownload(state.songsForBatchDownload),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// 歌单条目 —— 对应 `.playlist-item`
+class _PlaylistItem extends StatefulWidget {
+  const _PlaylistItem({
+    required this.song,
+    required this.state,
+    required this.onOpenLyric,
+  });
+
+  final Song song;
+  final AppState state;
+  final ValueChanged<String> onOpenLyric;
+
+  @override
+  State<_PlaylistItem> createState() => _PlaylistItemState();
+}
+
+class _PlaylistItemState extends State<_PlaylistItem> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final song = widget.song;
+    final state = widget.state;
+    final checked = state.selectedMids.contains(song.mid);
+    final isPlaying = player.currentSong?.mid == song.mid;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        margin: const EdgeInsets.only(bottom: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isPlaying ? c.accentLight : (_hovered ? c.hover : Colors.transparent),
+          border: isPlaying ? Border.all(color: c.accent, width: 1.5) : null,
+          borderRadius: BorderRadius.circular(c.radius),
+          boxShadow: isPlaying
+              ? [
+                  BoxShadow(
+                    color: c.accent.withValues(alpha: 0.3),
+                    blurRadius: 12,
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          children: [
+            AppCheckbox(
+              checked: checked,
+              onChanged: (_) => state.toggleSelect(song.mid),
+            ),
+            const SizedBox(width: 12),
+            SongCover(url: ApiClient.getProxyImageUrl(song.pic), size: 40),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Row(
+                    children: [
+                      SourceIcon(source: song.source, size: 16),
+                      const SizedBox(width: 2),
+                      Expanded(
+                        child: Text(
+                          song.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: c.text,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    song.artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: c.textTertiary),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Row(
+              children: [
+                AppIconButton(
+                  icon: AppIcons.play,
+                  size: 32,
+                  iconSize: 16,
+                  baseColor: c.accent,
+                  hoverBg: c.accentLight,
+                  tooltip: '试听',
+                  onTap: () => state.playSong(song.mid),
+                ),
+                DownloadButton(mid: song.mid, state: state),
+                AppIconButton(
+                  icon: AppIcons.lyricDoc,
+                  size: 32,
+                  iconSize: 16,
+                  bordered: true,
+                  accentHover: true,
+                  tooltip: '歌词',
+                  onTap: () => widget.onOpenLyric(song.mid),
+                ),
+                const SizedBox(width: 4),
+                AppIconButton(
+                  icon: AppIcons.trash,
+                  size: 32,
+                  iconSize: 16,
+                  bordered: true,
+                  accentHover: true,
+                  tooltip: '删除',
+                  onTap: () => state.removeFromList(song.mid),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

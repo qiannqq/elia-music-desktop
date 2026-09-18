@@ -1,0 +1,39 @@
+name: elia_music
+description: "Elia Music 音乐播放器 - 伊莉雅音乐播放器"
+publish_to: 'none'
+version: 1.0.0+5
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 网络 / 加密 / 编解码
+  http: any
+  crypto: any
+  pointycastle: any
+
+  # 路径
+  path: any
+
+  # 桌面窗口（无边框 + 自绘标题栏 + 最小化/最大化/关闭）
+  window_manager: any
+
+  # 目录选择（等价 Electron dialog.showOpenDialog）
+  file_selector: any
+
+  # 音频播放
+  audioplayers: any
+
+  # SVG 图标（沿用原版路径数据）
+  flutter_svg: any
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: any
+
+flutter:
+  uses-material-design: true
