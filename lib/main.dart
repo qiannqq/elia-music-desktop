@@ -39,14 +39,20 @@ Future<void> main() async {
   }
 
   themeController.init();
-  await app.init();
-  await player.init();
 
   // ---- 本地 HTTP API 服务 ----
-  // 端口**由系统分配空闲端口**（不再固定 17071），避免与原版 Electron 冲突。
+  // ⚠️ 必须在 app.init() **之前**启动：
+  // app.init() 会读取 Cookie 并发起「后台校验」，而校验是走本地 API 的。
+  // 之前服务在 app.init() 之后才起，校验请求打到了默认端口（17071）而失败，
+  // 于是每次启动都提示「Cookie 已失效」，手动点【验证】又正常
+  // （那时服务已就绪）—— 用户反馈的正是这个现象。
+  // 端口由系统分配空闲端口（不再固定 17071），避免与原版 Electron 冲突。
   final apiPort = await httpServerService.start();
   setApiPort(apiPort);
   fileLogger.info('App', 'local API listening on $apiPort');
+
+  await app.init();
+  await player.init();
 
   // ---- 窗口（无边框 + 自绘标题栏，等价 frame:false）----
   await windowManager.ensureInitialized();

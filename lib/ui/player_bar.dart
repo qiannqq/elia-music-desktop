@@ -224,8 +224,13 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
         MouseRegion(
           cursor: SystemMouseCursors.click,
           child: GestureDetector(
+            // ⚠️ 必须 opaque + 撑满整行宽：否则命中区等于**已绘制内容**的宽度
+            // （歌词 Text 只有自身那么宽），点歌词右侧空白就无效
+            // —— 用户反馈「动态歌词只有贴近左侧才能点」正是这个。
+            behavior: HitTestBehavior.opaque,
             onTap: () => _openLyric(),
             child: SizedBox(
+              width: double.infinity,
               height: kLyricLineHeight,
               child: ClipRect(
                 child: Stack(
@@ -355,93 +360,87 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        // ⚠️ 必须限宽：用 spaceEvenly 直接铺满整个中间区会让图标间距被拉得很宽
-        // （实测约 120px，参考图只有 40~60px）。固定 340 宽后间距与参考图一致。
-        SizedBox(
-          width: 340,
-          child: Row(
-            // 对齐参考图：模式 | 上一首 | 播放 | 下一首 | 音量（播放键正好居中）
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              // ⚠️ 每个控件都套**统一 36×36 占位**并居中。
-              // 五个控件自身宽度并不相同（28 / 28 / 36 / 28 / 16），
-              // 而 spaceEvenly 平分的是「间隙」——元素宽度不同，中心距就不同，
-              // 看上去间距就不一致（用户反馈「播放键像有隐形宽」正是这个）。
-              // 统一占位后间距才真正相等。
-              // 另外这里原本还夹着两个 SizedBox(width:12)，它们会被 spaceEvenly
-              // 当成独立元素参与平分，进一步把间距打乱，已一并去掉。
-              // ---- 播放模式（最左）----
-              _ctrlSlot(
-                AppIconButton(
-                  icon: switch (player.playMode) {
-                    PlayMode.repeatAll => AppIcons.repeatAll,
-                    PlayMode.repeatOne => AppIcons.repeatOne,
-                    PlayMode.shuffle => AppIcons.shuffle,
-                  },
-                  size: 28,
-                  iconSize: 16,
-                  baseColor: c.textTertiary,
-                  hoverColor: c.accent,
-                  hoverBg: Colors.transparent,
-                  onTap: player.cycleMode,
-                  tooltip: player.playMode.label,
-                ),
+        // 控件行：固定宽度 + 显式等间距。
+        // 音量控件是固定 116 宽（36 图标槽 + 80 滑块区），比别的槽宽 80，
+        // 所以左侧加一个等宽（80）的**隐形配重**，这样：
+        //   * 播放键仍在整行正中（80 与右侧多出的 80 相互抵消）；
+        //   * 五个图标的中心距完全一致（各 36 槽 + 28 间距）。
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const SizedBox(width: 80), // 配重，抵消音量多出的宽度
+            _ctrlSlot(
+              AppIconButton(
+                icon: switch (player.playMode) {
+                  PlayMode.repeatAll => AppIcons.repeatAll,
+                  PlayMode.repeatOne => AppIcons.repeatOne,
+                  PlayMode.shuffle => AppIcons.shuffle,
+                },
+                size: 28,
+                iconSize: 16,
+                baseColor: c.textTertiary,
+                hoverColor: c.accent,
+                hoverBg: Colors.transparent,
+                onTap: player.cycleMode,
+                tooltip: player.playMode.label,
               ),
-              _ctrlSlot(
-                AppIconButton(
-                  icon: AppIcons.prev,
-                  size: 28,
-                  iconSize: 16,
-                  filled: true,
-                  onTap: () => widget.state.handleEndedAction('prev'),
-                  tooltip: '上一首',
-                ),
+            ),
+            const SizedBox(width: 28),
+            _ctrlSlot(
+              AppIconButton(
+                icon: AppIcons.prev,
+                size: 28,
+                iconSize: 16,
+                filled: true,
+                onTap: () => widget.state.handleEndedAction('prev'),
+                tooltip: '上一首',
               ),
-              _ctrlSlot(
-                MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: GestureDetector(
-                    onTap: player.togglePlay,
-                    child: HoverBuilder(
-                      builder: (ctx, hovered) => Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: hovered ? c.accentHover : c.accent,
-                          shape: BoxShape.circle,
-                        ),
-                        child: Center(
-                          child: AppIcon(
-                            player.isPlaying ? AppIcons.pause : AppIcons.play,
-                            size: 20,
-                            color: c.accentText,
-                            filled: true,
-                          ),
+            ),
+            const SizedBox(width: 28),
+            _ctrlSlot(
+              MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: player.togglePlay,
+                  child: HoverBuilder(
+                    builder: (ctx, hovered) => Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: hovered ? c.accentHover : c.accent,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: AppIcon(
+                          player.isPlaying ? AppIcons.pause : AppIcons.play,
+                          size: 20,
+                          color: c.accentText,
+                          filled: true,
                         ),
                       ),
                     ),
                   ),
                 ),
               ),
-              _ctrlSlot(
-                AppIconButton(
-                  icon: AppIcons.next,
-                  size: 28,
-                  iconSize: 16,
-                  filled: true,
-                  onTap: () => widget.state.handleEndedAction('next'),
-                  tooltip: '下一首',
-                ),
+            ),
+            const SizedBox(width: 28),
+            _ctrlSlot(
+              AppIconButton(
+                icon: AppIcons.next,
+                size: 28,
+                iconSize: 16,
+                filled: true,
+                onTap: () => widget.state.handleEndedAction('next'),
+                tooltip: '下一首',
               ),
-              // ---- 音量（最右，悬浮向右展开滑块）----
-              _ctrlSlot(
-                _VolumeControl(
-                  volume: player.volume,
-                  onChanged: player.setVolume,
-                ),
-              ),
-            ],
-          ),
+            ),
+            const SizedBox(width: 28),
+            // ---- 音量（最右，悬浮向右展开滑块）----
+            _VolumeControl(
+              volume: player.volume,
+              onChanged: player.setVolume,
+            ),
+          ],
         ),
         const SizedBox(height: 4),
         SizedBox(
@@ -549,14 +548,16 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
   }
 }
 
-/// 音量条 —— 对应 `.player-volume-wrapper input[type=range]`（80×4）
-/// 音量控件 —— 默认只显示图标，**鼠标悬浮时向右展开**滑块（带展开/收起动画）。
+/// 音量控件 —— 默认只显示图标，**鼠标悬浮时向右展开**滑块。
 ///
-/// 关键：滑块是**浮层**（Positioned + Clip.none），不参与布局 ——
-/// 控件占位宽度恒等于图标，所以
-///   * 控件行里每个元素的间距完全一致（spaceEvenly 不会因为宽度变化而重排）；
-///   * 展开时不挤动任何其他元素。
-/// 滑块本身用 OverflowBox 固定 80px，避免被 0 宽容器挤变形。
+/// ⚠️ 关键设计（踩过坑）：
+///   * 控件整体是**固定宽度**（图标槽 36 + 滑块区 80 = 116），
+///     所以展开时不会挤动左右任何元素，控件行里各元素的间距也保持均匀；
+///   * 图标与滑块**都在这个固定宽度之内**。
+///     早先把滑块做成画在父级边界之外的浮层（Positioned + Clip.none），
+///     结果 Flutter 的命中测试只在父级尺寸内进行 —— 滑块**既 hover 不到、
+///     也点不动**，鼠标一过去就被判定离开而收起（用户反馈的现象）。
+///   * 滑块本身用 OverflowBox 固定 80px，避免被 0 宽容器挤变形。
 class _VolumeControl extends StatefulWidget {
   const _VolumeControl({required this.volume, required this.onChanged});
 
@@ -574,11 +575,10 @@ class _VolumeControlState extends State<_VolumeControl> {
 
   static const _expandDuration = Duration(milliseconds: 180);
   static const _sliderWidth = 80.0;
+  static const _iconSlot = 36.0; // 与其它控件槽一致，保证中心距均匀
 
-  /// 收起延迟：图标与滑块之间有几像素空隙，鼠标从图标移向滑块时会
-  /// 短暂离开两者的命中区。若立刻收起，就变成「刚要去拖，它先缩回去了」
-  /// （用户反馈）。延迟一点、期间重新进入就取消，手感就正常了。
-  static const _collapseDelay = Duration(milliseconds: 220);
+  /// 收起延迟：留一点缓冲，避免鼠标在边界上轻微抖动就收起。
+  static const _collapseDelay = Duration(milliseconds: 200);
 
   bool get _expanded => _hovered || _dragging;
 
@@ -615,86 +615,87 @@ class _VolumeControlState extends State<_VolumeControl> {
             widget.onChanged((widget.volume + delta).clamp(0.0, 1.0));
           }
         },
-        child: Stack(
-          clipBehavior: Clip.none,
-          alignment: Alignment.center,
-          children: [
-            // 唯一的**非定位**子节点 —— Stack 的尺寸因此等于图标本身（16×16），
-            // 于是这个控件在控件行里的占位宽度恒定：
-            //   * spaceEvenly 分出的间距每个元素都一样（用户要求）；
-            //   * 展开时也不会挤动左右两侧的按钮。
-            AppIcon(
-              AppIcons.volume,
-              size: 16,
-              color: _expanded ? c.accent : c.textTertiary,
-            ),
-            // 滑块：**浮层**画在图标右侧，完全不参与布局。
-            // ⚠️ 里面必须给有限高度：OverflowBox 按父级约束定尺寸，
-            //    高度无界会抛 "RenderConstrainedOverflowBox was given an
-            //    infinite size during layout"（实测踩过）。
-            Positioned(
-              left: 20,
-              top: -2,
-              child: MouseRegion(
-                onEnter: (_) => _enter(),
-                onExit: (_) => _exit(),
-                child: AnimatedContainer(
-                  duration: _expandDuration,
-                  curve: Curves.easeOut,
-                  width: _expanded ? _sliderWidth : 0,
-                  height: 20,
-                  child: ClipRect(
-                    child: AnimatedOpacity(
-                      opacity: _expanded ? 1 : 0,
+        child: SizedBox(
+          width: _iconSlot + _sliderWidth,
+          height: _iconSlot,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Row(
+                children: [
+                  // 图标槽：与其它控件同宽，保证中心距一致
+                  SizedBox(
+                    width: _iconSlot,
+                    child: Center(
+                      child: AppIcon(
+                        AppIcons.volume,
+                        size: 16,
+                        color: _expanded ? c.accent : c.textTertiary,
+                      ),
+                    ),
+                  ),
+                  // 滑块区：**始终占位 80**，宽度在内部 0↔80 动画
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: AnimatedContainer(
                       duration: _expandDuration,
                       curve: Curves.easeOut,
-                      // OverflowBox：滑块始终保持 80px，被外层宽度裁剪出「展开」效果。
-                      // 左对齐 → 宽度变小时从右侧收起。
-                      child: OverflowBox(
-                        alignment: Alignment.centerLeft,
-                        minWidth: _sliderWidth,
-                        maxWidth: _sliderWidth,
-                        child: _VolumeSlider(
-                          value: widget.volume,
-                          width: _sliderWidth,
-                          onChanged: (v) {
-                            setState(() => _dragging = true);
-                            widget.onChanged(v);
-                          },
-                          onEnd: () => setState(() => _dragging = false),
+                      width: _expanded ? _sliderWidth : 0,
+                      height: 20,
+                      child: ClipRect(
+                        child: AnimatedOpacity(
+                          opacity: _expanded ? 1 : 0,
+                          duration: _expandDuration,
+                          curve: Curves.easeOut,
+                          child: OverflowBox(
+                            alignment: Alignment.centerLeft,
+                            minWidth: _sliderWidth,
+                            maxWidth: _sliderWidth,
+                            child: _VolumeSlider(
+                              value: widget.volume,
+                              width: _sliderWidth,
+                              onChanged: (v) {
+                                setState(() => _dragging = true);
+                                widget.onChanged(v);
+                              },
+                              onEnd: () => setState(() => _dragging = false),
+                            ),
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
+                ],
               ),
-            ),
-            // 百分比提示（同样是浮层）
-            if (_expanded)
-              Positioned(
-                bottom: 22,
-                left: -28,
-                width: 96,
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: c.card,
-                      border: Border.all(color: c.border),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      '${(widget.volume * 100).round()}%',
-                      style: TextStyle(fontSize: 12, color: c.text),
+              // 百分比提示（纯展示，画在控件上方）
+              if (_expanded)
+                Positioned(
+                  bottom: 30,
+                  left: _iconSlot - 10,
+                  width: _sliderWidth + 20,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: c.card,
+                        border: Border.all(color: c.border),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        _pctLabel(widget.volume),
+                        style: TextStyle(fontSize: 12, color: c.text),
+                      ),
                     ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
+
+  String _pctLabel(double v) => '${(v * 100).round()}%';
 }
 
 class _VolumeSlider extends StatelessWidget {
