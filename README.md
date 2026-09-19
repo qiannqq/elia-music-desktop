@@ -25,7 +25,8 @@
 - **Lyricify Lite** — 第三方歌词同步工具兼容
 
 ## UI/界面样式
-[Demo.md](./docs/demo.md)
+
+> 界面预览待补充
 
 ## 技术栈
 
