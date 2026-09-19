@@ -1,14 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:http/http.dart' as http;
-import 'package:pointycastle/export.dart';
 
 import '../core/file_logger.dart';
 import '../core/lyric.dart';
+import 'qrc_decrypt.dart';
 import '../models/song.dart';
 
 /// QQ 音乐 musicu 接口入口列表（**主 u，备用 u6**）。
@@ -32,10 +30,6 @@ const String kStreamHost = 'http://ws.stream.qqmusic.qq.com/';
 const String kLyricUrl = 'https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg';
 const String kQrcLyricUrl = 'https://c.y.qq.com/qqmusic/fcgi-bin/lyric_download.fcg';
 const String kSongIdUrl = 'https://c.y.qq.com/v8/fcg-bin/fcg_play_single_song.fcg';
-
-/// QRC 解密密钥（24 字节 ASCII）
-/// 注意用 raw string：内含 `$%`，普通字符串会被当成插值。
-const String _qrcKeyStr = r'!@#)(*$%123ZXC!@!@#)(NHL';
 
 /// QQ 音乐服务 —— `electron/service/qqmusic.js` 的 Dart 移植。
 ///
@@ -547,43 +541,32 @@ class QQMusicService {
   }
 
   /// QRC 解密：DES-ECB 三段密钥流水（对应原 `_decryptQrc`）
+  /// QRC 解密 + 取出 LyricContent。
+  ///
+  /// ⚠️ 必须用 [QrcDecrypt]（私有 S-box 的非标准 DES 变体）：
+  /// 标准 DES（OpenSSL / Node crypto / pycryptodome）解出来是乱码。
+  ///
+  /// ⚠️ 取 LyricContent 必须用**正则直接抓原始字符串**，不能用 XML 解析器：
+  /// XML 规范会把属性值里的换行规范化成空格，逐字歌词会被拼成一整行。
   String? _decryptQrc(String hex) {
-    if (hex.isEmpty) return '';
-    hex = hex.replaceAll(RegExp(r'[\s\r\n]'), '');
-    if (!RegExp(r'^[0-9a-fA-F]+$').hasMatch(hex) || hex.length < 16) return null;
-
-    try {
-      final key = utf8.encode(_qrcKeyStr);
-      final enc = _hexToBytes(hex);
-      final out = Uint8List(enc.length);
-
-      for (var i = 0; i + 8 <= enc.length; i += 8) {
-        final blk = Uint8List.fromList(enc.sublist(i, i + 8));
-        final t = _desEcb(key.sublist(16, 24), blk, false);
-        final e = _desEcb(key.sublist(8, 16), t, true);
-        final d = _desEcb(key.sublist(0, 8), e, false);
-        out.setRange(i, i + 8, d);
-      }
-
-      Uint8List decomp;
-      try {
-        decomp = Uint8List.fromList(ZLibDecoder(raw: true).convert(out));
-      } catch (_) {
-        decomp = out;
-      }
-
-      var str = utf8.decode(decomp, allowMalformed: true);
-      if (str.isNotEmpty && str.codeUnitAt(0) == 0xFEFF) str = str.substring(1);
-      if (str.contains('<?xml')) {
-        final m = RegExp(r'LyricContent[^>]*>([\s\S]*?)</Lyric').firstMatch(str);
-        if (m != null) str = m.group(1)!;
-      }
-      return str.isEmpty ? null : str;
-    } catch (e) {
-      fileLogger.warn('QQMusic', '_decryptQrc error: $e');
-      return null;
-    }
+    if (hex.isEmpty) return null;
+    final xml = QrcDecrypt.decode(hex);
+    if (xml == null || xml.isEmpty) return null;
+    final m =
+        RegExp(r'LyricContent="(.*?)"\s*/>', dotAll: true).firstMatch(xml);
+    final content = _unescapeXml(m?.group(1) ?? xml);
+    return content.isEmpty ? null : content;
   }
+
+  /// XML 属性值反转义（QRC 的 LyricContent 里会有 &quot; &amp; 等）
+  static String _unescapeXml(String s) => s
+      .replaceAll('&#10;', '\n')
+      .replaceAll('&#13;', '\r')
+      .replaceAll('&quot;', '"')
+      .replaceAll('&apos;', "'")
+      .replaceAll('&lt;', '<')
+      .replaceAll('&gt;', '>')
+      .replaceAll('&amp;', '&');
 
   Future<({String lyric, String trans, dynamic raw})> _getSimpleLyric(String mid) async {
     final url = '$kLyricUrl?_=${DateTime.now().millisecondsSinceEpoch}'
@@ -800,32 +783,6 @@ class QQMusicService {
   static String _md5(String text) =>
       crypto.md5.convert(utf8.encode(text)).toString();
 
-  static Uint8List _hexToBytes(String hex) {
-    final out = Uint8List(hex.length ~/ 2);
-    for (var i = 0; i < out.length; i++) {
-      out[i] = int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16);
-    }
-    return out;
-  }
-
-  /// DES-ECB 单块流水（autoPadding = false）
-  ///
-  /// pointycastle 4.x 移除了单 DES 引擎，这里用 `DESedeEngine` + 三份相同密钥
-  /// 等价实现单 DES（DES-EDE 在 K1=K2=K3 时退化为 DES）。
-  static Uint8List _desEcb(List<int> key, Uint8List data, bool encrypt) {
-    if (key.length != 8) throw ArgumentError('DES key must be 8 bytes');
-    final tripled = Uint8List(24)
-      ..setRange(0, 8, key)
-      ..setRange(8, 16, key)
-      ..setRange(16, 24, key);
-
-    final engine = DESedeEngine()..init(encrypt, KeyParameter(tripled));
-    final out = Uint8List(data.length);
-    for (var off = 0; off + 8 <= data.length; off += 8) {
-      engine.processBlock(data, off, out, off);
-    }
-    return out;
-  }
 }
 
 final qqMusicService = QQMusicService.instance;

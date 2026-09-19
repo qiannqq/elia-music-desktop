@@ -58,8 +58,12 @@ List<LyricLine> parseQrc(String? text) {
     for (final w in _qrcWordRe.allMatches(body)) {
       final txt = w.group(1) ?? '';
       if (txt.isEmpty) continue;
+      // ⚠️ QRC 括号里的字时间是**绝对时间**（与行起点同一时间轴），
+      // **不要**再加 lineStart —— 加了会让所有字都变成「还没唱到」，
+      // 表现为整行都不高亮、看起来完全没有逐字效果。
+      // 实测：行起点 1931 的行，第一个字就是 (1931,56)。
       words.add(LyricWord(
-        lineStart + int.parse(w.group(2)!) / 1000.0,
+        int.parse(w.group(2)!) / 1000.0,
         int.parse(w.group(3)!) / 1000.0,
         txt,
       ));

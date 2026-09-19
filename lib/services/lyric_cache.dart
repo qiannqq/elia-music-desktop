@@ -90,10 +90,11 @@ class LyricCache {
       );
       // 记下长度与解析结果：歌词「显示不出来 / 没有翻译」时能直接从日志判断
       // 是接口没给、还是解析没吃进去。
+      final withWords = bundle.lines.where((l) => l.hasWords).length;
       fileLogger.info(
         'Lyric',
         '$mid ${isNetease ? 'netease' : 'qq'}${isQrc ? ' qrc' : ''} raw=${raw.length} trans=${trans.length}'
-        ' → lines=${bundle.lines.length} transMap=${bundle.transMap.length}',
+        ' → lines=${bundle.lines.length} 其中逐字行=$withWords transMap=${bundle.transMap.length}',
       );
       if (raw.isNotEmpty && bundle.lines.isEmpty) {
         fileLogger.warn('Lyric', '$mid 歌词非空但解析出 0 行，原文首行: '
