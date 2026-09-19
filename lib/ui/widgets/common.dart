@@ -105,8 +105,13 @@ class AppButton extends StatelessWidget {
                 break;
             }
           }
+          // ⚠️ 进入用 120ms 淡入、**退出瞬时**：
+          // 若进出都用 120ms，鼠标从按钮 A 划到 B 时，A 还在淡出、B 已淡入 ——
+          // 那 120ms 里两个按钮同时高亮（和歌单「两行同时高亮」是同一个坑）。
           return AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
+            duration: hovered
+                ? const Duration(milliseconds: 120)
+                : Duration.zero,
             padding:
                 EdgeInsets.symmetric(horizontal: small ? 10 : 16, vertical: small ? 4 : 6),
             decoration: BoxDecoration(
@@ -200,8 +205,11 @@ class AppIconButton extends StatelessWidget {
             : SystemMouseCursors.click,
         builder: (ctx, hovered) {
           final fg = hovered ? (hoverColor ?? (accentHover ? c.accent : c.text)) : base;
+          // 同上：进入淡入、退出瞬时，避免相邻按钮同时高亮
           return AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
+            duration: hovered
+                ? const Duration(milliseconds: 120)
+                : Duration.zero,
             width: size,
             height: size,
             decoration: BoxDecoration(

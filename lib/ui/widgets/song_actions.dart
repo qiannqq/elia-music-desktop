@@ -162,6 +162,8 @@ class AddButton extends StatefulWidget {
 }
 
 class _AddButtonState extends State<AddButton> {
+  /// 用于触发 _Popup 的收起动画（见 _close）
+  final GlobalKey<_PopupState> _popupKey = GlobalKey<_PopupState>();
   OverlayEntry? _entry;
   bool _expanded = false;
 
@@ -176,10 +178,23 @@ class _AddButtonState extends State<AddButton> {
     _entry = null;
   }
 
-  void _close() {
-    if (!_expanded) return;
+  /// 收起动画播完后由 _Popup 回调
+  void _removeEntryAndReset() {
     _removeEntry();
     if (mounted) setState(() => _expanded = false);
+  }
+
+  void _close() {
+    if (!_expanded) return;
+    // ⚠️ 不能直接移除 OverlayEntry：那样收起是「啪一下没了」，
+    // 展开有 250ms 动画、收起却是瞬时的，观感很割裂（用户反馈）。
+    // 改为先让 _Popup 播收起动画，动画结束再移除。
+    final popup = _popupKey.currentState;
+    if (popup == null) {
+      _removeEntryAndReset();
+      return;
+    }
+    popup.requestClose();
   }
 
   void _toggle() {
@@ -216,11 +231,14 @@ class _AddButtonState extends State<AddButton> {
             top: flipUp ? null : origin.dy,
             bottom: flipUp ? screen.height - origin.dy - widget.size : null,
             child: _Popup(
+              key: _popupKey,
               state: widget.state,
               mid: widget.mid,
               flipLeft: flipLeft,
               flipUp: flipUp,
               onClose: _close,
+              // 收起动画播完才真正移除 OverlayEntry
+              onClosed: _removeEntryAndReset,
             ),
           ),
         ],
@@ -249,7 +267,9 @@ class _AddButtonState extends State<AddButton> {
       child: GestureDetector(
         onTap: _toggle,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
+          // 与弹层动画（250ms）以及叉号旋转保持一致：
+          // 之前盒子 200ms、叉号 350ms，展开时方框先停、叉号还在转，观感不同步
+          duration: const Duration(milliseconds: 250),
           width: widget.size,
           height: widget.size,
           decoration: BoxDecoration(
@@ -260,7 +280,7 @@ class _AddButtonState extends State<AddButton> {
           child: Center(
             child: AnimatedRotation(
               turns: _expanded ? 0.125 : 0,
-              duration: const Duration(milliseconds: 350),
+              duration: const Duration(milliseconds: 250),
               curve: const Cubic(0.16, 1, 0.3, 1),
               child: _PlusIcon(color: _expanded ? c.textTertiary : c.accent),
             ),
@@ -291,33 +311,67 @@ class _PlusIcon extends StatelessWidget {
   }
 }
 
-class _Popup extends StatelessWidget {
+class _Popup extends StatefulWidget {
   const _Popup({
+    super.key,
     required this.state,
     required this.mid,
     required this.flipLeft,
     required this.flipUp,
     required this.onClose,
+    required this.onClosed,
   });
 
   final AppState state;
   final String mid;
   final bool flipLeft;
   final bool flipUp;
+
+  /// 请求关闭（由外部调用，会先播收起动画）
   final VoidCallback onClose;
+
+  /// 收起动画播完 —— 此时外部才真正移除 OverlayEntry
+  final VoidCallback onClosed;
+
+  @override
+  State<_Popup> createState() => _PopupState();
+}
+
+class _PopupState extends State<_Popup> {
+  static const _animDuration = Duration(milliseconds: 250);
+
+  bool _closing = false;
+
+  /// 请求关闭：先播收起动画，动画结束由 onEnd 通知外部移除。
+  void requestClose() {
+    if (_closing) return;
+    setState(() => _closing = true);
+  }
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final state = widget.state;
+    final mid = widget.mid;
+    final flipLeft = widget.flipLeft;
+    final flipUp = widget.flipUp;
     final song = state.findSong(mid);
 
     // 等价原 CSS `.add-btn-popup`：
     //   transform: scale(0.8) → scale(1) + opacity 0 → 1，
     //   250ms，cubic-bezier(0.16,1,0.3,1)，transform-origin 按翻转方向取角。
+    // ⚠️ end 必须跟随 _closing：
+    // 原来写死 end: 1.0，只在**创建时**播一次展开；关闭时整个 OverlayEntry
+    // 被直接移除 → 收起没有动画、啪一下就没了（用户反馈）。
+    // 现在关闭时把 end 改成 0，TweenAnimationBuilder 会从当前值动画回去，
+    // 动画结束后再通过 onEnd 通知外部移除。
     return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0.0, end: 1.0),
-      duration: const Duration(milliseconds: 250),
+      tween: Tween(begin: 0.0, end: _closing ? 0.0 : 1.0),
+      duration: _animDuration,
       curve: const Cubic(0.16, 1, 0.3, 1),
+      onEnd: () {
+        if (_closing) widget.onClosed();
+      },
       builder: (ctx, t, child) => Opacity(
         opacity: t.clamp(0.0, 1.0),
         child: Transform.scale(
@@ -362,7 +416,7 @@ class _Popup extends StatelessWidget {
                     _PopupItem(
                       label: '添加到歌单顶部',
                       onTap: () {
-                        onClose();
+                        requestClose();
                         if (song == null) return;
                         if (state.isAdded(song.mid)) {
                           state.showInfo('已存在: ${song.name}');
@@ -375,7 +429,7 @@ class _Popup extends StatelessWidget {
                     _PopupItem(
                       label: '添加到歌单底部',
                       onTap: () {
-                        onClose();
+                        requestClose();
                         if (song == null) return;
                         if (state.addToList(song)) {
                           state.showSuccess('已添加: ${song.name}');
@@ -393,7 +447,7 @@ class _Popup extends StatelessWidget {
                 top: flipUp ? null : 0,
                 bottom: flipUp ? 0 : null,
                 child: GestureDetector(
-                  onTap: onClose,
+                  onTap: requestClose,
                   child: MouseRegion(
                     cursor: SystemMouseCursors.click,
                     child: SizedBox(
