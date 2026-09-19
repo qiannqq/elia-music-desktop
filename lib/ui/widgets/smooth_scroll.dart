@@ -56,6 +56,15 @@ class _SmoothWheelScrollState extends State<SmoothWheelScroll> {
   /// 用户拖动/滚动条操作时不做动画，避免互相打架
   bool _userDragging = false;
 
+  /// 累计目标位置。
+  ///
+  /// ⚠️ 必须**累计**，不能每次都用 `当前 pixels + delta`：
+  /// 快速连续滚动时上一段动画还没走完就被取消，
+  /// 那部分位移会被丢掉 —— 表现为「滚起来很费劲/滚不动」
+  /// （用户反馈设置页尤其明显，因为那里一屏内容长、滚轮事件密集）。
+  double _target = 0;
+  bool _targetValid = false;
+
   bool get _attached =>
       widget.controller.hasClients &&
       widget.controller.positions.length == 1;
@@ -64,6 +73,7 @@ class _SmoothWheelScrollState extends State<SmoothWheelScroll> {
     if (n is ScrollStartNotification) {
       // 拖动（含滚动条拖拽）时标记，滚轮动画让位
       _userDragging = n.dragDetails != null;
+      if (_userDragging) _targetValid = false;
     } else if (n is ScrollEndNotification) {
       _userDragging = false;
     }
@@ -72,13 +82,16 @@ class _SmoothWheelScrollState extends State<SmoothWheelScroll> {
   void _handleWheel(PointerScrollEvent event) {
     if (_userDragging || !_attached) return;
     final pos = widget.controller.position;
-    final target = (pos.pixels + event.scrollDelta.dy)
+    // 若外部（拖动/程序）改过位置，重置累计基准
+    if (!_targetValid) {
+      _target = pos.pixels;
+      _targetValid = true;
+    }
+    _target = (_target + event.scrollDelta.dy)
         .clamp(pos.minScrollExtent, pos.maxScrollExtent);
-    if (target == pos.pixels) return;
-    // 每格都从「当前位置」出发动画过去：连续滚动时位移自然累加，
-    // 不会因为上一段动画被取消而丢位移。
+    if (_target == pos.pixels) return;
     widget.controller.animateTo(
-      target,
+      _target,
       duration: widget.duration,
       curve: widget.curve,
     );

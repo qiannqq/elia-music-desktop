@@ -29,6 +29,12 @@ class PlaylistPage extends StatefulWidget {
 }
 
 class _PlaylistPageState extends State<PlaylistPage> {
+  /// 当前鼠标悬停的歌曲 mid —— **单一数据源**。
+  ///
+  /// 原先每个条目各自维护 _hovered，靠 onExit 清除。鼠标快速划过时
+  /// 上一个条目的 onExit 可能不生效，导致「两行同时高亮」。
+  /// 改为由页面统一记录：进入 B 时 A 自然就不再是高亮态，不依赖 exit 事件。
+  String? _hoveredMid;
   @override
   Widget build(BuildContext context) {
     final c = context.c;
@@ -110,6 +116,14 @@ class _PlaylistPageState extends State<PlaylistPage> {
                       song: songs[i],
                       state: state,
                       onOpenLyric: widget.onOpenLyric,
+                      hovered: _hoveredMid == songs[i].mid,
+                      onHover: (v) => setState(() {
+                        if (v) {
+                          _hoveredMid = songs[i].mid;
+                        } else if (_hoveredMid == songs[i].mid) {
+                          _hoveredMid = null;
+                        }
+                      }),
                     ),
                   ),
                 ),
@@ -163,18 +177,23 @@ class _PlaylistItem extends StatefulWidget {
     required this.song,
     required this.state,
     required this.onOpenLyric,
+    required this.hovered,
+    required this.onHover,
   });
 
   final Song song;
   final AppState state;
   final ValueChanged<String> onOpenLyric;
 
+  /// 是否高亮 —— 由列表页统一裁决（见 _PlaylistPageState._hoveredMid）
+  final bool hovered;
+  final ValueChanged<bool> onHover;
+
   @override
   State<_PlaylistItem> createState() => _PlaylistItemState();
 }
 
 class _PlaylistItemState extends State<_PlaylistItem> {
-  bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
@@ -185,14 +204,14 @@ class _PlaylistItemState extends State<_PlaylistItem> {
     final isPlaying = player.currentSong?.mid == song.mid;
 
     return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onEnter: (_) => widget.onHover(true),
+      onExit: (_) => widget.onHover(false),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 120),
         margin: const EdgeInsets.only(bottom: 2),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: isPlaying ? c.accentLight : (_hovered ? c.hover : Colors.transparent),
+          color: isPlaying ? c.accentLight : (widget.hovered ? c.hover : Colors.transparent),
           border: isPlaying ? Border.all(color: c.accent, width: 1.5) : null,
           borderRadius: BorderRadius.circular(c.radius),
           boxShadow: isPlaying

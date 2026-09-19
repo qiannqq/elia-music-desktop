@@ -14,8 +14,80 @@
 class LyricLine {
   final double time;
   final String text;
-  const LyricLine(this.time, this.text);
+
+  /// 逐字时间戳（QRC 才有）。为 null 表示只有行级时间（普通 LRC）。
+  final List<LyricWord>? words;
+
+  const LyricLine(this.time, this.text, {this.words});
+
+  bool get hasWords => words != null && words!.isNotEmpty;
 }
+
+/// QRC 逐字歌词里的一个「字/词」片段（时间均为**绝对秒**）
+class LyricWord {
+  final double time;
+  final double duration;
+  final String text;
+
+  const LyricWord(this.time, this.duration, this.text);
+
+  double get end => time + duration;
+}
+
+/// 解析 QRC（逐字歌词）。
+///
+/// QRC 解密后的正文长这样：
+/// ```
+/// [ti:ポキでも]
+/// [0,2000]ポキでも(0,500)ポキ(500,300)でも(800,1200)
+/// ```
+/// 即 `[行起点ms,行时长ms]` 后面跟若干 `词文本(词起点ms,词时长ms)`。
+///
+/// ⚠️ 它**不是** `[mm:ss.xx]` 格式，所以绝不能走 [parseLrc] ——
+/// 这正是之前「QRC 拉到了却被判定无效、回退成普通歌词」的原因。
+List<LyricLine> parseQrc(String? text) {
+  if (text == null || text.isEmpty) return const [];
+  final result = <LyricLine>[];
+  for (final raw in text.split('\n')) {
+    final m = _qrcLineRe.firstMatch(raw.trim());
+    if (m == null) continue; // [ti:] [ar:] 等元信息行会走到这里，跳过
+    final lineStart = int.parse(m.group(1)!) / 1000.0;
+    final body = m.group(3) ?? '';
+
+    final words = <LyricWord>[];
+    for (final w in _qrcWordRe.allMatches(body)) {
+      final txt = w.group(1) ?? '';
+      if (txt.isEmpty) continue;
+      words.add(LyricWord(
+        lineStart + int.parse(w.group(2)!) / 1000.0,
+        int.parse(w.group(3)!) / 1000.0,
+        txt,
+      ));
+    }
+
+    // 没有逐字片段时退化成整行文本（去掉残留的 (start,dur) 标记）
+    final plain = words.isNotEmpty
+        ? words.map((w) => w.text).join()
+        : body.replaceAll(RegExp(r'\(\d+,\d+(?:,\d+)?\)'), '').trim();
+    if (plain.isEmpty) continue;
+
+    result.add(LyricLine(lineStart, plain, words: words.isEmpty ? null : words));
+  }
+  result.sort((a, b) => a.time.compareTo(b.time));
+  return result;
+}
+
+/// QRC 行头：`[起点ms,时长ms]正文`
+///
+/// ⚠️ 必须开 **multiLine**：QRC 正文开头是 `[ti:...]` `[ar:...]` 等元信息行，
+/// 不开多行的话 `^...$` 只匹配整串的开头/结尾，永远匹配不到真正的歌词行 ——
+/// 表现就是「QRC 明明解密成功了，却被判定不是 QRC 而回退成普通歌词」。
+final RegExp _qrcLineRe = RegExp(r'^\[(\d+),(\d+)\](.*)$', multiLine: true);
+final RegExp _qrcWordRe = RegExp(r'([^()]*?)\((\d+),(\d+)(?:,\d+)?\)');
+
+/// 判断一段文本像不像 QRC（有 `[数字,数字]` 行头）
+bool looksLikeQrc(String? text) =>
+    text != null && text.isNotEmpty && _qrcLineRe.hasMatch(text.trim());
 
 final RegExp _lrcTsRe = RegExp(r'\[(\d{1,2}):(\d{1,2})[.:](\d{1,3})\]');
 

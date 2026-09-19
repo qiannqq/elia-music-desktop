@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:pointycastle/export.dart';
 
 import '../core/file_logger.dart';
+import '../core/lyric.dart';
 import '../models/song.dart';
 
 /// QQ 音乐 musicu 接口入口列表（**主 u，备用 u6**）。
@@ -318,7 +319,8 @@ class QQMusicService {
     //  * 普通 LRC（快）
     // QRC 超过 10s 就放弃、直接用普通歌词 —— 否则慢的时候用户会长时间
     // 看不到歌词 / 拉不到翻译（用户反馈过）。
-    final Future<({String lyric, String trans, dynamic raw})> qrcFuture = _fetchQrc(mid);
+    final Future<({String lyric, String trans, dynamic raw, bool isQrc})> qrcFuture =
+        _fetchQrc(mid);
 
     final simpleFuture = () async {
       try {
@@ -341,8 +343,21 @@ class QQMusicService {
       fileLogger.warn('QQMusic', 'QRC 歌词 10s 未返回，改用普通歌词 mid=$mid');
     }
 
-    final hasValidLyric = _hasTimestamp(qrcLyric);
-    final hasValidTrans = _hasTimestamp(qrcTrans);
+    // ⚠️ QRC 的行头是 `[起点ms,时长ms]`，**不是** `[mm:ss.xx]` ——
+    // 必须单独识别。之前只认 LRC 时间戳，导致 QRC 明明拉到了却被判无效、
+    // 回退成普通歌词（用户反馈「拉不到逐字歌词」的真正原因）。
+    // 真解析一遍：能解析出逐字行才算 QRC 可用
+    final qrcParsedLines = parseQrc(qrcLyric);
+
+    // ⚠️ 不能只看「官方接口返回了内容」就认：
+    // QRC 的解密密钥是**会换代**的，密钥过期时解出来的是乱码。
+    // 实测 2026-09：旧 DES 密钥已失效（穷举密钥切片顺序 × raw/zlib/gzip
+    // 解压方式全部失败），所以必须**真的能解析出行**才算有效，
+    // 否则回退普通歌词 —— 否则会出现「有歌词却一行都显示不出来」的回归。
+    final hasValidLyric = qrcParsedLines.isNotEmpty ||
+        _hasTimestamp(qrcLyric) ||
+        looksLikeQrc(qrcLyric);
+    final hasValidTrans = _hasTimestamp(qrcTrans) || looksLikeQrc(qrcTrans);
 
     if (hasValidLyric) {
       fileLogger.info('QQMusic',
@@ -362,15 +377,95 @@ class QQMusicService {
     );
   }
 
-  /// 取 QRC 逐字歌词（内部已吞掉异常，失败返回空串）
-  Future<({String lyric, String trans, dynamic raw})> _fetchQrc(String mid) async {
+  /// 取 QRC 逐字歌词（内部已吞掉异常，失败返回空串）。
+  ///
+  /// 优先用**文档逆向出的官方接口** `music.musichallSong.PlayLyricInfo.GetPlayLyricInfo`：
+  /// 它直接吃 songMID、**不需要先查 songId**，比旧的 `lyric_download.fcg` 快很多
+  /// —— 旧路径因为要先 `_getSongId`（多一次请求），实测经常撑到 10s 超时被放弃，
+  /// 于是「逐字歌词永远拉不到」。
+  ///
+  /// 返回的 `lyric` 是 base64 编码的**加密 QRC**，解码后是
+  /// `[起点ms,时长ms]字(字起点ms,字时长ms)...`；旧接口则返回 hex 编码的同类数据。
+  /// 旧接口作为兜底保留。
+  Future<({String lyric, String trans, dynamic raw, bool isQrc})> _fetchQrc(String mid) async {
+    // ---- A) 官方接口（快，优先）----
+    try {
+      final res = await _requestMusicu({
+        'music.musichallSong.PlayLyricInfo.GetPlayLyricInfo': {
+          'module': 'music.musichallSong.PlayLyricInfo',
+          'method': 'GetPlayLyricInfo',
+          'param': {
+            'songMID': mid,
+            'songID': 0,
+            'lrc_t': 0,
+            'qrc_t': 0,
+            'trans_t': 0,
+            'roma_t': 0,
+            'type': 1,
+            'crypt': 0,
+            'qrc': 1,
+            'trans': 1,
+            'roma': 1,
+          },
+        },
+      });
+      final node =
+          res['music.musichallSong.PlayLyricInfo.GetPlayLyricInfo'] as Map?;
+      final data = node?['data'] as Map?;
+      if (data != null) {
+        // ⚠️ 官方接口的 `lyric` 字段：`qrc=0` 时是 base64(明文LRC)，
+        // 但 **`qrc=1` 时是 HEX 编码的加密 QRC**（文档里写成 base64 是错的）。
+        // 同一串按 base64 解会得到乱码，按 hex 解才对 —— 且与旧接口
+        // lyric_download.fcg 的 <content> 完全一致（实测逐字节相同）。
+        final rawQrc = (data['lyric'] as String?) ?? '';
+        if (rawQrc.isNotEmpty) {
+          final lyric = _decryptQrc(rawQrc) ?? '';
+          if (lyric.isNotEmpty) {
+            final rawTrans = (data['trans'] as String?) ?? '';
+            String trans = '';
+            if (rawTrans.isNotEmpty) {
+              // 翻译同样可能是 hex 加密串，也可能是 base64 明文
+              final dec = _decryptQrc(rawTrans);
+              if (dec != null && dec.isNotEmpty) {
+                trans = dec;
+              } else {
+                try {
+                  trans = utf8.decode(base64.decode(rawTrans), allowMalformed: true);
+                } catch (_) {
+                  trans = '';
+                }
+              }
+            }
+            // 诊断：确认解密后 QRC 的真实行格式
+            final head = lyric.split('\n').take(3).join(' / ');
+            fileLogger.info(
+              'QQMusic',
+              'QRC(官方接口) mid=$mid lyric=${lyric.length} trans=${trans.length} head=$head',
+            );
+            // 官方接口解出来的**就是 QRC**，无需再靠正则猜格式
+            return (lyric: lyric, trans: trans, raw: data, isQrc: true);
+          }
+        }
+      }
+    } catch (e) {
+      fileLogger.warn('QQMusic', 'QRC 官方接口失败，回退旧接口: $e');
+    }
+
+
+    // ---- B) 旧接口兜底 ----
     try {
       final songId = await _getSongId(mid);
-      if (songId == 0) return (lyric: '', trans: '', raw: null);
-      return await _getQrcLyric(songId);
+      if (songId == 0) return (lyric: '', trans: '', raw: null, isQrc: false);
+      final r = await _getQrcLyric(songId);
+      return (
+        lyric: r.lyric,
+        trans: r.trans,
+        raw: r.raw,
+        isQrc: r.lyric.isNotEmpty && looksLikeQrc(r.lyric),
+      );
     } catch (e) {
       fileLogger.warn('QQMusic', 'QRC lyric error: $e');
-      return (lyric: '', trans: '', raw: null);
+      return (lyric: '', trans: '', raw: null, isQrc: false);
     }
   }
 

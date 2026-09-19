@@ -79,17 +79,20 @@ class LyricCache {
       final localTrans = LocalStore.get('custom_lyric_trans_$mid');
       if (localTrans != null) trans = localTrans;
 
+      // ⚠️ QRC（逐字歌词）的行头是 `[起点ms,时长ms]`，**不是** `[mm:ss.xx]`，
+      // 必须走 parseQrc；否则会解析出 0 行、逐字歌词显示不出来。
+      final isQrc = looksLikeQrc(raw);
       final bundle = LyricBundle(
         raw: raw,
         trans: trans,
-        lines: parseLrc(raw),
+        lines: isQrc ? parseQrc(raw) : parseLrc(raw),
         transMap: parseTransLrc(trans),
       );
       // 记下长度与解析结果：歌词「显示不出来 / 没有翻译」时能直接从日志判断
       // 是接口没给、还是解析没吃进去。
       fileLogger.info(
         'Lyric',
-        '$mid ${isNetease ? 'netease' : 'qq'} raw=${raw.length} trans=${trans.length}'
+        '$mid ${isNetease ? 'netease' : 'qq'}${isQrc ? ' qrc' : ''} raw=${raw.length} trans=${trans.length}'
         ' → lines=${bundle.lines.length} transMap=${bundle.transMap.length}',
       );
       if (raw.isNotEmpty && bundle.lines.isEmpty) {

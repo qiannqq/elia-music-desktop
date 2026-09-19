@@ -269,18 +269,29 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
                                     height: kLyricLineHeight,
                                     child: Align(
                                       alignment: Alignment.centerLeft,
-                                      child: Text(
-                                        lines[i].text,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontSize: i == idx ? 13 : 12,
-                                          fontWeight: i == idx
-                                              ? FontWeight.w600
-                                              : FontWeight.w400,
-                                          color: i == idx ? c.accent : c.textTertiary,
-                                        ),
-                                      ),
+                                      child: (i == idx && lines[i].hasWords)
+                                          // 当前行且有逐字时间 → 卡拉OK式逐字高亮
+                                          ? _KaraokeLine(
+                                              line: lines[i],
+                                              position:
+                                                  player.position.inMilliseconds / 1000.0,
+                                              activeColor: c.accent,
+                                              inactiveColor: c.textTertiary,
+                                            )
+                                          : Text(
+                                              lines[i].text,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontSize: i == idx ? 13 : 12,
+                                                fontWeight: i == idx
+                                                    ? FontWeight.w600
+                                                    : FontWeight.w400,
+                                                color: i == idx
+                                                    ? c.accent
+                                                    : c.textTertiary,
+                                              ),
+                                            ),
                                     ),
                                   ),
                               ],
@@ -544,6 +555,53 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
           tooltip: '关闭播放器',
         ),
       ],
+    );
+  }
+}
+
+/// 逐字歌词行 —— 已唱过的字用高亮色，还没唱到的用次要色。
+///
+/// 依赖 `LyricLine.words`（QRC 才有）；没有逐字数据的行仍走普通 Text。
+/// 播放栏整体会随 player 的 position 变化重建，所以这里不需要额外监听。
+class _KaraokeLine extends StatelessWidget {
+  const _KaraokeLine({
+    required this.line,
+    required this.position,
+    required this.activeColor,
+    required this.inactiveColor,
+  });
+
+  final LyricLine line;
+
+  /// 当前播放位置（秒）
+  final double position;
+  final Color activeColor;
+  final Color inactiveColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final words = line.words;
+    if (words == null || words.isEmpty) {
+      return Text(line.text, maxLines: 1, overflow: TextOverflow.ellipsis);
+    }
+    final spans = <TextSpan>[];
+    for (final w in words) {
+      final sung = position >= w.time;
+      spans.add(TextSpan(
+        text: w.text,
+        style: TextStyle(
+          color: sung ? activeColor : inactiveColor,
+          fontWeight: sung ? FontWeight.w600 : FontWeight.w400,
+        ),
+      ));
+    }
+    return RichText(
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      text: TextSpan(
+        style: const TextStyle(fontSize: 13),
+        children: spans,
+      ),
     );
   }
 }
