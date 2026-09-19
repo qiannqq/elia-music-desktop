@@ -90,7 +90,7 @@ class PlayerController extends ChangeNotifier {
 
     _player.onDurationChanged.listen((d) {
       if (_disposed) return;
-      // ⚠️ 这里**不能**用 _preparing 屏蔽：新歌的时长事件常常在 play() 完成前
+      // 这里**不能**用 _preparing 屏蔽：新歌的时长事件常常在 play() 完成前
       // 就到达，屏蔽掉会导致右侧时长一直停在 0:00。
       // 旧歌已被 stop()，不会再发时长事件，无需屏蔽。
       duration = d;
@@ -137,7 +137,7 @@ class PlayerController extends ChangeNotifier {
     _retryCount = 0;
     _lastLyricTimer?.cancel();
 
-    // ⚠️ 必须立刻停掉正在播放的旧歌：
+    // 必须立刻停掉正在播放的旧歌：
     // 否则新歌加载期间旧歌会继续出声，而且它的位置事件会持续覆盖 position
     // —— 表现为「进度条清零、右侧时长归零，但左侧时间还在正常增加」。
     _preparing = true;
@@ -172,7 +172,7 @@ class PlayerController extends ChangeNotifier {
 
     final proxyUrl = ApiClient.getProxyAudioUrl(url);
     try {
-      // ⚠️ 这里必须**再停一次并 await**：prepare() 里的 stop() 是 fire-and-forget，
+      // 这里必须**再停一次并 await**：prepare() 里的 stop() 是 fire-and-forget，
       // 若它还没结束就调用 play()，两者会竞态 —— 实测旧歌会继续出声、
       // 它的位置事件还会把新歌的进度覆盖掉。
       await _player.stop();

@@ -11,7 +11,7 @@ import '../models/song.dart';
 
 /// QQ 音乐 musicu 接口入口列表（**主 u，备用 u6**）。
 ///
-/// 主备依据来自千奈逆向 QQ 音乐的结论：`u.y.qq.com` 是正规主入口，
+/// 主备依据来自对 QQ 音乐客户端接口的抓包结论：`u.y.qq.com` 是主入口，
 /// `u6.y.qq.com`（小程序入口）作为备用。
 ///
 /// 补充一条实测（2026-09-19，**匿名请求、无 Cookie**）：
@@ -33,7 +33,7 @@ const String kSongIdUrl = 'https://c.y.qq.com/v8/fcg-bin/fcg_play_single_song.fc
 
 /// QQ 音乐服务 —— `electron/service/qqmusic.js` 的 Dart 移植。
 ///
-/// ⚠️ 所有响应体都用 `utf8.decode(resp.bodyBytes)` 解码，**不要用 `resp.body`**：
+/// 所有响应体都用 `utf8.decode(resp.bodyBytes)` 解码，**不要用 `resp.body`**：
 /// QQ 音乐接口返回的响应头是 `text/plain; charset=utf-8;`（**末尾多一个分号**），
 /// 而 `package:http` 的 `Response.body` 会用 `ContentType.parse()` 解析该头，
 /// Dart 的解析器遇到多余分号会抛
@@ -142,7 +142,7 @@ class QQMusicService {
     fileLogger.error('QQMusic',
         'search "$keyword" 连续 3 次返回空列表（total=$lastTotal），放弃；'
         'response keys=${lastRes?.keys.toList()}');
-    // ⚠️ 抛异常而不是返回「0 条结果」：
+    // 抛异常而不是返回「0 条结果」：
     // 返回空结果会让界面显示「没有找到 xxx」，误导用户以为真的没有这首歌；
     // 实际这是接口异常（限流/返回结构异常），应当明确报错。
     throw Exception('搜索接口返回异常（连续 3 次空列表），请稍后重试');
@@ -337,13 +337,13 @@ class QQMusicService {
       fileLogger.warn('QQMusic', 'QRC 歌词 10s 未返回，改用普通歌词 mid=$mid');
     }
 
-    // ⚠️ QRC 的行头是 `[起点ms,时长ms]`，**不是** `[mm:ss.xx]` ——
+    // QRC 的行头是 `[起点ms,时长ms]`，**不是** `[mm:ss.xx]` ——
     // 必须单独识别。之前只认 LRC 时间戳，导致 QRC 明明拉到了却被判无效、
     // 回退成普通歌词（用户反馈「拉不到逐字歌词」的真正原因）。
     // 真解析一遍：能解析出逐字行才算 QRC 可用
     final qrcParsedLines = parseQrc(qrcLyric);
 
-    // ⚠️ 不能只看「官方接口返回了内容」就认：
+    // 不能只看「官方接口返回了内容」就认：
     // QRC 的解密密钥是**会换代**的，密钥过期时解出来的是乱码。
     // 实测 2026-09：旧 DES 密钥已失效（穷举密钥切片顺序 × raw/zlib/gzip
     // 解压方式全部失败），所以必须**真的能解析出行**才算有效，
@@ -407,7 +407,7 @@ class QQMusicService {
           res['music.musichallSong.PlayLyricInfo.GetPlayLyricInfo'] as Map?;
       final data = node?['data'] as Map?;
       if (data != null) {
-        // ⚠️ 官方接口的 `lyric` 字段：`qrc=0` 时是 base64(明文LRC)，
+        // 官方接口的 `lyric` 字段：`qrc=0` 时是 base64(明文LRC)，
         // 但 **`qrc=1` 时是 HEX 编码的加密 QRC**（文档里写成 base64 是错的）。
         // 同一串按 base64 解会得到乱码，按 hex 解才对 —— 且与旧接口
         // lyric_download.fcg 的 <content> 完全一致（实测逐字节相同）。
@@ -543,10 +543,10 @@ class QQMusicService {
   /// QRC 解密：DES-ECB 三段密钥流水（对应原 `_decryptQrc`）
   /// QRC 解密 + 取出 LyricContent。
   ///
-  /// ⚠️ 必须用 [QrcDecrypt]（私有 S-box 的非标准 DES 变体）：
+  /// 必须用 [QrcDecrypt]（私有 S-box 的非标准 DES 变体）：
   /// 标准 DES（OpenSSL / Node crypto / pycryptodome）解出来是乱码。
   ///
-  /// ⚠️ 取 LyricContent 必须用**正则直接抓原始字符串**，不能用 XML 解析器：
+  /// 取 LyricContent 必须用**正则直接抓原始字符串**，不能用 XML 解析器：
   /// XML 规范会把属性值里的换行规范化成空格，逐字歌词会被拼成一整行。
   String? _decryptQrc(String hex) {
     if (hex.isEmpty) return null;
@@ -689,7 +689,7 @@ class QQMusicService {
 
   /// musicu 接口请求，**多入口轮换**。
   ///
-  /// ⚠️ 关键：`u.y.qq.com` 已被限流/降级 —— 实测同一请求体、同一时间：
+  /// 关键：`u.y.qq.com` 已被限流/降级 —— 实测同一请求体、同一时间：
   ///   u.y.qq.com  → 连续 8 次全部返回空列表（item_song 为空）
   ///   u6.y.qq.com → 8 次里成功 7 次
   /// 原版 Electron 用的是 `u`（写的时候还能用）。因此这里**主用 u6、备用 u**，

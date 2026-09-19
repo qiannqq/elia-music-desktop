@@ -41,7 +41,7 @@ Future<void> main() async {
   themeController.init();
 
   // ---- 本地 HTTP API 服务 ----
-  // ⚠️ 必须在 app.init() **之前**启动：
+  // 必须在 app.init() **之前**启动：
   // app.init() 会读取 Cookie 并发起「后台校验」，而校验是走本地 API 的。
   // 之前服务在 app.init() 之后才起，校验请求打到了默认端口（17071）而失败，
   // 于是每次启动都提示「Cookie 已失效」，手动点【验证】又正常
@@ -111,7 +111,7 @@ Future<bool> _acquireSingleInstanceLock() async {
       await raf.writeString('lock');
       await raf.flush();
     }
-    // ⚠️ 必须显式给出字节范围。`lock()` 的 end 默认是 -1（= 锁到文件末尾），
+    // 必须显式给出字节范围。`lock()` 的 end 默认是 -1（= 锁到文件末尾），
     // 对**空文件**会退化成「锁 0 个字节」—— 等于完全没锁，
     // 两个实例都能拿到锁（实测踩过）。这里固定锁 offset 0 的 1 个字节。
     await raf.lock(FileLock.exclusive, 0, 1);

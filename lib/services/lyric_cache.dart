@@ -79,7 +79,7 @@ class LyricCache {
       final localTrans = LocalStore.get('custom_lyric_trans_$mid');
       if (localTrans != null) trans = localTrans;
 
-      // ⚠️ QRC（逐字歌词）的行头是 `[起点ms,时长ms]`，**不是** `[mm:ss.xx]`，
+      // QRC（逐字歌词）的行头是 `[起点ms,时长ms]`，**不是** `[mm:ss.xx]`，
       // 必须走 parseQrc；否则会解析出 0 行、逐字歌词显示不出来。
       final isQrc = looksLikeQrc(raw);
       final bundle = LyricBundle(

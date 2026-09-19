@@ -225,7 +225,7 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
         MouseRegion(
           cursor: SystemMouseCursors.click,
           child: GestureDetector(
-            // ⚠️ 必须 opaque + 撑满整行宽：否则命中区等于**已绘制内容**的宽度
+            // 必须 opaque + 撑满整行宽：否则命中区等于**已绘制内容**的宽度
             // （歌词 Text 只有自身那么宽），点歌词右侧空白就无效
             // —— 用户反馈「动态歌词只有贴近左侧才能点」正是这个。
             behavior: HitTestBehavior.opaque,
@@ -255,7 +255,7 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
                             offset: Offset(0, offset),
                             child: child,
                           ),
-                          // ⚠️ 必须用 OverflowBox 解除高度约束：Positioned.fill 给的是
+                          // 必须用 OverflowBox 解除高度约束：Positioned.fill 给的是
                           // **紧约束**，而歌词总高（几十行 × 24px）远超 24px，
                           // 直接放 Column 会触发 RenderFlex overflow（实测溢出 1584px）。
                           child: OverflowBox(
@@ -329,7 +329,7 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
         ),
         const SizedBox(height: 2),
         // 歌曲名也可点击打开歌词（等价原版 `e.name.addEventListener('click',openLyricModal)`）
-        // ⚠️ 命中区要**撑满整行宽**：只包住 Text 的话，可点击范围就只有文字那点宽度，
+        // 命中区要**撑满整行宽**：只包住 Text 的话，可点击范围就只有文字那点宽度，
         // 点到文字旁边的空白就无效（用户反馈「点歌名不弹歌词」正是这个）。
         SizedBox(
           width: double.infinity,
@@ -353,7 +353,7 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
 
   void _openLyric() {
     final song = player.currentSong;
-    // ⚠️ 必须用 requestLyricDialog：它先弹窗再取歌词。
+    // 必须用 requestLyricDialog：它先弹窗再取歌词。
     // 早期误用 loadLyricForModal（只加载不弹窗），导致「点歌词没有任何反应」。
     if (song != null) widget.state.requestLyricDialog(song.mid);
   }
@@ -565,7 +565,7 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
 
 /// 音量控件 —— 默认只显示图标，**鼠标悬浮时向右展开**滑块。
 ///
-/// ⚠️ 关键设计（踩过坑）：
+/// 关键设计（踩过坑）：
 ///   * 控件整体是**固定宽度**（图标槽 36 + 滑块区 80 = 116），
 ///     所以展开时不会挤动左右任何元素，控件行里各元素的间距也保持均匀；
 ///   * 图标与滑块**都在这个固定宽度之内**。
@@ -748,7 +748,7 @@ class _VolumeSlider extends StatelessWidget {
               onHorizontalDragEnd: (_) => onEnd(),
               onTapUp: (_) => onEnd(),
               child: Center(
-                // ⚠️ 同 AppProgressBar：轨道必须显式撑满宽度，
+                // 同 AppProgressBar：轨道必须显式撑满宽度，
                 // 否则 Center 的松约束会让它缩成填充条宽度并居中。
                 child: Container(
                   width: double.infinity,

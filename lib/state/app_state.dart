@@ -976,7 +976,7 @@ class AppState extends ChangeNotifier {
 
   /// 请求打开歌词弹窗。
   ///
-  /// ⚠️ 顺序很重要：**先递增请求计数器把弹窗弹出来**，再取歌词。
+  /// 顺序很重要：**先递增请求计数器把弹窗弹出来**，再取歌词。
   /// 早期实现是「await 取完歌词再弹窗」，于是弹窗出现时间完全取决于网络，
   /// 表现为「点歌词按钮时快时慢」。现在命中缓存瞬间显示，未命中则先显示加载态。
   Future<void> requestLyricDialog(String mid) async {
@@ -1064,7 +1064,7 @@ class AppState extends ChangeNotifier {
   void reloadLyricFromStore() {
     final mid = currentLyricMid;
     if (mid == null) return;
-    // ⚠️ 必须和 _applyLyricBundle 一样区分 QRC / LRC，并且**保留 words**：
+    // 必须和 _applyLyricBundle 一样区分 QRC / LRC，并且**保留 words**：
     // 这里原来写死 parseLrc，而 QRC 的行头是 `[起点ms,时长ms]` 不是 `[mm:ss.xx]`
     // → 解析出 0 行 → 用户「点编辑再取消」回来就变成「暂无歌词」。
     final isQrc = looksLikeQrc(currentLyricRaw);
@@ -1081,7 +1081,7 @@ class LyricLineBox {
   final double time;
   final String text;
 
-  /// 逐字时间（QRC 才有）。⚠️ 必须保留 —— 早先这里只传了 time/text，
+  /// 逐字时间（QRC 才有）。必须保留 —— 早先这里只传了 time/text，
   /// 把 words 丢掉，导致歌词弹窗永远显示不出逐字效果。
   final List<LyricWord>? words;
 

@@ -82,7 +82,7 @@ class AppButton extends StatelessWidget {
         break;
     }
 
-    // ⚠️ GestureDetector 是必需的：早期版本只写了 HoverBuilder（hover 样式），
+    // GestureDetector 是必需的：早期版本只写了 HoverBuilder（hover 样式），
     // 忘了接点击处理，导致全应用的按钮都点不动。
     return GestureDetector(
       onTap: enabled ? onPressed : null,
@@ -107,7 +107,7 @@ class AppButton extends StatelessWidget {
                 break;
             }
           }
-          // ⚠️ 进入用 120ms 淡入、**退出瞬时**：
+          // 进入用 120ms 淡入、**退出瞬时**：
           // 若进出都用 120ms，鼠标从按钮 A 划到 B 时，A 还在淡出、B 已淡入 ——
           // 那 120ms 里两个按钮同时高亮（和歌单「两行同时高亮」是同一个坑）。
           return AnimatedContainer(
@@ -123,7 +123,7 @@ class AppButton extends StatelessWidget {
             ),
           child: Opacity(
             opacity: enabled ? 1 : 0.5,
-            // ⚠️ 必须用 Center 包住：
+            // 必须用 Center 包住：
             // Row 是 mainAxisSize.min（只包住内容），放在固定宽度的按钮里
             // （如确认弹窗的 SizedBox(width:80)）会**靠左**，字就不居中了。
             // 等价 CSS 的 `justify-content: center` + `align-items: center`。
@@ -197,7 +197,7 @@ class AppIconButton extends StatelessWidget {
     final c = context.c;
     final base = baseColor ?? c.textSecondary;
 
-    // ⚠️ GestureDetector 是必需的：早期版本只写了 HoverBuilder（hover 样式），
+    // GestureDetector 是必需的：早期版本只写了 HoverBuilder（hover 样式），
     // 忘了接点击处理，导致全应用的图标按钮（试听/下载/歌词/删除等）都点不动。
     Widget child = GestureDetector(
       onTap: onTap,
@@ -215,7 +215,7 @@ class AppIconButton extends StatelessWidget {
             width: size,
             height: size,
             decoration: BoxDecoration(
-              // ⚠️ 非悬浮态不能用 Colors.transparent（透明的黑）：
+              // 非悬浮态不能用 Colors.transparent（透明的黑）：
               // AnimatedContainer 会在两者之间插值，悬浮瞬间先「黑」一下。
               // 用同色 + alpha 0，插值才在同一色相内。
               color: hovered
@@ -397,7 +397,7 @@ class AppProgressBar extends StatelessWidget {
             child: SizedBox(
               height: math.max(height, draggable ? hoverHeight : height),
               child: Center(
-                // ⚠️ 轨道必须显式撑满宽度（width: double.infinity）：
+                // 轨道必须显式撑满宽度（width: double.infinity）：
                 // 否则 Center 给的**松约束**会让轨道缩成「填充条」的宽度，
                 // 而填充条又是按轨道宽度算比例 —— 两者互相约束，
                 // 结果进度条只有一小截且居中（实测宽度只剩 ~15%、还跑到中间）。
@@ -495,7 +495,7 @@ class SongCover extends StatelessWidget {
 
 /// 来源角标 —— 对应 `.source-icon.source-qq` / `.source-netease`
 ///
-/// ⚠️ 图标**内置在 assets 里**，不再从 `https://y.qq.com/favicon.ico` 远程加载。
+/// 图标**内置在 assets 里**，不再从 `https://y.qq.com/favicon.ico` 远程加载。
 /// 原版是 `<img src=favicon onerror=隐藏>`，网络一抖图标就消失/闪烁
 /// （用户反馈「QQ音乐图标有时显示有时不显示」）；而且 Flutter 也解不了 ICO 格式。
 /// 这里用离线 PNG，永远稳定显示。

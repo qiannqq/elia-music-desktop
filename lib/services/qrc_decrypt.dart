@@ -6,7 +6,7 @@ import 'qrc_sbox.dart';
 
 /// QQ 音乐 QRC 歌词解密。
 ///
-/// ⚠️ **关键**：QRC 用的是**非标准 DES 变体** —— S-box 与标准 DES 差两项
+/// **关键**：QRC 用的是**非标准 DES 变体** —— S-box 与标准 DES 差两项
 /// （S2[23]=15、S4[53]=10）。所以 OpenSSL / Node `crypto` / pycryptodome
 /// 的 `des-ede3` **全都解不开**（会得到乱码、zlib 报 header check 失败）。
 /// 必须用 [kQrcSbox] 这张私有表。

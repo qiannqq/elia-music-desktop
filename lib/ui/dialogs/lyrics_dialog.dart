@@ -294,7 +294,7 @@ class _LyricsDialogState extends State<LyricsDialog> {
             for (var i = 0; i < lines.length; i++)
               KeyedSubtree(
                 key: _keyFor(i),
-                // ⚠️ 用 transAt 容差匹配：QRC 行时间是毫秒、翻译是厘秒，
+                // 用 transAt 容差匹配：QRC 行时间是毫秒、翻译是厘秒，
                 // 精确查 map[time] 会几乎全部落空（见 lyric.dart 的说明）
                 child: _buildLine(c, lines[i], transAt(transMap, lines[i].time),
                     i == activeIdx),

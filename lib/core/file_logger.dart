@@ -10,7 +10,7 @@ import 'app_paths.dart';
 /// - 按天分文件：`logs/YYYY-MM-DD.log`
 /// - 行格式：`[HH:mm:ss.SSS] [LEVEL] [Category] message`
 ///
-/// ⚠️ 与早期实现的关键差别：**同步写入 + 每行 flush**。
+/// 与早期实现的关键差别：**同步写入 + 每行 flush**。
 /// 早期用 `File.openWrite()` 得到的 `IOSink` 是**带缓冲**的，且从不 flush：
 /// 进程被强杀（窗口关闭时我们就是直接 `exit(0)`）或崩溃时，最近的日志会整段丢失，
 /// 导致「发行版出问题时日志里什么都没有」。日志量很小（每次操作几行），

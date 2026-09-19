@@ -290,7 +290,7 @@ class ApiClient {
 
   /// 推断音频扩展名。
   ///
-  /// ⚠️ 这个后缀是**必需的**：`audioplayers_windows` 走 Media Foundation 的
+  /// 这个后缀是**必需的**：`audioplayers_windows` 走 Media Foundation 的
   /// `CreateObjectFromURL`，它**靠 URL 路径后缀**挑选字节流处理器。
   /// 若代理地址形如 `/api/proxy/audio?url=...`（无后缀），会直接抛
   /// `PlatformException(WindowsAudioError, Failed to set source)`（0xC00D2EE3），

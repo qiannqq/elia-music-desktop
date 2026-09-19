@@ -1,6 +1,6 @@
 /// LRC 解析 —— `app.js` / `player.js` 中同名函数的 Dart 移植。
 ///
-/// ⚠️ 相比原版做了两处**必要的**增强（原版正则是 `\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)`）：
+/// 相比原版做了两处**必要的**增强（原版正则是 `\[(\d{2}):(\d{2})\.(\d{2,3})\](.*)`）：
 ///
 ///  1. **毫秒分隔符同时接受 `.` 和 `:`**。网易云大量使用 `[00:03:17]` 这种
 ///     冒号写法（同一份歌词里常常与 `[00:00.00]` 混用），原版只认 `.`，
@@ -43,7 +43,7 @@ class LyricWord {
 /// ```
 /// 即 `[行起点ms,行时长ms]` 后面跟若干 `词文本(词起点ms,词时长ms)`。
 ///
-/// ⚠️ 它**不是** `[mm:ss.xx]` 格式，所以绝不能走 [parseLrc] ——
+/// 它**不是** `[mm:ss.xx]` 格式，所以绝不能走 [parseLrc] ——
 /// 这正是之前「QRC 拉到了却被判定无效、回退成普通歌词」的原因。
 List<LyricLine> parseQrc(String? text) {
   if (text == null || text.isEmpty) return const [];
@@ -58,7 +58,7 @@ List<LyricLine> parseQrc(String? text) {
     for (final w in _qrcWordRe.allMatches(body)) {
       final txt = w.group(1) ?? '';
       if (txt.isEmpty) continue;
-      // ⚠️ QRC 括号里的字时间是**绝对时间**（与行起点同一时间轴），
+      // QRC 括号里的字时间是**绝对时间**（与行起点同一时间轴），
       // **不要**再加 lineStart —— 加了会让所有字都变成「还没唱到」，
       // 表现为整行都不高亮、看起来完全没有逐字效果。
       // 实测：行起点 1931 的行，第一个字就是 (1931,56)。
@@ -83,7 +83,7 @@ List<LyricLine> parseQrc(String? text) {
 
 /// QRC 行头：`[起点ms,时长ms]正文`
 ///
-/// ⚠️ 必须开 **multiLine**：QRC 正文开头是 `[ti:...]` `[ar:...]` 等元信息行，
+/// 必须开 **multiLine**：QRC 正文开头是 `[ti:...]` `[ar:...]` 等元信息行，
 /// 不开多行的话 `^...$` 只匹配整串的开头/结尾，永远匹配不到真正的歌词行 ——
 /// 表现就是「QRC 明明解密成功了，却被判定不是 QRC 而回退成普通歌词」。
 final RegExp _qrcLineRe = RegExp(r'^\[(\d+),(\d+)\](.*)$', multiLine: true);
@@ -140,7 +140,7 @@ double _toSeconds(RegExpMatch m) {
 
 /// 按时间取翻译 —— **容差匹配**，不要用精确的 `map[time]`。
 ///
-/// ⚠️ QRC 的行时间是**毫秒**（1931ms），而翻译 LRC 是**厘秒**（[00:01.93] → 1930ms），
+/// QRC 的行时间是**毫秒**（1931ms），而翻译 LRC 是**厘秒**（[00:01.93] → 1930ms），
 /// 两者天生差 0~9ms。用 `map[lines[i].time]` 精确查会几乎全部落空
 /// （只有恰好相等的少数能命中）—— 表现为「大部分翻译对不上」。
 String transAt(Map<double, String> map, double time, {double tolerance = 0.05}) {

@@ -70,7 +70,7 @@ class AppModalCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     final screen = MediaQuery.sizeOf(context);
-    // ⚠️ 必须先用 Align 把**紧约束**放松，ConstrainedBox 才压得住尺寸。
+    // 必须先用 Align 把**紧约束**放松，ConstrainedBox 才压得住尺寸。
     // `showDialog` 给子节点的是紧约束（整屏），而 `BoxConstraints.enforce`
     // 会把 maxWidth 向上钳到父级 min —— 结果 maxWidth:520 被钳成整屏宽，
     // 弹窗直接铺满整个客户端（歌词弹窗就踩过这个坑）。

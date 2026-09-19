@@ -154,7 +154,7 @@ class _AppShellState extends State<AppShell> {
                       scale: state.zoom / 100,
                       child: Stack(
                         children: [
-                          // ⚠️ 播放栏出现时**必须为它让出高度**（等价原版
+                          // 播放栏出现时**必须为它让出高度**（等价原版
                           // `body.has-player .page.active{padding-bottom:88px}`），
                           // 否则它会盖住页面底部内容（设置页的「外观」区）。
                           // 注意只让出**播放栏本体高度**：多让的部分在页面外层，
@@ -269,7 +269,7 @@ class ZoomWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ⚠️ **不能**在 scale==1 时直接 return child：
+    // **不能**在 scale==1 时直接 return child：
     // 那样 widget 树的结构会变（少掉 LayoutBuilder/OverflowBox 两层），
     // Flutter 会把整棵子树卸载重建 —— 表现为「缩放到 100% 时页面刷新」。
     // 始终走同一套结构，scale=1 时下面就是个恒等变换。
@@ -308,7 +308,7 @@ class _EscapeIntent extends Intent {
 
 /// Toast 覆盖层（放在最外层，避免被页面裁剪）
 ///
-/// ⚠️ 三个关键点（前两个曾导致「界面正常但什么都点不动」，第三个导致崩溃）：
+/// 三个关键点（前两个曾导致「界面正常但什么都点不动」，第三个导致崩溃）：
 ///  1. `Material` 默认是 `MaterialType.canvas`，其 `_InkFeatures.absorbHitTest = true`，
 ///     `_RenderInkFeatures.hitTestSelf` 恒为 true —— 即**会吸收命中测试**。
 ///     透明背景也必须显式用 `MaterialType.transparency` 才不会吃掉点击。

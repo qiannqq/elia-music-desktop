@@ -99,7 +99,7 @@ class _SearchPageState extends State<SearchPage> {
                 children: [
                   const SizedBox(height: 16),
                   _buildResultsHeader(c, state),
-                  // ⚠️ 比上面那个 16 小：结果头部的按钮比文字高，
+                  // 比上面那个 16 小：结果头部的按钮比文字高，
                   // 文字垂直居中后下方天然多出约 6px，这里减掉才能让
                   // 「搜索框→标题」与「标题→卡片」两段视觉间距一致。
                   const SizedBox(height: 10),
@@ -160,7 +160,7 @@ class _SearchPageState extends State<SearchPage> {
         borderRadius: BorderRadius.circular(c.radiusLg),
       ),
       padding: const EdgeInsets.only(left: 16, right: 4),
-      // ⚠️ 整条都聚焦输入框：
+      // 整条都聚焦输入框：
       // TextField 用了 isDense，实际高度只有 ~20px，而外框 44px ——
       // 点到上下留白时不会聚焦，用户会觉得「可点击区域很小」。
       child: GestureDetector(
@@ -227,7 +227,7 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget _buildResultsHeader(AppColors c, AppState state) {
-    // ⚠️ 标题组用 Expanded 占满剩余空间，**不要**再用 Spacer：
+    // 标题组用 Expanded 占满剩余空间，**不要**再用 Spacer：
     // `Flexible`(flex:1) 与 `Spacer`(flex:1) 会平分剩余空间，标题只取自身宽度、
     // 留下一段空白，右侧按钮就被推到中间而不是最右侧（等价原 CSS 的
     // `.results-header{justify-content:space-between}`）。
@@ -369,7 +369,7 @@ class _SourceTab extends StatelessWidget {
             duration: const Duration(milliseconds: 200),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
             decoration: BoxDecoration(
-              // ⚠️ 不要用 Colors.transparent（那是「透明的黑」）——
+              // 不要用 Colors.transparent（那是「透明的黑」）——
               // Color.lerp 从它过渡到灰色时会经过半透明的黑，悬浮瞬间先「黑」一下。
               // 用同色 + alpha 0 才能保证插值在同一色相内。
               color: active ? c.accentLight : c.accentLight.withValues(alpha: 0),
@@ -472,7 +472,7 @@ class _SongCardState extends State<_SongCard> {
             const SizedBox(width: 8),
             AnimatedOpacity(
               duration: const Duration(milliseconds: 150),
-              // ⚠️ 弹出层打开时也要保持可见：
+              // 弹出层打开时也要保持可见：
               // 全屏遮罩会让卡片收到 onExit（_hovered 变 false）→ 按钮淡出；
               // 关掉菜单后 hover 回来又淡入 —— 表现为「所有按钮消失再出现」。
               opacity: (_hovered || state.openAddMenuMid == song.mid) ? 1 : 0,

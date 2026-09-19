@@ -109,13 +109,13 @@ class _PlaylistPageState extends State<PlaylistPage> {
                     padding: const EdgeInsets.symmetric(horizontal: 32),
                     itemCount: songs.length,
                     itemBuilder: (ctx, i) {
-                      // ⚠️ 在这里就把 mid 取出来捕获进闭包。
+                      // 在这里就把 mid 取出来捕获进闭包。
                       // 若闭包里写 songs[i].mid，`i` 是回调触发时才求值的 ——
                       // 列表一变（增删/拖拽/换序）就会取到别的歌，
                       // 导致「上一行的高亮清不掉、两行同时高亮」。
                       final mid = songs[i].mid;
                       return _PlaylistItem(
-                        // ⚠️ 稳定 key（按 mid）：
+                        // 稳定 key（按 mid）：
                         // 「添加到歌单顶部」会让歌曲换位置，若按索引复用 State，
                         // 展开中的「+」二级菜单状态会跳到别的卡片上、
                         // 收起动画被打断 —— 表现为「二级菜单突兀消失」。
@@ -214,7 +214,7 @@ class _PlaylistItemState extends State<_PlaylistItem> {
     return MouseRegion(
       onEnter: (_) => widget.onHover(true),
       onExit: (_) => widget.onHover(false),
-      // ⚠️ 这里**不能用 AnimatedContainer**：
+      // 这里**不能用 AnimatedContainer**：
       // 鼠标从 A 划到 B 时，A 的颜色要 120ms 才淡出、B 同时淡入 ——
       // 这 120ms 里两行都是高亮态，看起来就是「两首歌同时选中」。
       // 搜索页的卡片用的是普通 Container（瞬间切换），所以那边没有这个问题。

@@ -12,7 +12,7 @@ class AppIcons {
   // 窗口按钮（viewBox 0 0 12 12）
   static const minimize = '<line x1="1" y1="6" x2="11" y2="6"/>';
   static const maximize = '<rect x="1.5" y="1.5" width="9" height="9" rx="1"/>';
-  // ⚠️ 本图标是 **12 见方**坐标系，与标题栏的 minimize / maximize 同族
+  // 本图标是 **12 见方**坐标系，与标题栏的 minimize / maximize 同族
   // （标题栏的 _TitlebarButton 显式传 viewBox: 12）。
   // 在 24 坐标系的地方用它，必须显式传 viewBox: 12 ——
   // 否则 12 的路径会被当成 24 的画布，只画在左上角四分之一里
