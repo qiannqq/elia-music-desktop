@@ -997,7 +997,7 @@ class AppState extends ChangeNotifier {
     currentLyricRaw = b.raw;
     currentLyricTrans = b.trans;
     currentLyricParsed =
-        b.lines.map((e) => LyricLineBox(e.time, e.text)).toList();
+        b.lines.map((e) => LyricLineBox(e.time, e.text, words: e.words)).toList();
     currentLyricTransMap = b.transMap;
   }
 
@@ -1062,7 +1062,14 @@ class AppState extends ChangeNotifier {
 class LyricLineBox {
   final double time;
   final String text;
-  const LyricLineBox(this.time, this.text);
+
+  /// 逐字时间（QRC 才有）。⚠️ 必须保留 —— 早先这里只传了 time/text，
+  /// 把 words 丢掉，导致歌词弹窗永远显示不出逐字效果。
+  final List<LyricWord>? words;
+
+  const LyricLineBox(this.time, this.text, {this.words});
+
+  bool get hasWords => words != null && words!.isNotEmpty;
 }
 
 final app = AppState.instance;

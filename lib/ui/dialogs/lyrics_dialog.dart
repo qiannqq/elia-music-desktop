@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/app_theme.dart';
+import '../../core/lyric.dart';
+import '../widgets/karaoke_text.dart';
 import '../../services/player_controller.dart';
 import '../../state/app_state.dart';
 import '../icons.dart';
@@ -292,7 +294,10 @@ class _LyricsDialogState extends State<LyricsDialog> {
             for (var i = 0; i < lines.length; i++)
               KeyedSubtree(
                 key: _keyFor(i),
-                child: _buildLine(c, lines[i], transMap[lines[i].time] ?? '', i == activeIdx),
+                // ⚠️ 用 transAt 容差匹配：QRC 行时间是毫秒、翻译是厘秒，
+                // 精确查 map[time] 会几乎全部落空（见 lyric.dart 的说明）
+                child: _buildLine(c, lines[i], transAt(transMap, lines[i].time),
+                    i == activeIdx),
               ),
           ],
         ),
@@ -314,15 +319,25 @@ class _LyricsDialogState extends State<LyricsDialog> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                line.text,
-                style: TextStyle(
-                  fontSize: 14,
-                  height: 2,
-                  color: active ? c.accent : c.textTertiary,
-                  fontWeight: active ? FontWeight.w600 : FontWeight.w400,
-                ),
-              ),
+              // 当前行且有逐字数据 → 逐字高亮（与播放栏同一套组件与过渡）
+              (active && line.hasWords)
+                  ? KaraokeText(
+                      line: LyricLine(line.time, line.text, words: line.words),
+                      position: player.position.inMilliseconds / 1000.0,
+                      activeColor: c.accent,
+                      inactiveColor: c.textTertiary,
+                      fontSize: 14,
+                      height: 2,
+                    )
+                  : Text(
+                      line.text,
+                      style: TextStyle(
+                        fontSize: 14,
+                        height: 2,
+                        color: active ? c.accent : c.textTertiary,
+                        fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                      ),
+                    ),
               if (trans.isNotEmpty)
                 Text(
                   trans,

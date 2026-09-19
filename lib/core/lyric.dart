@@ -138,7 +138,26 @@ double _toSeconds(RegExpMatch m) {
   return min * 60 + sec + ms / 1000.0;
 }
 
-/// 秒 → `m:ss`
+/// 按时间取翻译 —— **容差匹配**，不要用精确的 `map[time]`。
+///
+/// ⚠️ QRC 的行时间是**毫秒**（1931ms），而翻译 LRC 是**厘秒**（[00:01.93] → 1930ms），
+/// 两者天生差 0~9ms。用 `map[lines[i].time]` 精确查会几乎全部落空
+/// （只有恰好相等的少数能命中）—— 表现为「大部分翻译对不上」。
+String transAt(Map<double, String> map, double time, {double tolerance = 0.05}) {
+  if (map.isEmpty) return '';
+  final exact = map[time];
+  if (exact != null) return exact;
+  String best = '';
+  var bestDiff = tolerance;
+  for (final e in map.entries) {
+    final d = (e.key - time).abs();
+    if (d <= bestDiff) {
+      bestDiff = d;
+      best = e.value;
+    }
+  }
+  return best;
+}
 String formatTime(double? t) {
   if (t == null || !t.isFinite || t.isNaN) return '0:00';
   final m = t ~/ 60;

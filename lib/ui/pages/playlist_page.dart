@@ -35,6 +35,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
   /// 上一个条目的 onExit 可能不生效，导致「两行同时高亮」。
   /// 改为由页面统一记录：进入 B 时 A 自然就不再是高亮态，不依赖 exit 事件。
   String? _hoveredMid;
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
@@ -107,24 +108,31 @@ class _PlaylistPageState extends State<PlaylistPage> {
                     controller: widget.scrollController,
                     padding: const EdgeInsets.symmetric(horizontal: 32),
                     itemCount: songs.length,
-                    itemBuilder: (ctx, i) => _PlaylistItem(
-                      // ⚠️ 必须给稳定 key（按 mid）：
-                      // 「添加到歌单顶部」会让歌曲换位置，若按索引复用 State，
-                      // 展开中的「+」二级菜单状态会跳到别的卡片上、
-                      // 收起动画被打断 —— 表现为「二级菜单突兀消失」。
-                      key: ValueKey(songs[i].mid),
-                      song: songs[i],
-                      state: state,
-                      onOpenLyric: widget.onOpenLyric,
-                      hovered: _hoveredMid == songs[i].mid,
-                      onHover: (v) => setState(() {
-                        if (v) {
-                          _hoveredMid = songs[i].mid;
-                        } else if (_hoveredMid == songs[i].mid) {
-                          _hoveredMid = null;
-                        }
-                      }),
-                    ),
+                    itemBuilder: (ctx, i) {
+                      // ⚠️ 在这里就把 mid 取出来捕获进闭包。
+                      // 若闭包里写 songs[i].mid，`i` 是回调触发时才求值的 ——
+                      // 列表一变（增删/拖拽/换序）就会取到别的歌，
+                      // 导致「上一行的高亮清不掉、两行同时高亮」。
+                      final mid = songs[i].mid;
+                      return _PlaylistItem(
+                        // ⚠️ 稳定 key（按 mid）：
+                        // 「添加到歌单顶部」会让歌曲换位置，若按索引复用 State，
+                        // 展开中的「+」二级菜单状态会跳到别的卡片上、
+                        // 收起动画被打断 —— 表现为「二级菜单突兀消失」。
+                        key: ValueKey(mid),
+                        song: songs[i],
+                        state: state,
+                        onOpenLyric: widget.onOpenLyric,
+                        hovered: _hoveredMid == mid,
+                        onHover: (v) => setState(() {
+                          if (v) {
+                            _hoveredMid = mid;
+                          } else if (_hoveredMid == mid) {
+                            _hoveredMid = null;
+                          }
+                        }),
+                      );
+                    },
                   ),
                 ),
                 ),
