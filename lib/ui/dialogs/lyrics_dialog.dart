@@ -330,16 +330,21 @@ class _LyricsDialogState extends State<LyricsDialog> {
                       inactiveColor: c.textTertiary,
                       fontSize: 15,
                       height: 1.7,
+                      // 弹窗宽度足够：长句换行显示完整内容，不截断
+                      maxLines: null,
                     )
                   : Text(
                       line.text,
                       style: TextStyle(
                         // 字体放大 + 行高收紧：原来 14/2.0 的行距过大，
-                        // 选中行背景框里上方会空出一大块（用户反馈）。
+                        // 选中行背景框里上方会空出一大块。
                         fontSize: 15,
                         height: 1.7,
                         color: active ? c.accent : c.textTertiary,
-                        fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                        // 加粗用**描边**而不是 fontWeight：CJK 字形请求粗体时
+                        // 常常换一套字面、字宽随之变化，于是「加粗了整行反而变窄」。
+                        // 阴影不参与布局，字形度量与未选中时完全一致。
+                        shadows: active ? karaokeStroke(c.accent) : null,
                       ),
                     ),
               if (trans.isNotEmpty)

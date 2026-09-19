@@ -124,7 +124,7 @@ class PlayerController extends ChangeNotifier {
   /// 立刻把歌曲挂上并进入**加载态**，让播放栏马上展开。
   ///
   /// 对齐 Electron：点播放时播放栏立刻出现并转圈，而不是等网络取回播放地址
-  /// 之后才「突然」弹出来（用户反馈「播放要等一会」）。
+  /// 之后才「突然」弹出来。
   void prepare(Song song) {
     currentSong = song;
     currentUrl = '';
@@ -327,6 +327,20 @@ class PlayerController extends ChangeNotifier {
       lyricLines = const [];
       notifyListeners();
     }
+  }
+
+  /// 歌词被编辑保存后重新装载。
+  ///
+  /// 播放栏的歌词是播放器自己持有的 `lyricLines`，与歌词弹窗**不是同一份**：
+  /// 弹窗读 `AppState.currentLyricParsed`，播放器读 `_loadLyrics` 的结果。
+  /// 只刷新弹窗的话，正在播放的这首歌会一直显示保存前的旧歌词 ——
+  /// 表现为「弹窗里已经是新歌词，播放栏还是旧的」。
+  ///
+  /// 调用前 `LyricCache` 已被作废，所以这里会重新读一遍本地自定义歌词并重新解析。
+  Future<void> reloadLyrics() async {
+    final song = currentSong;
+    if (song == null) return;
+    await _loadLyrics(song);
   }
 
   void _updateActiveLyric() {

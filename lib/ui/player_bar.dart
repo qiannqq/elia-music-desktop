@@ -227,7 +227,7 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
           child: GestureDetector(
             // 必须 opaque + 撑满整行宽：否则命中区等于**已绘制内容**的宽度
             // （歌词 Text 只有自身那么宽），点歌词右侧空白就无效
-            // —— 用户反馈「动态歌词只有贴近左侧才能点」正是这个。
+            // —— 表现为动态歌词只有贴近左侧才点得中。
             behavior: HitTestBehavior.opaque,
             onTap: () => _openLyric(),
             child: SizedBox(
@@ -271,8 +271,13 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
                                     child: Align(
                                       alignment: Alignment.centerLeft,
                                       child: (i == idx && lines[i].hasWords)
-                                          // 当前行且有逐字时间 → 卡拉OK式逐字高亮
-                                          ? KaraokeText(
+                                          // 当前行且有逐字时间 → 卡拉OK式逐字高亮。
+                                          // 用滑动版：这一行只有 24px 高、一百多像素宽，
+                                          // 长句用省略号裁掉等于把逐字歌词废掉。
+                                          // key 按行时间给：换句时新建 State，位移从 0 起
+                                          // （满足「切下一句直接切、不往回滑」）。
+                                          ? SlidingKaraokeText(
+                                              key: ValueKey('karaoke-${lines[i].time}'),
                                               line: lines[i],
                                               position:
                                                   player.position.inMilliseconds / 1000.0,
@@ -330,7 +335,7 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
         const SizedBox(height: 2),
         // 歌曲名也可点击打开歌词（等价原版 `e.name.addEventListener('click',openLyricModal)`）
         // 命中区要**撑满整行宽**：只包住 Text 的话，可点击范围就只有文字那点宽度，
-        // 点到文字旁边的空白就无效（用户反馈「点歌名不弹歌词」正是这个）。
+        // 点到文字旁边的空白就无效。
         SizedBox(
           width: double.infinity,
           child: MouseRegion(
@@ -479,7 +484,7 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
                   hoverHeight: 6,
                   draggable: true,
                   // 拖动过程中**只更新本地预览**，不真的 seek ——
-                  // 边拖边 seek 会让音频不停跳转，听感很鬼畜（用户反馈）。
+                  // 边拖边 seek 会让音频不停跳转，听感很鬼畜。
                   onSeek: (v) => setState(() {
                     _draggingProgress = true;
                     _dragProgress = v;
@@ -571,7 +576,7 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
 ///   * 图标与滑块**都在这个固定宽度之内**。
 ///     早先把滑块做成画在父级边界之外的浮层（Positioned + Clip.none），
 ///     结果 Flutter 的命中测试只在父级尺寸内进行 —— 滑块**既 hover 不到、
-///     也点不动**，鼠标一过去就被判定离开而收起（用户反馈的现象）。
+///     也点不动**，鼠标一过去就被判定离开而收起。
 ///   * 滑块本身用 OverflowBox 固定 80px，避免被 0 宽容器挤变形。
 class _VolumeControl extends StatefulWidget {
   const _VolumeControl({required this.volume, required this.onChanged});

@@ -40,7 +40,7 @@ class AppState extends ChangeNotifier {
 
   /// 是否已经完成过一次搜索。
   /// 用来区分「还没搜过」与「搜过了但 0 条」—— 后者以前界面完全没提示，
-  /// 看起来就像「点了搜索没反应」（用户反馈）。
+  /// 看起来就像「点了搜索没反应」。
   bool hasSearched = false;
 
   /// 搜索框里的链接样式（等价原 `link-style` 类）
@@ -114,7 +114,7 @@ class AppState extends ChangeNotifier {
     searchSource = LocalStore.getOr('search_source', 'qq');
     highQuality = LocalStore.get('qqmusic_high_quality') != 'false';
     savePath = LocalStore.getOr('qqmusic_save_path', '');
-    // 默认 110%（用户要求）：未设置过时用它；已设置过的用户仍读自己的值
+    // 默认 110%：未设置过时用它；已设置过的仍读存下来的值
     zoom = (double.tryParse(LocalStore.getOr('qqmusic_zoom', '110')) ?? 110)
         .clamp(75, 150);
     recentDirs = LocalStore.readJson<List<dynamic>>('qqmusic_recent_dirs', const [])
@@ -1046,7 +1046,10 @@ class AppState extends ChangeNotifier {
     LyricCache.invalidate(mid); // 自定义歌词已变，缓存作废
     currentLyricRaw = raw;
     currentLyricTrans = trans;
-    notifyListeners();
+    reloadLyricFromStore();
+    // 播放栏那份歌词归播放器管（player.lyricLines），和弹窗不是同一份数据。
+    // 这里必须让播放器也重新读一次，否则「保存后弹窗是新的、播放栏还是旧的」。
+    if (player.currentSong?.mid == mid) player.reloadLyrics();
     toast.show('歌词已保存', type: ToastType.success);
   }
 
