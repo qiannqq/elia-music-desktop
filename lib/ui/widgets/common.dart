@@ -116,23 +116,31 @@ class AppButton extends StatelessWidget {
             ),
           child: Opacity(
             opacity: enabled ? 1 : 0.5,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (icon != null) ...[
-                  AppIcon(icon!, size: iconSize, color: hoverFg),
-                  const SizedBox(width: 6),
-                ],
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: small ? 12 : 13,
-                    fontWeight: FontWeight.w500,
-                    color: hoverFg,
-                    height: 1.2,
+            // ⚠️ 必须用 Center 包住：
+            // Row 是 mainAxisSize.min（只包住内容），放在固定宽度的按钮里
+            // （如确认弹窗的 SizedBox(width:80)）会**靠左**，字就不居中了。
+            // 等价 CSS 的 `justify-content: center` + `align-items: center`。
+            // 用 Center 而不是给 Row 加 mainAxisAlignment.center：
+            // Row 在 min 尺寸下没有多余空间，对齐参数不起作用。
+            child: Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (icon != null) ...[
+                    AppIcon(icon!, size: iconSize, color: hoverFg),
+                    const SizedBox(width: 6),
+                  ],
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: small ? 12 : 13,
+                      fontWeight: FontWeight.w500,
+                      color: hoverFg,
+                      height: 1.2,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
           );
