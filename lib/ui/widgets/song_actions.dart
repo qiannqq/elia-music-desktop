@@ -181,6 +181,9 @@ class _AddButtonState extends State<AddButton> {
   /// 收起动画播完后由 _Popup 回调
   void _removeEntryAndReset() {
     _removeEntry();
+    if (widget.state.openAddMenuMid == widget.mid) {
+      widget.state.setOpenAddMenu(null);
+    }
     if (mounted) setState(() => _expanded = false);
   }
 
@@ -214,6 +217,7 @@ class _AddButtonState extends State<AddButton> {
     final flipUp = origin.dy + popupHeight > screen.height - 8;
 
     setState(() => _expanded = true);
+    widget.state.setOpenAddMenu(widget.mid);
 
     _entry = OverlayEntry(
       builder: (ctx) => Stack(
@@ -496,7 +500,7 @@ class _PopupItemState extends State<_PopupItem> {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: _hovered ? c.accentLight : Colors.transparent,
+            color: _hovered ? c.accentLight : c.accentLight.withValues(alpha: 0),
             borderRadius: BorderRadius.circular(6),
           ),
           child: Text(

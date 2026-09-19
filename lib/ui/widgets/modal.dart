@@ -173,7 +173,7 @@ class _CloseButtonState extends State<_CloseButton> {
           width: 28,
           height: 28,
           decoration: BoxDecoration(
-            color: _hovered ? c.hover : Colors.transparent,
+            color: _hovered ? c.hover : c.hover.withValues(alpha: 0),
             borderRadius: BorderRadius.circular(6),
           ),
           child: Center(

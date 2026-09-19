@@ -87,7 +87,9 @@ class _NavItemState extends State<_NavItem> {
     final c = context.c;
     final active = widget.active;
     final fg = active ? c.accent : (_hovered ? c.text : c.textSecondary);
-    final bg = active ? c.accentLight : (_hovered ? c.hover : Colors.transparent);
+    final bg = active
+        ? c.accentLight
+        : (_hovered ? c.hover : c.hover.withValues(alpha: 0));
 
     Widget row = Container(
       height: 38,

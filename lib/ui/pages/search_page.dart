@@ -296,6 +296,21 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
+  /// 翻页：换页后回到顶部
+  ///
+  /// 不回去的话，新一页会停在上一页的滚动位置（用户反馈），
+  /// 而且从列表底部直接换内容观感很跳。
+  void _changePage(AppState state, int target) {
+    state.changePage(target);
+    if (widget.scrollController.hasClients) {
+      widget.scrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    }
+  }
+
   Widget _buildPagination(AppColors c, AppState state) {
     final totalPages = ((state.searchTotal / 50).ceil()).clamp(1, 1 << 30);
     final hasNext = state.currentPage < totalPages;
@@ -306,7 +321,9 @@ class _SearchPageState extends State<SearchPage> {
         children: [
           AppButton(
             label: '上一页',
-            onPressed: state.currentPage <= 1 ? null : () => state.changePage(state.currentPage - 1),
+            onPressed: state.currentPage <= 1
+                ? null
+                : () => _changePage(state, state.currentPage - 1),
           ),
           const SizedBox(width: 16),
           Text(
@@ -316,7 +333,7 @@ class _SearchPageState extends State<SearchPage> {
           const SizedBox(width: 16),
           AppButton(
             label: '下一页',
-            onPressed: hasNext ? () => state.changePage(state.currentPage + 1) : null,
+            onPressed: hasNext ? () => _changePage(state, state.currentPage + 1) : null,
           ),
         ],
       ),
@@ -352,7 +369,10 @@ class _SourceTab extends StatelessWidget {
             duration: const Duration(milliseconds: 200),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
             decoration: BoxDecoration(
-              color: active ? c.accentLight : Colors.transparent,
+              // ⚠️ 不要用 Colors.transparent（那是「透明的黑」）——
+              // Color.lerp 从它过渡到灰色时会经过半透明的黑，悬浮瞬间先「黑」一下。
+              // 用同色 + alpha 0 才能保证插值在同一色相内。
+              color: active ? c.accentLight : c.accentLight.withValues(alpha: 0),
               border: Border.all(
                 color: active ? c.accent : (hovered ? c.textTertiary : c.border),
                 width: 1.5,
@@ -452,7 +472,10 @@ class _SongCardState extends State<_SongCard> {
             const SizedBox(width: 8),
             AnimatedOpacity(
               duration: const Duration(milliseconds: 150),
-              opacity: _hovered ? 1 : 0,
+              // ⚠️ 弹出层打开时也要保持可见：
+              // 全屏遮罩会让卡片收到 onExit（_hovered 变 false）→ 按钮淡出；
+              // 关掉菜单后 hover 回来又淡入 —— 表现为「所有按钮消失再出现」。
+              opacity: (_hovered || state.openAddMenuMid == song.mid) ? 1 : 0,
               child: Row(
                 children: [
                   AppIconButton(

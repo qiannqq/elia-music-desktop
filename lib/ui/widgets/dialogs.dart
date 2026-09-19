@@ -212,7 +212,7 @@ Future<({String path, String filename})?> showSaveDialog(
                                     padding: const EdgeInsets.symmetric(
                                         horizontal: 10, vertical: 6),
                                     decoration: BoxDecoration(
-                                      color: hovered ? c.hover : Colors.transparent,
+                                      color: hovered ? c.hover : c.hover.withValues(alpha: 0),
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: Row(

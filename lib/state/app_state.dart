@@ -56,7 +56,18 @@ class AppState extends ChangeNotifier {
   bool highQuality = true;
   String savePath = '';
   List<String> recentDirs = [];
-  double zoom = 100;
+  double zoom = 110;
+
+  /// 当前打开着「+」二级菜单的歌曲 mid（没有则为 null）。
+  /// 搜索卡片靠它决定「弹出层打开期间也显示操作按钮」，
+  /// 否则遮罩会让卡片失去 hover、按钮闪一下。
+  String? openAddMenuMid;
+
+  void setOpenAddMenu(String? mid) {
+    if (openAddMenuMid == mid) return;
+    openAddMenuMid = mid;
+    notifyListeners();
+  }
 
   String qqCookie = '';
   String neteaseCookie = '';
@@ -103,7 +114,9 @@ class AppState extends ChangeNotifier {
     searchSource = LocalStore.getOr('search_source', 'qq');
     highQuality = LocalStore.get('qqmusic_high_quality') != 'false';
     savePath = LocalStore.getOr('qqmusic_save_path', '');
-    zoom = (double.tryParse(LocalStore.getOr('qqmusic_zoom', '100')) ?? 100).clamp(75, 150);
+    // 默认 110%（用户要求）：未设置过时用它；已设置过的用户仍读自己的值
+    zoom = (double.tryParse(LocalStore.getOr('qqmusic_zoom', '110')) ?? 110)
+        .clamp(75, 150);
     recentDirs = LocalStore.readJson<List<dynamic>>('qqmusic_recent_dirs', const [])
         .map((e) => e.toString())
         .toList();
@@ -1051,8 +1064,13 @@ class AppState extends ChangeNotifier {
   void reloadLyricFromStore() {
     final mid = currentLyricMid;
     if (mid == null) return;
-    currentLyricParsed =
-        parseLrc(currentLyricRaw).map((e) => LyricLineBox(e.time, e.text)).toList();
+    // ⚠️ 必须和 _applyLyricBundle 一样区分 QRC / LRC，并且**保留 words**：
+    // 这里原来写死 parseLrc，而 QRC 的行头是 `[起点ms,时长ms]` 不是 `[mm:ss.xx]`
+    // → 解析出 0 行 → 用户「点编辑再取消」回来就变成「暂无歌词」。
+    final isQrc = looksLikeQrc(currentLyricRaw);
+    currentLyricParsed = (isQrc ? parseQrc(currentLyricRaw) : parseLrc(currentLyricRaw))
+        .map((e) => LyricLineBox(e.time, e.text, words: e.words))
+        .toList();
     currentLyricTransMap = parseTransLrc(currentLyricTrans);
     notifyListeners();
   }

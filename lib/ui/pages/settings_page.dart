@@ -251,7 +251,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         builder: (_, hovered) => Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
-                            color: hovered ? c.hover : Colors.transparent,
+                            color: hovered ? c.hover : c.hover.withValues(alpha: 0),
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Row(
@@ -584,7 +584,7 @@ class _ThemeOption extends StatelessWidget {
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
-            color: selected ? c.accentLight : Colors.transparent,
+            color: selected ? c.accentLight : c.accentLight.withValues(alpha: 0),
             border: Border.all(
               color: selected ? c.accent : (hovered ? c.textTertiary : c.border),
               width: 1.5,

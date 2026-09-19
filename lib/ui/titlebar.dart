@@ -108,7 +108,12 @@ class _TitlebarButtonState extends State<_TitlebarButton> {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    final bg = _hovered ? (widget.isClose ? const Color(0xFFC42B1C) : c.hover) : Colors.transparent;
+    // 非悬浮态用「同色 + alpha 0」而不是 Colors.transparent：
+    // 后者是透明的黑，动画插值时会让标题栏按钮先闪一下暗色。
+    final idleBg = widget.isClose
+        ? const Color(0xFFC42B1C).withValues(alpha: 0)
+        : c.hover.withValues(alpha: 0);
+    final bg = _hovered ? (widget.isClose ? const Color(0xFFC42B1C) : c.hover) : idleBg;
     final fg = (_hovered && widget.isClose) ? Colors.white : c.textSecondary;
 
     Widget btn = MouseRegion(

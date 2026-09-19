@@ -313,7 +313,9 @@ class _LyricsDialogState extends State<LyricsDialog> {
           margin: const EdgeInsets.symmetric(horizontal: 8),
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
-            color: active ? c.accentLight : (hovered ? c.hover : Colors.transparent),
+            color: active
+                ? c.accentLight
+                : (hovered ? c.hover : c.hover.withValues(alpha: 0)),
             borderRadius: BorderRadius.circular(6),
           ),
           child: Column(

@@ -75,7 +75,9 @@ class AppButton extends StatelessWidget {
         border = Border.all(color: c.border);
         break;
       case AppButtonVariant.ghost:
-        bg = Colors.transparent;
+        // 用「hover 色 + alpha 0」而不是 Colors.transparent：
+        // 后者是透明的黑，AnimatedContainer 插值时会先闪一下暗色。
+        bg = c.hover.withValues(alpha: 0);
         fg = c.textSecondary;
         break;
     }
@@ -213,9 +215,13 @@ class AppIconButton extends StatelessWidget {
             width: size,
             height: size,
             decoration: BoxDecoration(
+              // ⚠️ 非悬浮态不能用 Colors.transparent（透明的黑）：
+              // AnimatedContainer 会在两者之间插值，悬浮瞬间先「黑」一下。
+              // 用同色 + alpha 0，插值才在同一色相内。
               color: hovered
                   ? (hoverBg ?? (accentHover ? c.accentLight : c.hover))
-                  : Colors.transparent,
+                  : (hoverBg ?? (accentHover ? c.accentLight : c.hover))
+                      .withValues(alpha: 0),
               borderRadius: BorderRadius.circular(6),
               border: bordered
                   ? Border.all(color: hovered && accentHover ? c.accent : c.borderSubtle)
