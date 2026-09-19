@@ -551,6 +551,9 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
           icon: AppIcons.close,
           size: 28,
           iconSize: 16,
+          // AppIcons.close 是 12 见方坐标系，必须显式声明，
+          // 否则会被当成 24 画布 → 只画在左上角四分之一、又小又偏
+          viewBox: 12,
           baseColor: c.textTertiary,
           onTap: () => player.close(),
           tooltip: '关闭播放器',

@@ -165,6 +165,7 @@ class AppIconButton extends StatelessWidget {
     this.bordered = false,
     this.accentHover = false,
     this.filled = false,
+    this.viewBox = 24,
   });
 
   final String icon;
@@ -180,6 +181,9 @@ class AppIconButton extends StatelessWidget {
 
   /// 实心图标（播放/上一首/下一首等 fill 型）
   final bool filled;
+
+  /// 图标坐标系尺寸。默认 24；用 12 坐标系的图标（如 AppIcons.close）要显式传 12。
+  final double viewBox;
 
   @override
   Widget build(BuildContext context) {
@@ -209,7 +213,9 @@ class AppIconButton extends StatelessWidget {
                   ? Border.all(color: hovered && accentHover ? c.accent : c.borderSubtle)
                   : null,
             ),
-            child: Center(child: AppIcon(icon, size: iconSize, color: fg, filled: filled)),
+            child: Center(
+              child: AppIcon(icon, size: iconSize, color: fg, filled: filled, viewBox: viewBox),
+            ),
           );
         },
       ),

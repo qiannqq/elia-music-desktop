@@ -12,11 +12,13 @@ class AppIcons {
   // 窗口按钮（viewBox 0 0 12 12）
   static const minimize = '<line x1="1" y1="6" x2="11" y2="6"/>';
   static const maximize = '<rect x="1.5" y="1.5" width="9" height="9" rx="1"/>';
-  // ⚠️ 必须用 **24×24** 坐标系（与其它图标一致）：
-  // 早先写的是 12 见方（2~10），于是它只画在 24×24 画布的左上角四分之一里 ——
-  // 看起来就是「叉号飞到按钮左上角、还特别小」。
+  // ⚠️ 本图标是 **12 见方**坐标系，与标题栏的 minimize / maximize 同族
+  // （标题栏的 _TitlebarButton 显式传 viewBox: 12）。
+  // 在 24 坐标系的地方用它，必须显式传 viewBox: 12 ——
+  // 否则 12 的路径会被当成 24 的画布，只画在左上角四分之一里
+  // （看起来「又小又偏」，播放栏的关闭按钮就踩过这个坑）。
   static const close =
-      '<line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/>';
+      '<line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/>';
 
   // 导航
   static const search = '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>';
