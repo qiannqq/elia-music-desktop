@@ -326,14 +326,16 @@ class _LyricsDialogState extends State<LyricsDialog> {
                       position: player.position.inMilliseconds / 1000.0,
                       activeColor: c.accent,
                       inactiveColor: c.textTertiary,
-                      fontSize: 14,
-                      height: 2,
+                      fontSize: 15,
+                      height: 1.7,
                     )
                   : Text(
                       line.text,
                       style: TextStyle(
-                        fontSize: 14,
-                        height: 2,
+                        // 字体放大 + 行高收紧：原来 14/2.0 的行距过大，
+                        // 选中行背景框里上方会空出一大块（用户反馈）。
+                        fontSize: 15,
+                        height: 1.7,
                         color: active ? c.accent : c.textTertiary,
                         fontWeight: active ? FontWeight.w600 : FontWeight.w400,
                       ),

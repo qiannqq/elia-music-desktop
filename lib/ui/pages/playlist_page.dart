@@ -214,8 +214,11 @@ class _PlaylistItemState extends State<_PlaylistItem> {
     return MouseRegion(
       onEnter: (_) => widget.onHover(true),
       onExit: (_) => widget.onHover(false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
+      // ⚠️ 这里**不能用 AnimatedContainer**：
+      // 鼠标从 A 划到 B 时，A 的颜色要 120ms 才淡出、B 同时淡入 ——
+      // 这 120ms 里两行都是高亮态，看起来就是「两首歌同时选中」。
+      // 搜索页的卡片用的是普通 Container（瞬间切换），所以那边没有这个问题。
+      child: Container(
         margin: const EdgeInsets.only(bottom: 2),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(

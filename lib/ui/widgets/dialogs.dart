@@ -100,9 +100,11 @@ Future<bool> showConfirmDialog(BuildContext context, String message) async {
     context,
     AppModalCard(
       maxWidth: 360,
-      padding: const EdgeInsets.fromLTRB(24, 32, 24, 20),
+      // 上下对称，内容才是真正居中（原来 32/20 会让内容偏下）
+      padding: const EdgeInsets.fromLTRB(24, 28, 24, 28),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           AppIcon(AppIcons.warning, size: 32, color: c.danger),
           const SizedBox(height: 16),

@@ -269,7 +269,10 @@ class ZoomWrapper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if ((scale - 1).abs() < 0.001) return child;
+    // ⚠️ **不能**在 scale==1 时直接 return child：
+    // 那样 widget 树的结构会变（少掉 LayoutBuilder/OverflowBox 两层），
+    // Flutter 会把整棵子树卸载重建 —— 表现为「缩放到 100% 时页面刷新」。
+    // 始终走同一套结构，scale=1 时下面就是个恒等变换。
     return LayoutBuilder(
       builder: (ctx, constraints) {
         return ClipRect(

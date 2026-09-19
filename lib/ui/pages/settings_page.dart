@@ -341,7 +341,18 @@ class _SettingsPageState extends State<SettingsPage> {
           _Section(
             title: '外观',
             children: [
-              _FieldLabel('界面缩放', c),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  _FieldLabel('界面缩放', c),
+                  const SizedBox(width: 8),
+                  Text(
+                    '按住 ctrl 使用滚轮可以快捷调整缩放',
+                    style: TextStyle(fontSize: 12, color: c.textTertiary),
+                  ),
+                ],
+              ),
               Row(
                 children: [
                   SizedBox(
