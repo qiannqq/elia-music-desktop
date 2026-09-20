@@ -11,6 +11,7 @@ import 'core/local_store.dart';
 import 'services/api_client.dart';
 import 'services/http_server.dart';
 import 'services/player_controller.dart';
+import 'services/smtc_service.dart';
 import 'state/app_state.dart';
 import 'state/theme_controller.dart';
 import 'ui/app_shell.dart';
@@ -53,6 +54,9 @@ Future<void> main() async {
 
   await app.init();
   await player.init();
+
+  // 系统媒体控件：播放栏之外的第二个出口（媒体面板 / 锁屏 / 硬件媒体键）
+  await smtc.init();
 
   // ---- 窗口（无边框 + 自绘标题栏，等价 frame:false）----
   await windowManager.ensureInitialized();
