@@ -8,6 +8,7 @@ import '../../services/player_controller.dart';
 import '../../state/app_state.dart';
 import '../icons.dart';
 import '../widgets/common.dart';
+import '../widgets/dialogs.dart';
 import '../widgets/modal.dart';
 
 /// 歌词弹窗 —— 对应 `#lyrics-overlay`（查看态 / 编辑态双模式）
@@ -25,8 +26,13 @@ class _LyricsDialogState extends State<LyricsDialog> {
   final TextEditingController _rawCtrl = TextEditingController();
   final TextEditingController _transCtrl = TextEditingController();
   final FocusNode _rawFocus = FocusNode();
+  final FocusNode _transFocus = FocusNode();
 
   bool _editing = false;
+
+  /// 编辑态显示哪一块：false = 原歌词，true = 翻译歌词。
+  /// 两块内容各在自己的输入框里，切换只是把视图滑过去，**不丢任何编辑**。
+  bool _showTrans = false;
   bool _autoFollow = true;
   int _lastScrolledIdx = -1;
   bool _programmaticScroll = false;
@@ -56,6 +62,7 @@ class _LyricsDialogState extends State<LyricsDialog> {
     _rawCtrl.dispose();
     _transCtrl.dispose();
     _rawFocus.dispose();
+    _transFocus.dispose();
     super.dispose();
   }
 
@@ -118,14 +125,40 @@ class _LyricsDialogState extends State<LyricsDialog> {
   void _startEdit() {
     _rawCtrl.text = widget.state.currentLyricRaw;
     _transCtrl.text = widget.state.currentLyricTrans;
-    setState(() => _editing = true);
+    setState(() {
+      _editing = true;
+      _showTrans = false; // 每次进来都从原歌词开始
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) _scroll.jumpTo(0);
       _rawFocus.requestFocus();
     });
   }
 
-  void _cancelEdit() {
+  /// 编辑态里有没有未保存的改动
+  bool get _dirty =>
+      _editing &&
+      (_rawCtrl.text != widget.state.currentLyricRaw ||
+          _transCtrl.text != widget.state.currentLyricTrans);
+
+  /// 退出编辑前问一句。
+  ///
+  /// 只拦「真的要离开编辑态」——**切换原歌词/翻译不拦**：
+  /// 两块内容都还在各自的输入框里，切回来一模一样。
+  Future<bool> _confirmDiscard() async {
+    if (!_dirty) return true;
+    return showConfirmDialog(context, '有未保存的修改，确定放弃吗？');
+  }
+
+  Future<void> _closeDialog() async {
+    if (!await _confirmDiscard()) return;
+    if (!mounted) return;
+    Navigator.of(context).pop();
+  }
+
+  Future<void> _cancelEdit() async {
+    if (!await _confirmDiscard()) return;
+    if (!mounted) return;
     setState(() => _editing = false);
     widget.state.reloadLyricFromStore();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -235,7 +268,7 @@ class _LyricsDialogState extends State<LyricsDialog> {
                         icon: AppIcons.trash,
                         size: 28,
                         iconSize: 14,
-                        onTap: () => Navigator.of(context).pop(),
+                        onTap: _closeDialog,
                       ),
                     ],
                   ),
@@ -359,44 +392,259 @@ class _LyricsDialogState extends State<LyricsDialog> {
     );
   }
 
+  /// 编辑区：原歌词与翻译歌词**各占整块**，用左右两个箭头图标按钮切换。
+  ///
+  /// 原来是上下两块堆着、翻译那块只有 140px —— 长歌词和长翻译都看不全。
   Widget _buildEditArea(AppColors c) {
     return Padding(
       padding: const EdgeInsets.all(20),
       child: Column(
         children: [
           Expanded(
-            child: _MonoTextArea(controller: _rawCtrl, focusNode: _rawFocus),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                '翻译歌词',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: c.textSecondary,
+            child: Row(
+              // 不 stretch：两个箭头按钮垂直居中，编辑框自己撑满高度
+              children: [
+                KeyedSubtree(
+                  key: const ValueKey('switch-left'),
+                  child: _switchStrip(
+                  c,
+                  pointsLeft: true,
+                  label: '原歌词',
+                  // 左侧只负责「切回去」：已经在原歌词时置灰
+                  enabled: _showTrans,
+                  onTap: () => _showEditor(false),
+                  ),
                 ),
-              ),
-            ),
-          ),
-          SizedBox(
-            height: 140,
-            child: _MonoTextArea(
-              controller: _transCtrl,
-              hint: '输入翻译歌词（可选，格式与原文LRC相同）',
+                const SizedBox(width: 8),
+                Expanded(child: _buildSlidingEditors()),
+                const SizedBox(width: 8),
+                KeyedSubtree(
+                  key: const ValueKey('switch-right'),
+                  child: _switchStrip(
+                  c,
+                  pointsLeft: false,
+                  label: '翻译歌词',
+                  // 右侧负责「切到翻译」：已经在翻译时置灰
+                  enabled: !_showTrans,
+                  onTap: () => _showEditor(true),
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 8),
           Text(
             'Ctrl+S 保存 · Esc 取消',
-            style: TextStyle(fontSize: 11, color: c.textTertiary.withValues(alpha: 0.6)),
+            style: TextStyle(
+                fontSize: 11, color: c.textTertiary.withValues(alpha: 0.6)),
           ),
         ],
       ),
     );
   }
+
+  /// 左右切换键：贴着编辑区两侧的**整条**竖条。
+  ///
+  /// 做成竖条而不是小方块按钮：点击区域大得多（整条都能点），
+  /// 而且它本身就在提示「这一侧还有另一块内容」，比一个小箭头显眼。
+  ///
+  /// 不可用的一侧（已经在这一页了）**置灰 + 吃掉所有指针事件** ——
+  /// 只把颜色调暗是不够的：鼠标划过去还会亮起来，看着像能点。
+  Widget _switchStrip(
+    AppColors c, {
+    required bool pointsLeft,
+    required String label,
+    required bool enabled,
+    required VoidCallback onTap,
+  }) {
+    final dim = c.textTertiary.withValues(alpha: 0.3);
+    final strip = Tooltip(
+      message: label,
+      child: MouseRegion(
+        cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: enabled ? onTap : null,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            width: 46,
+            decoration: BoxDecoration(
+              // **不能**用 Colors.transparent：它是「透明黑」，
+              // 插值到浅色的中途会经过一段发灰发暗的颜色 —— 浅色模式下
+              // 就是「点一下按钮，两个按钮同时闪一下深色」。
+              // 用同色零透明代替，插值全程都在同一个色相上。
+              color: enabled ? c.surfaceAlt : c.surfaceAlt.withValues(alpha: 0),
+              border: Border.all(
+                color: enabled
+                    ? c.inputBorder
+                    : c.inputBorder.withValues(alpha: 0),
+              ),
+              borderRadius: BorderRadius.circular(c.radius),
+            ),
+            child: Column(
+              children: [
+                Expanded(
+                  // 长箭头撑满整条高度（自己画，不用缩放图标 ——
+                  // 图标是 24×24 坐标系，拉伸会把描边一起拉变形）
+                  child: _LongChevron(
+                    pointsLeft: pointsLeft,
+                    color: enabled ? c.textSecondary : dim,
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10, left: 2, right: 2),
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 10,
+                      height: 1.25,
+                      color: enabled ? c.textTertiary : dim,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    // 必须**永远**返回同一种 widget 类型：早先在启用/禁用之间切换返回
+    // Tooltip ↔ IgnorePointer 两种类型，导致 Row 的兄弟节点匹配被打乱、
+    // 编辑区的 element 被重建 —— 表现就是「切换动画没了、一步到位」。
+    return IgnorePointer(ignoring: !enabled, child: strip);
+  }
+
+  /// 两块编辑区并排放在一个 2 倍宽的 Row 里，整体左移一个宽度 ——
+  /// 效果是「新的一块从右边挤进来、旧的一块被完全挤出去」。
+  Widget _buildSlidingEditors() {
+    return LayoutBuilder(
+      builder: (ctx, cons) {
+        final w = cons.maxWidth;
+        return ClipRect(
+          key: const Key('lyric-editor-viewport'),
+          // 必须用 OverflowBox 解除宽度约束：否则 SizedBox(width: 2w) 会被
+          // 父级的 maxWidth 夹回 w，Row 里两块各占 w/2，滑过去也只走一半
+          // —— 表现就是「两块各露一半」。
+          child: OverflowBox(
+            alignment: Alignment.centerLeft,
+            maxWidth: double.infinity,
+            child: AnimatedSlide(
+              // 子节点宽 2w，所以 -0.5 正好等于「移动一整块的宽度」
+              offset: Offset(_showTrans ? -0.5 : 0, 0),
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOutCubic,
+              child: SizedBox(
+                width: w * 2,
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: w,
+                      // 隐藏时排除出焦点：否则 Tab 键还会跑到看不见的那个框里
+                      child: ExcludeFocus(
+                        excluding: _showTrans,
+                        child: _MonoTextArea(
+                          controller: _rawCtrl,
+                          focusNode: _rawFocus,
+                          hint: '原歌词（LRC / QRC）',
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: w,
+                      child: ExcludeFocus(
+                        excluding: !_showTrans,
+                        child: _MonoTextArea(
+                          controller: _transCtrl,
+                          focusNode: _transFocus,
+                          hint: '翻译歌词（可选，格式与原文 LRC 相同）',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showEditor(bool trans) {
+    if (_showTrans == trans) return;
+    setState(() => _showTrans = trans);
+    // 焦点必须跟着走：不然键盘输入会打到那个已经滑出视野的框里
+    if (trans) {
+      _rawFocus.unfocus();
+      _transFocus.requestFocus();
+    } else {
+      _transFocus.unfocus();
+      _rawFocus.requestFocus();
+    }
+  }
+
+}
+
+/// 竖条里的**长箭头**：撑满整条高度。
+///
+/// 自己画两条线而不是缩放图标 —— 图标按 24×24 坐标系绘制，
+/// 纵向拉伸会把描边粗细一起拉变形（横细竖粗），很难看。
+class _LongChevron extends StatelessWidget {
+  const _LongChevron({required this.pointsLeft, required this.color});
+
+  final bool pointsLeft;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SizedBox(
+        width: 14,
+        height: double.infinity,
+        child: CustomPaint(
+          painter: _ChevronPainter(pointsLeft: pointsLeft, color: color),
+          child: const SizedBox.expand(),
+        ),
+      ),
+    );
+  }
+}
+
+class _ChevronPainter extends CustomPainter {
+  _ChevronPainter({required this.pointsLeft, required this.color});
+
+  final bool pointsLeft;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      // 线要够粗：箭头是拉长到整条高度的，细线（1.6）摊在几百像素上
+      // 会细得像根头发，看着很别扭。这里按高度取一点比例，兼顾长条与短条。
+      ..strokeWidth = (size.height * 0.011).clamp(2.2, 3.6)
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke;
+    // 上下各留 6% 边距，别把线条顶死在两端
+    final top = size.height * 0.06;
+    final bottom = size.height * 0.94;
+    final midY = size.height / 2;
+    final nearX = pointsLeft ? 0.0 : size.width;
+    final farX = pointsLeft ? size.width : 0.0;
+    canvas.drawPath(
+      Path()
+        ..moveTo(farX, top)
+        ..lineTo(nearX, midY)
+        ..lineTo(farX, bottom),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_ChevronPainter old) =>
+      old.color != color || old.pointsLeft != pointsLeft;
 }
 
 class _MonoTextArea extends StatelessWidget {
