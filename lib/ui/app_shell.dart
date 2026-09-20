@@ -200,6 +200,8 @@ class _AppShellState extends State<AppShell>
     return KeyEventResult.handled;
   }
 
+  bool _lastHasSong = false;
+
   SmoothScrollController _controllerFor(String page) => switch (page) {
         'playlist' => _playlistScroll,
         'settings' => _settingsScroll,
@@ -224,7 +226,14 @@ class _AppShellState extends State<AppShell>
     ctrl.invalidateTarget();
   }
 
+  /// 这个 shell 只关心「有没有歌在放」——它决定播放栏的留白与显示。
+  ///
+  /// 不能无条件 setState：播放位置每秒变化几十次，会把整个页面（含几十行
+  /// 列表）一起重建。位置相关的变化由各自的 `ValueListenableBuilder` 处理。
   void _onPlayer() {
+    final hasSong = player.currentSong != null;
+    if (hasSong == _lastHasSong) return;
+    _lastHasSong = hasSong;
     if (mounted) setState(() {});
   }
 

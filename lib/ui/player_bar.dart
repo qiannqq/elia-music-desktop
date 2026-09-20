@@ -55,11 +55,32 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
     super.dispose();
   }
 
+  /// 只在「结构性」状态变化时重建播放栏。
+  ///
+  /// 位置每秒变化几十次，而它只影响进度条、时间与歌词高亮这三处 ——
+  /// 那三处各自用 `ValueListenableBuilder` 盯着 `positionNotifier`。
+  /// 这里若无条件 setState，整条播放栏（含封面、控制键、歌词）都会跟着位置
+  /// 一起重建，白烧掉大量帧预算。
+  int _lastStateKey = 0;
+
   void _onPlayer() {
-    if (mounted) {
-      _syncGlow();
-      setState(() {});
-    }
+    if (!mounted) return;
+    _syncGlow();
+    final key = Object.hash(
+      player.currentSong?.mid,
+      player.isPlaying,
+      player.isLoading,
+      player.errorMessage,
+      player.playMode,
+      player.activeLyricIndex,
+      player.lyricLines.length,
+      player.lyricPaused,
+      player.duration,
+      player.volume,
+    );
+    if (key == _lastStateKey) return;
+    _lastStateKey = key;
+    setState(() {});
   }
 
   void _syncGlow() {
@@ -135,7 +156,6 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
 
   Widget _buildCover(BuildContext context, Song song) {
     final c = context.c;
-    final glow = 0.35 + 0.25 * _glow.value;
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -148,44 +168,63 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
           height: 48,
           child: Stack(
             children: [
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 800),
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: c.surfaceAlt,
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: player.isPlaying
-                      ? [
-                          BoxShadow(
-                            color: c.accent.withValues(alpha: glow * 0.6),
-                            blurRadius: 6 + 10 * _glow.value,
-                            spreadRadius: 1 + 3 * _glow.value,
-                          )
-                        ]
-                      : [
-                          BoxShadow(
-                            color: c.accent.withValues(alpha: 0),
-                            blurRadius: 6,
-                            spreadRadius: 1,
-                          )
-                        ],
+              // 发光**单独一层**，并且只在它内部重建。
+              //
+              // 两点讲究：
+              //  * 模糊核（blurRadius/spreadRadius）固定，只让透明度呼吸 ——
+              //    动 blurRadius 等于每帧重算一次高斯模糊，是光栅化里最贵的操作；
+              //  * 外面套 RepaintBoundary，把 2.4 秒的循环动画关在这一层里，
+              //    不让它把封面图也带着每帧重绘。
+              RepaintBoundary(
+                child: AnimatedBuilder(
+                  animation: _glow,
+                  builder: (_, _) => Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: player.isPlaying
+                          ? [
+                              BoxShadow(
+                                color: c.accent.withValues(
+                                    alpha: (0.35 + 0.25 * _glow.value) * 0.6),
+                                blurRadius: 16,
+                                spreadRadius: 3,
+                              )
+                            ]
+                          : const [],
+                    ),
+                  ),
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: song.pic.isEmpty
-                      ? Center(
-                          child: AppIcon(AppIcons.music, size: 24, color: c.textTertiary),
-                        )
-                      : Image.network(
-                          ApiClient.getProxyImageUrl(song.pic),
-                          width: 48,
-                          height: 48,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => Center(
-                            child: AppIcon(AppIcons.music, size: 24, color: c.textTertiary),
+              ),
+              // 封面也单独隔离开：它上面没有动画，不该被别的东西带着重绘
+              RepaintBoundary(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 800),
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: c.surfaceAlt,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: song.pic.isEmpty
+                        ? Center(
+                            child: AppIcon(AppIcons.music,
+                                size: 24, color: c.textTertiary),
+                          )
+                        : Image.network(
+                            ApiClient.getProxyImageUrl(song.pic),
+                            width: 48,
+                            height: 48,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => Center(
+                              child: AppIcon(AppIcons.music,
+                                  size: 24, color: c.textTertiary),
+                            ),
                           ),
-                        ),
+                  ),
                 ),
               ),
               if (player.isLoading)
@@ -276,13 +315,21 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
                                           // 长句用省略号裁掉等于把逐字歌词废掉。
                                           // key 按行时间给：换句时新建 State，位移从 0 起
                                           // （满足「切下一句直接切、不往回滑」）。
-                                          ? SlidingKaraokeText(
-                                              key: ValueKey('karaoke-${lines[i].time}'),
-                                              line: lines[i],
-                                              position:
-                                                  player.position.inMilliseconds / 1000.0,
-                                              activeColor: c.accent,
-                                              inactiveColor: c.textTertiary,
+                                          // 只有「正在唱的这行」需要跟着播放位置走，
+                                          // 用 ValueListenableBuilder 把重建压到这一行
+                                          ? ValueListenableBuilder<Duration>(
+                                              valueListenable:
+                                                  player.positionNotifier,
+                                              builder: (_, pos, _) =>
+                                                  SlidingKaraokeText(
+                                                key: ValueKey(
+                                                    'karaoke-${lines[i].time}'),
+                                                line: lines[i],
+                                                position:
+                                                    pos.inMilliseconds / 1000.0,
+                                                activeColor: c.accent,
+                                                inactiveColor: c.textTertiary,
+                                              ),
                                             )
                                           : Text(
                                               lines[i].text,
@@ -367,13 +414,6 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
 
   Widget _buildCenter(BuildContext context) {
     final c = context.c;
-    final progress = _draggingProgress ? _dragProgress : player.progress;
-    final displayPos = _draggingProgress
-        ? Duration(
-            milliseconds: (progress * player.duration.inMilliseconds).round(),
-          )
-        : player.position;
-
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -460,65 +500,85 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
           ],
         ),
         const SizedBox(height: 4),
-        SizedBox(
-          width: 400,
-          child: Row(
-            children: [
-              SizedBox(
-                width: 36,
-                child: Text(
-                  formatTime(displayPos.inMilliseconds / 1000.0),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: c.textTertiary,
-                    fontFeatures: const [FontFeature.tabularFigures()],
+        // 进度与时间**只**依赖播放位置：用 ValueListenableBuilder 把重建
+        // 关在这一小块里。位置每秒变化几十次，若让整个播放栏跟着重建，
+        // 封面、控制键、歌词都要白重画一遍。
+        ValueListenableBuilder<Duration>(
+          valueListenable: player.positionNotifier,
+          builder: (context, _, _) {
+            final progress = _draggingProgress ? _dragProgress : player.progress;
+            final displayPos = _draggingProgress
+                ? Duration(
+                    milliseconds:
+                        (progress * player.duration.inMilliseconds).round(),
+                  )
+                : player.position;
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+          SizedBox(
+            width: 400,
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 36,
+                  child: Text(
+                    formatTime(displayPos.inMilliseconds / 1000.0),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: c.textTertiary,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: AppProgressBar(
-                  value: progress,
-                  height: 4,
-                  hoverHeight: 6,
-                  draggable: true,
-                  // 拖动过程中**只更新本地预览**，不真的 seek ——
-                  // 边拖边 seek 会让音频不停跳转，听感很鬼畜。
-                  onSeek: (v) => setState(() {
-                    _draggingProgress = true;
-                    _dragProgress = v;
-                  }),
-                  // 按下/开始拖动：先暂停，并记住拖动前的播放状态
-                  onSeekStart: () {
-                    _wasPlayingBeforeSeek = player.isPlaying;
-                    player.pause();
-                  },
-                  // 松手/抬起：真正 seek，然后还原拖动前的播放状态
-                  onSeekEnd: () {
-                    final v = _dragProgress;
-                    setState(() => _draggingProgress = false);
-                    player.seekPercent(v).then((_) {
-                      if (_wasPlayingBeforeSeek) player.resume();
-                    });
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 36,
-                child: Text(
-                  formatTime(player.duration.inMilliseconds / 1000.0),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: c.textTertiary,
-                    fontFeatures: const [FontFeature.tabularFigures()],
+                const SizedBox(width: 8),
+                Expanded(
+                  child: AppProgressBar(
+                    value: progress,
+                    height: 4,
+                    hoverHeight: 6,
+                    draggable: true,
+                    // 拖动过程中**只更新本地预览**，不真的 seek ——
+                    // 边拖边 seek 会让音频不停跳转，听感很鬼畜。
+                    onSeek: (v) => setState(() {
+                      _draggingProgress = true;
+                      _dragProgress = v;
+                    }),
+                    // 按下/开始拖动：先暂停，并记住拖动前的播放状态
+                    onSeekStart: () {
+                      _wasPlayingBeforeSeek = player.isPlaying;
+                      player.pause();
+                    },
+                    // 松手/抬起：真正 seek，然后还原拖动前的播放状态
+                    onSeekEnd: () {
+                      final v = _dragProgress;
+                      setState(() => _draggingProgress = false);
+                      player.seekPercent(v).then((_) {
+                        if (_wasPlayingBeforeSeek) player.resume();
+                      });
+                    },
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 36,
+                  child: Text(
+                    formatTime(player.duration.inMilliseconds / 1000.0),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: c.textTertiary,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
+              ],
+            );
+          },
         ),
       ],
     );

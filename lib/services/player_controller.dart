@@ -77,6 +77,14 @@ class PlayerController extends ChangeNotifier {
 
   bool get hasSong => currentSong != null;
 
+  /// 播放位置单独广播，**不走** ChangeNotifier。
+  ///
+  /// 位置每秒变化几十次（Windows 后端几乎每帧都报一次），而 `notifyListeners`
+  /// 的订阅方是整棵界面树 —— 实测播放时 AppShell.build 每秒被调用 70 多次，
+  /// 帧率被这一件事吃掉。真正需要跟着位置走的只有进度条、时间显示和
+  /// 歌词高亮，让它们各自监听这个 notifier 就够了。
+  final ValueNotifier<Duration> positionNotifier = ValueNotifier(Duration.zero);
+
   Future<void> init() async {
     playMode = PlayModeX.fromId(LocalStore.get('qqmusic_play_mode'));
     final savedVolume = double.tryParse(LocalStore.get('qqmusic_volume') ?? '');
@@ -86,8 +94,9 @@ class PlayerController extends ChangeNotifier {
     _player.onPositionChanged.listen((p) {
       if (_disposed || _preparing) return;
       position = p;
-      _updateActiveLyric();
-      notifyListeners();
+      positionNotifier.value = p;
+      // 只有「唱到下一句」这种低频变化才需要整棵树知道
+      if (_updateActiveLyric()) notifyListeners();
     });
 
     _player.onDurationChanged.listen((d) {
@@ -131,6 +140,7 @@ class PlayerController extends ChangeNotifier {
     currentSong = song;
     currentUrl = '';
     position = Duration.zero;
+    positionNotifier.value = Duration.zero;
     duration = Duration.zero;
     lyricLines = const [];
     activeLyricIndex = -1;
@@ -163,6 +173,7 @@ class PlayerController extends ChangeNotifier {
     _lastLyricTimer?.cancel();
 
     position = Duration.zero;
+    positionNotifier.value = Duration.zero;
     duration = Duration.zero;
     lyricLines = const [];
     activeLyricIndex = -1;
@@ -266,6 +277,7 @@ class PlayerController extends ChangeNotifier {
     isPlaying = false;
     isLoading = false;
     position = Duration.zero;
+    positionNotifier.value = Duration.zero;
     duration = Duration.zero;
     lyricLines = const [];
     activeLyricIndex = -1;
@@ -306,6 +318,7 @@ class PlayerController extends ChangeNotifier {
     isPlaying = false;
     isLoading = false;
     position = Duration.zero;
+    positionNotifier.value = Duration.zero;
     notifyListeners();
     onEnded?.call(playMode == PlayMode.shuffle ? 'random' : 'next');
   }
@@ -357,8 +370,10 @@ class PlayerController extends ChangeNotifier {
     await _loadLyrics(song);
   }
 
-  void _updateActiveLyric() {
-    if (lyricLines.isEmpty) return;
+  /// 返回**是否换了行** —— 调用方据此决定要不要通知界面（换行是低频事件，
+  /// 而它每次都被位置事件调用）。
+  bool _updateActiveLyric() {
+    if (lyricLines.isEmpty) return false;
     final ct = position.inMilliseconds / 1000.0;
     var idx = -1;
     for (var i = 0; i < lyricLines.length; i++) {
@@ -368,7 +383,7 @@ class PlayerController extends ChangeNotifier {
         break;
       }
     }
-    if (idx == activeLyricIndex || idx < 0) return;
+    if (idx == activeLyricIndex || idx < 0) return false;
     activeLyricIndex = idx;
 
     if (idx == lyricLines.length - 1) {
@@ -382,6 +397,7 @@ class PlayerController extends ChangeNotifier {
       _lastLyricTimer = null;
       if (isPlaying && lyricPaused) lyricPaused = false;
     }
+    return true;
   }
 
   /// 播放器进度条位置（0~1）
@@ -393,6 +409,7 @@ class PlayerController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    positionNotifier.dispose();
     _player.dispose();
     super.dispose();
   }
