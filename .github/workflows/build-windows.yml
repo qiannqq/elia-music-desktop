@@ -66,6 +66,11 @@ jobs:
           }
           if (-not $exe) { throw 'ISCC.exe not found on this runner' }
           Write-Host "using ISCC: $exe"
+          # ISCC 不会自己创建输出目录，OutputDir 指向的目录不存在时它就报
+          # "The system cannot find the path specified." 然后退出 1。
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Write-Host "cwd: $(Get-Location)"
+          Write-Host "dist: $(Test-Path dist) | icon: $(Test-Path windows\runner\resources\app_icon.ico) | built-exe: $(Test-Path build\windows\x64\runner\Release\elia_music.exe)"
           & $exe packaging/windows/elia_music.iss /Q
 
       - name: Upload artifacts
