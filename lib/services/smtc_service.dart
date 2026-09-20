@@ -121,13 +121,19 @@ class SmtcService {
   /// 比让系统进程去访问 127.0.0.1 上的本地服务可靠得多。
   Future<void> _pushCover(Song song) async {
     final url = ApiClient.getProxyImageUrl(song.pic);
-    if (url.isEmpty) return;
+    if (url.isEmpty) {
+      fileLogger.warn('SMTC', '这首歌没有封面地址');
+      return;
+    }
     try {
       var bytes = _coverCache[url];
       if (bytes == null) {
         final res =
             await http.get(Uri.parse(url)).timeout(const Duration(seconds: 8));
-        if (res.statusCode != 200 || res.bodyBytes.isEmpty) return;
+        if (res.statusCode != 200 || res.bodyBytes.isEmpty) {
+          fileLogger.warn('SMTC', '封面取回失败: HTTP ${res.statusCode}');
+          return;
+        }
         bytes = res.bodyBytes;
         _coverCache[url] = bytes;
         // 只留最近几首，长播一个歌单时不让它无限涨
@@ -135,9 +141,19 @@ class SmtcService {
       }
       // 取封面的过程中可能已经换歌了，别把旧封面盖上去
       if (song.mid != _mid) return;
-      _push('thumbnail', bytes);
+      // 封面失败是「静默」的（面板上只是空白），所以把字节数、图片魔数和
+      // 原生侧的回执都记下来 —— 出问题时一眼能看出卡在哪一步。
+      final magic = bytes.length >= 4
+          ? bytes
+              .sublist(0, 4)
+              .map((b) => b.toRadixString(16).padLeft(2, '0'))
+              .join()
+          : '';
+      final status = await _channel.invokeMethod<String>('thumbnail', bytes);
+      fileLogger.info(
+          'SMTC', '封面 ${bytes.length}B magic=$magic → ${status ?? 'null'}');
     } catch (e) {
-      fileLogger.warn('SMTC', '封面获取失败: $e');
+      fileLogger.warn('SMTC', '封面处理失败: $e');
     }
   }
 

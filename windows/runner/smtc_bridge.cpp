@@ -9,10 +9,11 @@
 #include <flutter/encodable_value.h>
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
+// ISystemMediaTransportControlsInterop 是经典 COM 接口，在这个头里。
+#include <systemmediatransportcontrolsinterop.h>
 // Windows.Foundation.h 要显式包含：IClosable::Close() 是返回 auto 的模板，
 // 定义不在 base.h 里，缺了会报 C3779。
 #include <winrt/Windows.Foundation.h>
-#include <winrt/Windows.Media.Playback.h>
 #include <winrt/Windows.Media.h>
 #include <winrt/Windows.Storage.Streams.h>
 #include <winrt/base.h>
@@ -26,12 +27,14 @@ namespace Streams = winrt::Windows::Storage::Streams;
 
 std::unique_ptr<flutter::MethodChannel<EncodableValue>> g_channel;
 
+/// 宿主窗口。SMTC 会话要挂在它上面，见 OpenSession 里的说明。
+HWND g_hwnd = nullptr;
+
 /// SMTC 会话。
 ///
 /// 事件订阅必须留着 token、退出前 revoke：回调是异步投递的，
 /// 不 revoke 就可能落在已经析构的对象上。
 struct Session {
-  Media::Playback::MediaPlayer player{nullptr};
   Media::SystemMediaTransportControls smtc{nullptr};
   winrt::event_token button_token{};
   winrt::event_token seek_token{};
@@ -109,37 +112,42 @@ void CloseSession() {
     g_session.smtc = nullptr;
   }
   g_session.thumbnail = nullptr;
-  if (g_session.player) {
-    g_session.player.CommandManager().IsEnabled(true);
-    g_session.player.Close();
-    g_session.player = nullptr;
-  }
 }
 
 /// 建会话。
 ///
-/// 用 `MediaPlayer` 当宿主取它的 `SystemMediaTransportControls`：
-/// 这条路不需要窗口句柄，于是与窗口创建时序、窗口重建都无关。
-/// 把宿主的 CommandManager 关掉，免得它自己去抢按钮事件。
+/// 走 `ISystemMediaTransportControlsInterop::GetForWindow`，把会话挂到窗口上。
+/// 这样系统才知道是「谁」在放 —— 媒体面板上显示的就是本应用的名称与图标。
+///
+/// 另一条路是建一个 `MediaPlayer` 当宿主、取它的 `SystemMediaTransportControls`：
+/// 那条路不需要窗口句柄，但**系统认不出调用者**，面板上会显示成「未知应用」
+/// （没有合法的窗口句柄时，Windows 拒绝显示调用方信息）。
 bool OpenSession() {
   if (g_session.valid()) return true;
-  try {
-    g_session.player = Media::Playback::MediaPlayer();
-    g_session.player.CommandManager().IsEnabled(false);
+  if (!g_hwnd) return false;
 
-    g_session.smtc = g_session.player.SystemMediaTransportControls();
-    if (!g_session.smtc) return false;
+  try {
+    auto interop = winrt::get_activation_factory<
+        Media::SystemMediaTransportControls,
+        ISystemMediaTransportControlsInterop>();
+    Media::SystemMediaTransportControls smtc{nullptr};
+    winrt::check_hresult(interop->GetForWindow(
+        g_hwnd, winrt::guid_of<Media::SystemMediaTransportControls>(),
+        winrt::put_abi(smtc)));
+    if (!smtc) return false;
+    g_session.smtc = smtc;
 
     // 面板上要显示哪些按钮。seek 由进度条承担，不需要快进/快退键。
-    g_session.smtc.IsPlayEnabled(true);
-    g_session.smtc.IsPauseEnabled(true);
-    g_session.smtc.IsNextEnabled(true);
-    g_session.smtc.IsPreviousEnabled(true);
-    g_session.smtc.IsStopEnabled(true);
-    g_session.smtc.PlaybackStatus(Media::MediaPlaybackStatus::Closed);
+    smtc.IsPlayEnabled(true);
+    smtc.IsPauseEnabled(true);
+    smtc.IsNextEnabled(true);
+    smtc.IsPreviousEnabled(true);
+    smtc.IsStopEnabled(true);
+    smtc.PlaybackStatus(Media::MediaPlaybackStatus::Closed);
+    smtc.IsEnabled(true);
 
     // 平台线程是 STA，事件会回到这个线程，所以可以直接往通道里发。
-    g_session.button_token = g_session.smtc.ButtonPressed(
+    g_session.button_token = smtc.ButtonPressed(
         [](const Media::SystemMediaTransportControls&,
            const Media::SystemMediaTransportControlsButtonPressedEventArgs&
                args) {
@@ -167,7 +175,7 @@ bool OpenSession() {
 
     // 系统面板上拖动进度条。要回一个 timeline 才算确认，
     // 否则面板上的游标会弹回原位。
-    g_session.seek_token = g_session.smtc.PlaybackPositionChangeRequested(
+    g_session.seek_token = smtc.PlaybackPositionChangeRequested(
         [](const Media::SystemMediaTransportControls&,
            const Media::PlaybackPositionChangeRequestedEventArgs& args) {
           SendEvent("seek", ToMs(args.RequestedPlaybackPosition()));
@@ -198,8 +206,12 @@ void UpdateMetadata(const std::string& title, const std::string& artist,
 /// SMTC 只接受 IRandomAccessStreamReference，在线图片得让系统自己去拉；
 /// 而封面在本地已经有一份（走应用自己的图片代理），直接喂字节最稳，
 /// 也避免系统进程去访问 127.0.0.1 上的本地服务。
-void UpdateThumbnail(const std::vector<uint8_t>& bytes) {
-  if (!g_session.valid() || bytes.empty()) return;
+///
+/// 返回一段状态文本给 Dart 记日志 —— 封面失败是「静默」的，
+/// 面板上只是空白，不给回执就没法查。
+std::string UpdateThumbnail(const std::vector<uint8_t>& bytes) {
+  if (!g_session.valid()) return "no-session";
+  if (bytes.empty()) return "empty";
   try {
     Streams::InMemoryRandomAccessStream stream;
     Streams::DataWriter writer(stream);
@@ -208,15 +220,20 @@ void UpdateThumbnail(const std::vector<uint8_t>& bytes) {
     // 换成 StorageFile 那种碰文件系统的异步操作就不能这么写了。
     writer.StoreAsync().get();
     writer.FlushAsync().get();
+    // 必须 detach：DataWriter 析构时会把自己的输出流关掉，
+    // 那样 SMTC 拿到的就是个已经关闭的流。
     writer.DetachStream();
     stream.Seek(0);
 
     g_session.thumbnail = stream;
     auto updater = g_session.smtc.DisplayUpdater();
-    updater.Thumbnail(Streams::RandomAccessStreamReference::CreateFromStream(stream));
+    updater.Type(Media::MediaPlaybackType::Music);
+    updater.Thumbnail(
+        Streams::RandomAccessStreamReference::CreateFromStream(stream));
     updater.Update();
-  } catch (const winrt::hresult_error&) {
-    // 封面失败不影响其余信息，忽略
+    return "ok:" + std::to_string(bytes.size());
+  } catch (const winrt::hresult_error& e) {
+    return "fail:" + winrt::to_string(e.message());
   }
 }
 
@@ -267,9 +284,10 @@ void HandleCall(const flutter::MethodCall<EncodableValue>& call,
   if (method == "thumbnail") {
     if (const auto* bytes =
             std::get_if<std::vector<uint8_t>>(call.arguments())) {
-      UpdateThumbnail(*bytes);
+      result->Success(EncodableValue(UpdateThumbnail(*bytes)));
+    } else {
+      result->Success(EncodableValue(std::string("not-bytes")));
     }
-    result->Success();
     return;
   }
   if (method == "status") {
@@ -293,7 +311,8 @@ void HandleCall(const flutter::MethodCall<EncodableValue>& call,
 
 }  // namespace
 
-void RegisterSmtcBridge(flutter::BinaryMessenger* messenger) {
+void RegisterSmtcBridge(flutter::BinaryMessenger* messenger, HWND hwnd) {
+  g_hwnd = hwnd;
   g_channel = std::make_unique<flutter::MethodChannel<EncodableValue>>(
       messenger, "elia/smtc", &flutter::StandardMethodCodec::GetInstance());
   g_channel->SetMethodCallHandler(HandleCall);

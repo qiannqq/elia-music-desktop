@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.senasenki" "\0"
-            VALUE "FileDescription", "elia_music" "\0"
+            VALUE "FileDescription", "Elia Music" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "elia_music" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.senasenki. All rights reserved." "\0"
             VALUE "OriginalFilename", "elia_music.exe" "\0"
-            VALUE "ProductName", "elia_music" "\0"
+            VALUE "ProductName", "Elia Music" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
