@@ -468,6 +468,12 @@ class AppState extends ChangeNotifier {
 
   // ============================================================ 播放
 
+  /// 播放请求代次：切歌之后，旧请求的结果必须丢弃。
+  ///
+  /// 没有它就会出现：A 还在加载时切到 B（B 秒开），几秒后 A 的地址才回来，
+  /// 直接把 B 顶掉 —— 表现为「刚放两秒又跳回上一首」。
+  int _playGeneration = 0;
+
   Future<void> playSong(String mid, {bool manual = true}) async {
     final song = findSong(mid);
     if (song == null) {
@@ -479,18 +485,24 @@ class AppState extends ChangeNotifier {
       _pushHistory(mid);
     }
     // 先展开播放栏并进入加载态，再去取播放地址（对齐 Electron 的交互）
+    final gen = ++_playGeneration;
     player.prepare(song);
     notifyListeners();
     try {
       final url = await ApiClient.getSongUrl(mid, true, song);
+      // 取地址期间用户已经切到别的歌了 —— 这个结果作废，
+      // 既不能拿去播放（会把新歌顶掉），也不该弹错误提示
+      if (gen != _playGeneration) return;
       if (url.isNotEmpty) {
         await player.play(song, url);
+        if (gen != _playGeneration) return;
         notifyListeners();
       } else {
         player.cancelLoading();
         toast.show('无法获取播放链接', type: ToastType.error);
       }
     } catch (e) {
+      if (gen != _playGeneration) return;
       player.cancelLoading();
       toast.show('播放失败: $e', type: ToastType.error);
     }
