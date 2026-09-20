@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
 import '../../services/api_client.dart';
+import '../../services/qqmusic_service.dart';
 import '../../state/app_state.dart';
 import '../../state/theme_controller.dart';
 import '../../state/toast.dart';
@@ -84,9 +85,18 @@ class _SettingsPageState extends State<SettingsPage> {
             children: [
               _FieldLabel('Cookie 状态', c),
               _CookieStatus(
-                hasCookie: state.qqCookie.isNotEmpty,
+                hasCookie: state.qqCookie.isEmpty == false,
                 status: state.qqCookieStatus,
               ),
+              if (state.qqNickname.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                _FieldLabel('账号信息', c),
+                _AccountTags(
+                  nickname: state.qqNickname,
+                  isWechat: state.qqIsWechat,
+                  isVip: state.qqIsVip,
+                ),
+              ],
               const SizedBox(height: 16),
               _FieldLabel('Cookie 字符串', c),
               AppTextField(
@@ -427,13 +437,24 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     setState(() => _qqVerifying = true);
     try {
-      await ApiClient.verifyCookie(v);
-      widget.state.qqCookieStatus = 'valid';
+      // 必须去 QQ 的账号接口问一次「这是谁」。
+      // 走本地代理取播放地址是不算数的：那个地址在未登录状态下同样取得到，
+      // 于是随便填一串字符都会「验证通过」。
+      final info = await qqMusicService.fetchUserInfo(ck: v);
+      if (info == null) {
+        widget.state.markQqCookieInvalid();
+        toast.show('Cookie 无效或已失效', type: ToastType.error);
+        return;
+      }
       widget.state.setQqCookie(v);
-      widget.state.qqCookieStatus = 'valid';
-      toast.show('Cookie 验证通过', type: ToastType.success);
+      widget.state.applyQqUserInfo(
+        nickname: info.nickname,
+        isWechat: info.isWechat,
+        isVip: info.isVip,
+      );
+      toast.show('验证通过：${info.nickname}', type: ToastType.success);
     } catch (e) {
-      widget.state.qqCookieStatus = 'invalid';
+      widget.state.markQqCookieInvalid();
       toast.show('$e', type: ToastType.error);
     } finally {
       if (mounted) setState(() => _qqVerifying = false);
@@ -514,6 +535,69 @@ class _FieldLabel extends StatelessWidget {
         text,
         style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: c.textSecondary),
       ),
+    );
+  }
+}
+
+/// 账号信息：昵称 + 登录方式 + 是否绿钻。
+class _AccountTags extends StatelessWidget {
+  const _AccountTags({
+    required this.nickname,
+    required this.isWechat,
+    required this.isVip,
+  });
+
+  final String nickname;
+  final bool isWechat;
+  final bool isVip;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          _Tag(text: nickname, color: c.textSecondary, bg: c.surfaceAlt),
+          _Tag(
+            text: isWechat ? '微信登录' : 'QQ登录',
+            color: c.textSecondary,
+            bg: c.surfaceAlt,
+          ),
+          _Tag(
+            text: isVip ? '绿钻' : '非绿钻',
+            // 绿钻用金色，一眼能区分；非会员就压成普通灰
+            color: isVip ? const Color(0xFFB8860B) : c.textTertiary,
+            bg: isVip
+                ? const Color(0xFFB8860B).withValues(alpha: 0.12)
+                : c.surfaceAlt,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Tag extends StatelessWidget {
+  const _Tag({required this.text, required this.color, required this.bg});
+
+  final String text;
+  final Color color;
+  final Color bg;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      decoration: BoxDecoration(
+        color: bg,
+        border: Border.all(color: c.border),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(text, style: TextStyle(fontSize: 13, color: color)),
     );
   }
 }

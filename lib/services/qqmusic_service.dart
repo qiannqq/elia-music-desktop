@@ -48,6 +48,22 @@ class QQMusicService {
   Map<String, String> cookieMap = {};
   String cookie = '';
   String uin = '0';
+
+  /// ck 刷新成功后回调 —— 由上层写回本地存储。
+  /// 服务层不直接碰存储，保持单一职责。
+  void Function(String cookie)? onCookieRefreshed;
+
+  /// ck 里的 `qm_keyst` 是**会过期的**：`psrf_musickey_createtime` 记的是签发
+  /// 时间，约 12 小时后失效 —— 之后接口开始返回空地址，用户看到的就是
+  /// 「歌点不开了」，但 ck 本身并没有「错」，所以不会触发任何错误提示。
+  static const Duration _kTokenTtl = Duration(hours: 12);
+  /// 刷新检查的节流：取播放地址是高频动作，不能每次都去问一遍
+  static const Duration _kRefreshThrottle = Duration(minutes: 10);
+  /// 连续失败这么多次就停手（多半是 refresh_token 也失效了，再试没意义）
+  static const int _kMaxRefreshFails = 3;
+
+  DateTime? _lastRefreshCheck;
+  int _refreshFails = 0;
   late String guid = _md5('000000music');
   bool highQuality = false;
 
@@ -208,6 +224,8 @@ class QQMusicService {
     Song song, {
     bool highQuality = false,
   }) async {
+    // key 过期后接口会静默返回空地址，先确保它新鲜（通常立即返回）
+    await ensureCookieFresh();
     final data = _getRawSong(song);
     final mid = _getSongMid(song);
     if (mid.isEmpty) throw Exception('song.mid 不能为空');
@@ -609,7 +627,23 @@ class QQMusicService {
 
   // ------------------------------------------------------------ Cookie
 
-  Future<bool> validateCookie() async {
+  /// 用账号主页接口验证 ck，并取回账号信息。
+  ///
+  /// **不能只看 `code == 0`**：这个接口在未登录/ck 无效时同样会回 0，
+  /// 真正能证明「这份 ck 对应一个真实账号」的是 `data.creator` 里的昵称。
+  /// 少了这一层判断，随便填一串字符都会被判成「有效」。
+  Future<({String nickname, String uin, bool isWechat, bool isVip})?>
+      fetchUserInfo({String? ck}) async {
+    final raw = (ck ?? cookie).trim();
+    if (raw.isEmpty) return null;
+    // 结构就不合法的，不必浪费一次请求：
+    // 登录态一定带着 unionid（QQ 是 psrf_qqunionid，微信是 wxunionid）
+    final map = parseCookie(raw);
+    final wxUnion = map['wxunionid'] ?? '';
+    final qqUnion = map['psrf_qqunionid'] ?? '';
+    if (wxUnion.isEmpty && qqUnion.isEmpty) return null;
+    if ((map['qqmusic_key'] ?? map['qm_keyst'] ?? '').isEmpty) return null;
+
     try {
       final url = 'https://c.y.qq.com/rsc/fcgi-bin/fcg_get_profile_homepage.fcg'
           '?_=${DateTime.now().millisecondsSinceEpoch}&cv=4747474&ct=24&format=json'
@@ -619,15 +653,207 @@ class QQMusicService {
 
       final resp = await http.get(Uri.parse(url), headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Cookie': cookie,
+        'Cookie': raw,
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
       }).timeout(const Duration(seconds: 30));
 
       final res = jsonDecode(utf8.decode(resp.bodyBytes)) as Map?;
-      return _isOkCode(res?['code']);
-    } catch (_) {
+      if (!_isOkCode(res?['code'])) return null;
+      final creator = (res?['data'] as Map?)?['creator'] as Map?;
+      final nick = (creator?['nick'] ?? '').toString().trim();
+      if (nick.isEmpty) return null;
+      final account = (map['uin'] ?? map['wxuin'] ?? '').toString();
+      return (
+        nickname: nick,
+        uin: account,
+        // 微信登录的 ck 带 wxunionid，QQ 登录带 psrf_qqunionid
+        isWechat: wxUnion.isNotEmpty,
+        isVip: await _queryVip(account, ck: raw),
+      );
+    } catch (e) {
+      fileLogger.warn('QQMusic', 'ck 校验请求失败: $e');
+      return null;
+    }
+  }
+
+  Future<bool> validateCookie() async => await fetchUserInfo() != null;
+
+  /// 查绿钻（含豪华绿钻）。
+  ///
+  /// 这个接口和取播放地址用的不是同一套 comm，参数照网页版来 ——
+  /// 少了 `g_tk` 那几个字段会被判成未登录，一律返回「非会员」。
+  Future<bool> _queryVip(String uin, {String? ck}) async {
+    if (uin.isEmpty || uin == '0') return false;
+    try {
+      final res = await _requestMusicu(
+        {
+          'comm': {
+            'cv': 4747474,
+            'ct': 24,
+            'format': 'json',
+            'inCharset': 'utf-8',
+            'outCharset': 'utf-8',
+            'notice': 0,
+            'platform': 'yqq.json',
+            'needNewCode': 1,
+            'uin': 0,
+            'g_tk_new_20200303': 5381,
+            'g_tk': 5381,
+          },
+          'req_0': {
+            'module': 'userInfo.VipQueryServer',
+            'method': 'SRFVipQuery_V2',
+            'param': {
+              'uin_list': [uin],
+            },
+          },
+        },
+        headers: ck != null ? {'Cookie': ck} : const {},
+      );
+      final req0 = res['req_0'] as Map?;
+      if (!_isOkCode(req0?['code'])) return false;
+      final info = ((req0?['data'] as Map?)?['infoMap'] as Map?)?[uin] as Map?;
+      if (info == null) return false;
+      // iVipFlag 绿钻 / iSuperVip 豪华绿钻 / iNewVip、iNewSuperVip 新版标记
+      return info['iVipFlag'] == 1 ||
+          info['iSuperVip'] == 1 ||
+          info['iNewVip'] == 1 ||
+          info['iNewSuperVip'] == 1;
+    } catch (e) {
+      fileLogger.warn('QQMusic', 'VIP 查询失败: $e');
       return false;
     }
+  }
+
+  /// 这份 ck 是否需要换一张新的 musickey。
+  bool get needsRefresh {
+    if (cookie.isEmpty) return false;
+    final key = cookieMap['qqmusic_key'] ?? cookieMap['qm_keyst'] ?? '';
+    if (key.isEmpty) return true;
+    final created = int.tryParse(cookieMap['psrf_musickey_createtime'] ?? '0') ?? 0;
+    if (created <= 0) return true;
+    final issued = DateTime.fromMillisecondsSinceEpoch(created * 1000);
+    return DateTime.now().difference(issued) > _kTokenTtl;
+  }
+
+  /// 登录方式：0 = QQ，1 = 微信，-1 = 认不出来（也就没法刷新）
+  int get _loginType {
+    if ((cookieMap['wxunionid'] ?? '').isNotEmpty) return 1;
+    if ((cookieMap['psrf_qqunionid'] ?? '').isNotEmpty) return 0;
+    return -1;
+  }
+
+  /// 用 ck 里的 `refresh_token` 换一张新的 musickey。
+  ///
+  /// 成功时会把新 key 写回 `cookie`，并通过 [onCookieRefreshed] 通知上层落盘。
+  Future<bool> refreshCookie() async {
+    final type = _loginType;
+    if (type < 0) return false;
+
+    final comm = _createQQMusicComm();
+    comm['guid'] = _md5('${cookieMap['uin'] ?? cookieMap['wxuin'] ?? ''}music');
+
+    final param = <String, dynamic>{
+      'expired_in': 0,
+      'forceRefreshToken': 0,
+      'onlyNeedAccessToken': 0,
+      'musickey': cookieMap['qqmusic_key'] ?? cookieMap['qm_keyst'] ?? '',
+      'access_token': '',
+      'musicid': 0,
+      'openid': '',
+      'refresh_token': '',
+      'unionid': '',
+    };
+    if (type == 0) {
+      param.addAll({
+        'appid': 100497308,
+        'access_token': cookieMap['psrf_qqaccess_token'] ?? '',
+        'musicid': int.tryParse(cookieMap['uin'] ?? '0') ?? 0,
+        'openid': cookieMap['psrf_qqopenid'] ?? '',
+        'refresh_token': cookieMap['psrf_qqrefresh_token'] ?? '',
+        'unionid': cookieMap['psrf_qqunionid'] ?? '',
+      });
+    } else {
+      param.addAll({
+        'strAppid': 'wx48db31d50e334801',
+        'access_token': cookieMap['wxaccess_token'] ?? '',
+        'str_musicid': cookieMap['wxuin'] ?? '0',
+        'openid': cookieMap['wxopenid'] ?? '',
+        'refresh_token': cookieMap['wxrefresh_token'] ?? '',
+        'unionid': cookieMap['wxunionid'] ?? '',
+      });
+    }
+
+    try {
+      final res = await _requestMusicu({
+        'comm': comm,
+        'req_0': {
+          'method': 'Login',
+          'module': 'music.login.LoginServer',
+          'param': param,
+        },
+      });
+      final req0 = res['req_0'] as Map?;
+      if (!_isOkCode(req0?['code'])) {
+        fileLogger.warn('QQMusic', 'ck 刷新被拒: ${req0?['code']}');
+        return false;
+      }
+      final data = req0?['data'] as Map?;
+      if (data == null || (data['musickey'] ?? '').toString().isEmpty) {
+        return false;
+      }
+
+      final next = Map<String, String>.from(cookieMap);
+      void put(String k, Object? v) {
+        final text = (v ?? '').toString();
+        if (text.isNotEmpty) next[k] = text;
+      }
+
+      if (type == 0) {
+        put('psrf_qqopenid', data['openid']);
+        put('psrf_qqrefresh_token', data['refresh_token']);
+        put('psrf_qqaccess_token', data['access_token']);
+        put('psrf_access_token_expiresAt', data['expired_at']);
+        put('uin', data['str_musicid'] ?? data['musicid']);
+        put('psrf_qqunionid', data['unionid']);
+        put('login_type', '1');
+        put('tmeLoginType', '2');
+      } else {
+        put('wxopenid', data['openid']);
+        put('wxrefresh_token', data['refresh_token']);
+        put('wxaccess_token', data['access_token']);
+        put('wxuin', data['str_musicid'] ?? data['musicid']);
+        put('wxunionid', data['unionid']);
+        put('login_type', '2');
+        put('tmeLoginType', '1');
+      }
+      put('qqmusic_key', data['musickey']);
+      put('qm_keyst', data['musickey']);
+      put('psrf_musickey_createtime', data['musickeyCreateTime']);
+      put('euin', data['encryptUin']);
+
+      setCookie(stringifyCookie(next));
+      _refreshFails = 0;
+      onCookieRefreshed?.call(cookie);
+      fileLogger.info('QQMusic', 'ck 已刷新（新 key 有效期 12 小时）');
+      return true;
+    } catch (e) {
+      fileLogger.warn('QQMusic', 'ck 刷新失败: $e');
+      return false;
+    }
+  }
+
+  /// 取播放地址前的例行检查：需要换 key 就换，并做节流与失败退避。
+  Future<void> ensureCookieFresh() async {
+    if (cookie.isEmpty || !needsRefresh) return;
+    if (_refreshFails >= _kMaxRefreshFails) return;
+    final now = DateTime.now();
+    if (_lastRefreshCheck != null &&
+        now.difference(_lastRefreshCheck!) < _kRefreshThrottle) {
+      return;
+    }
+    _lastRefreshCheck = now;
+    if (!await refreshCookie()) _refreshFails++;
   }
 
   // ------------------------------------------------------------ 歌单
