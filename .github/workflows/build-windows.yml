@@ -56,7 +56,8 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $old = $ErrorActionPreference
           $ErrorActionPreference = 'Continue'
-          choco install innosetup --version=6.2.2 -y --force 2>&1 | Out-Null
+          # 不能锁 6.2.2：.iss 里的 ArchitecturesAllowed=x64compatible 要 6.3+ 才认
+          choco install innosetup -y --force 2>&1 | Out-Null
           $ErrorActionPreference = $old
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { throw "ISCC.exe not found at $iscc" }
