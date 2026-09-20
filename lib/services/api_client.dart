@@ -344,32 +344,6 @@ class ApiClient {
     );
   }
 
-  /// 与原 `verifyCookie()` 一致：拿一首已知歌曲试取播放地址
-  static Future<bool> verifyCookie(String cookie) async {
-    final clean = sanitizeCookie(cookie);
-    if (clean.isEmpty) throw Exception('Cookie 不能为空');
-
-    final resp = await _http
-        .post(
-          Uri.parse('$apiBase/api/song/url?mid=003aCYLn3L8H17&highQuality=true'),
-          headers: {'Content-Type': 'application/json', 'X-QQMusic-Cookie': clean},
-          body: '{}',
-        )
-        .timeout(const Duration(seconds: 60));
-
-    if (resp.statusCode >= 300) {
-      final s = resp.statusCode;
-      if (s == 403) throw Exception('Cookie 已过期或无效');
-      if (s == 401) throw Exception('Cookie 认证失败');
-      if (s == 429) throw Exception('请求过于频繁');
-      throw Exception('验证失败 ($s)');
-    }
-    final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
-    final url = (data['data']?['url'] ?? '').toString();
-    if (url.isNotEmpty) return true;
-    throw Exception('Cookie 验证未通过');
-  }
-
   static Future<bool> verifyNeteaseCookie(String cookie) async {
     final clean = sanitizeCookie(cookie);
     if (clean.isEmpty) throw Exception('Cookie 不能为空');

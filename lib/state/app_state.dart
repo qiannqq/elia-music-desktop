@@ -13,6 +13,7 @@ import '../models/song.dart';
 import '../services/api_client.dart';
 import '../services/lyric_cache.dart';
 import '../services/player_controller.dart';
+import '../services/qqmusic_service.dart';
 import 'toast.dart';
 
 enum DownloadStatus { idle, running, done, fail }
@@ -80,6 +81,11 @@ class AppState extends ChangeNotifier {
   String qqCookieStatus = 'pending';
   String neteaseCookieStatus = 'pending';
 
+  // 校验通过后填充，供设置页显示（昵称 / 登录方式 / 是否绿钻）
+  String qqNickname = '';
+  bool qqIsWechat = false;
+  bool qqIsVip = false;
+
   // ------------------------------------------------------------ 下载
 
   final Map<String, String> downloadedPaths = {};
@@ -136,6 +142,16 @@ class AppState extends ChangeNotifier {
     neteaseCookie = LocalStore.getOr('netease_cookie', '');
     qqCookieStatus = LocalStore.getOr('qqmusic_cookie_status', 'pending');
     neteaseCookieStatus = LocalStore.getOr('netease_cookie_status', 'pending');
+    qqNickname = LocalStore.getOr('qqmusic_nickname', '');
+    qqIsWechat = LocalStore.getOr('qqmusic_is_wechat', 'false') == 'true';
+    qqIsVip = LocalStore.getOr('qqmusic_is_vip', 'false') == 'true';
+
+    // ck 被刷新后要落盘：服务层只负责换 key，存储归这里管
+    qqMusicService.onCookieRefreshed = (fresh) {
+      qqCookie = fresh;
+      LocalStore.set('qqmusic_cookie', fresh);
+      notifyListeners();
+    };
 
     notifyListeners();
     _verifyCookiesInBackground();
@@ -143,16 +159,24 @@ class AppState extends ChangeNotifier {
 
   Future<void> _verifyCookiesInBackground() async {
     if (qqCookie.isNotEmpty) {
-      try {
-        await ApiClient.verifyCookie(qqCookie);
-        qqCookieStatus = 'valid';
-        LocalStore.set('qqmusic_cookie_status', 'valid');
-      } catch (_) {
+      // 先看 musickey 是不是该换了（约 12 小时过期）。它过期后接口只是
+      // 静默返回空地址、不会报错，所以这里主动换一次，别等用户点不开歌。
+      qqMusicService.setCookie(qqCookie);
+      await qqMusicService.ensureCookieFresh();
+
+      final info = await qqMusicService.fetchUserInfo();
+      if (info != null) {
+        applyQqUserInfo(
+          nickname: info.nickname,
+          isWechat: info.isWechat,
+          isVip: info.isVip,
+        );
+      } else {
         qqCookieStatus = 'invalid';
         LocalStore.set('qqmusic_cookie_status', 'invalid');
-        toast.show('Cookie 已失效，请在设置中重新配置', type: ToastType.error);
+        toast.show('QQ 音乐 Cookie 已失效，请在设置中重新配置', type: ToastType.error);
+        notifyListeners();
       }
-      notifyListeners();
     }
     if (neteaseCookie.isNotEmpty) {
       try {
@@ -710,6 +734,30 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 标记 ck 无效并落盘（校验失败时用）。
+  void markQqCookieInvalid() {
+    qqCookieStatus = 'invalid';
+    LocalStore.set('qqmusic_cookie_status', 'invalid');
+    notifyListeners();
+  }
+
+  /// 记录校验结果（昵称 / 登录方式 / 绿钻），并落盘。
+  void applyQqUserInfo({
+    required String nickname,
+    required bool isWechat,
+    required bool isVip,
+  }) {
+    qqNickname = nickname;
+    qqIsWechat = isWechat;
+    qqIsVip = isVip;
+    qqCookieStatus = 'valid';
+    LocalStore.set('qqmusic_nickname', nickname);
+    LocalStore.set('qqmusic_is_wechat', isWechat ? 'true' : 'false');
+    LocalStore.set('qqmusic_is_vip', isVip ? 'true' : 'false');
+    LocalStore.set('qqmusic_cookie_status', 'valid');
+    notifyListeners();
+  }
+
   void setQqCookie(String cookie) {
     qqCookie = cookie;
     LocalStore.set('qqmusic_cookie', cookie);
@@ -723,8 +771,14 @@ class AppState extends ChangeNotifier {
   void clearQqCookie() {
     qqCookie = '';
     qqCookieStatus = 'pending';
+    qqNickname = '';
+    qqIsWechat = false;
+    qqIsVip = false;
     LocalStore.remove('qqmusic_cookie');
     LocalStore.remove('qqmusic_cookie_status');
+    LocalStore.remove('qqmusic_nickname');
+    LocalStore.remove('qqmusic_is_wechat');
+    LocalStore.remove('qqmusic_is_vip');
     notifyListeners();
   }
 
