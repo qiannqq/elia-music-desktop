@@ -362,9 +362,18 @@ class BilibiliService {
   static String _stripHtml(String text) =>
       text.replaceAll(RegExp(r'<[^>]*>'), '').trim();
 
-  /// B 站返回的封面多为 http，桌面端按 https 取更稳
-  static String _httpsize(String url) =>
-      url.startsWith('http://') ? url.replaceFirst('http://', 'https://') : url;
+  /// 把封面地址补成 https。
+  ///
+  /// 注意搜索结果给的是**协议相对**地址（`//i0.hdslb.com/...`，没有 scheme），
+  /// 直接丢给 Uri.parse 会因 scheme 为空而报错 —— 表现为搜索页所有封面都不显示。
+  static String _httpsize(String url) {
+    if (url.isEmpty) return url;
+    if (url.startsWith('//')) return 'https:$url';
+    if (url.startsWith('http://')) {
+      return url.replaceFirst('http://', 'https://');
+    }
+    return url;
+  }
 
   /// "4:36" / "1:02:33" → 秒
   static int _parseDuration(String text) {
