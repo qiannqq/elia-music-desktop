@@ -89,9 +89,11 @@ endif()
 
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/windows/")
+# OPTIONAL：没有任何 package 提供 native assets 时这个目录不会被创建，
+# 不加 OPTIONAL 的话 install 阶段会报 cannot find ".../native_assets/windows" 让整个构建失败。
 install(DIRECTORY "${NATIVE_ASSETS_DIR}"
    DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
-   COMPONENT Runtime)
+   COMPONENT Runtime OPTIONAL)
 
 # Fully re-copy the assets directory on each build to avoid having stale files
 # from a previous install.
