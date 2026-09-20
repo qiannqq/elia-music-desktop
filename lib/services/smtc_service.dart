@@ -193,12 +193,24 @@ class SmtcService {
     if (call.method != 'onEvent') return;
     final args = (call.arguments as Map?) ?? const {};
     final event = args['event'];
+
+    // 媒体键接管的决策日志（判断在原生侧做，这里只负责落到文件里）
+    if (event == 'keylog') {
+      fileLogger.info('SMTC', '媒体键 → ${args['what']}  ${args['detail']}');
+      return;
+    }
+
     fileLogger.info('SMTC', '收到系统事件: $event');
 
     switch (event) {
+      // 明确的播放/暂停，**不是** toggle：
+      // 系统（以及我们自己的媒体键分派）发来的是确定动作，
+      // 用 toggle 会出现「按播放反而暂停」这种反效果。
       case 'play':
+        await player.resume();
+        break;
       case 'pause':
-        await player.togglePlay();
+        await player.pause();
         break;
       case 'next':
         app.handleEndedAction('next');
