@@ -33,6 +33,15 @@ class _AppShellState extends State<AppShell> {
   final ScrollController _settingsScroll = ScrollController();
   final ScrollController _aboutScroll = ScrollController();
 
+  // 输入框控制器与滚动控制器同理，必须由 shell 持有：
+  // 页面是按 `switch (state.page)` 构建的，切走就 dispose，
+  // 控制器若归页面自己管，切回来时输入内容就没了 ——
+  // 表现为「搜索结果还在、输入框却空了」。
+  final TextEditingController _searchInput = TextEditingController();
+  final TextEditingController _qqCookie = TextEditingController();
+  final TextEditingController _neteaseCookie = TextEditingController();
+  final TextEditingController _savePath = TextEditingController();
+
   final FocusNode _rootFocus = FocusNode();
 
   int _lastLyricRequest = 0;
@@ -47,6 +56,10 @@ class _AppShellState extends State<AppShell> {
     player.onEnded = (action) => state.handleEndedAction(action);
     player.onModeChange = state.onModeChanged;
     _lastLyricRequest = state.lyricDialogRequest;
+    // 设置页的 ck 只在启动时灌一次；之后输入框里的内容就是「编辑中的那份」，
+    // 切页面回来不能再从状态里覆盖一遍，否则没保存的编辑会被冲掉。
+    _qqCookie.text = state.qqCookie;
+    _neteaseCookie.text = state.neteaseCookie;
   }
 
   @override
@@ -58,6 +71,10 @@ class _AppShellState extends State<AppShell> {
     _settingsScroll.dispose();
     _aboutScroll.dispose();
     _rootFocus.dispose();
+    _searchInput.dispose();
+    _qqCookie.dispose();
+    _neteaseCookie.dispose();
+    _savePath.dispose();
     super.dispose();
   }
 
@@ -182,12 +199,16 @@ class _AppShellState extends State<AppShell> {
                                             'settings' => SettingsPage(
                                                 state: state,
                                                 scrollController: _settingsScroll,
+                                                qqCookie: _qqCookie,
+                                                neteaseCookie: _neteaseCookie,
+                                                savePath: _savePath,
                                               ),
                                           'about' =>
                                             AboutPage(scrollController: _aboutScroll),
                                           _ => SearchPage(
                                               state: state,
                                               scrollController: _searchScroll,
+                                              inputController: _searchInput,
                                             ),
                                         },
                                       ),

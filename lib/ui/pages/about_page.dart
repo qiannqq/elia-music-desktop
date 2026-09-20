@@ -12,7 +12,7 @@ class AboutPage extends StatelessWidget {
 
   final ScrollController scrollController;
 
-  static const String appVersion = '1.0.0-alpha-005';
+  static const String appVersion = '1.1.0-alpha-001';
 
   @override
   Widget build(BuildContext context) {

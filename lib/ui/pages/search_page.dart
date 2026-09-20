@@ -11,22 +11,32 @@ import '../widgets/song_actions.dart';
 
 /// 搜索页 —— 对应 `#page-search`
 class SearchPage extends StatefulWidget {
-  const SearchPage({super.key, required this.state, required this.scrollController});
+  const SearchPage({
+    super.key,
+    required this.state,
+    required this.scrollController,
+    required this.inputController,
+  });
 
   final AppState state;
   final ScrollController scrollController;
+
+  /// 输入框控制器由 shell 持有（见 AppShell 里的说明），
+  /// 这样切到别的页面再回来，已输入的内容还在。
+  final TextEditingController inputController;
 
   @override
   State<SearchPage> createState() => _SearchPageState();
 }
 
 class _SearchPageState extends State<SearchPage> {
-  final TextEditingController _input = TextEditingController();
+  // 焦点不跨页面保留：切回来时不该自动弹出光标
   final FocusNode _focus = FocusNode();
+
+  TextEditingController get _input => widget.inputController;
 
   @override
   void dispose() {
-    _input.dispose();
     _focus.dispose();
     super.dispose();
   }

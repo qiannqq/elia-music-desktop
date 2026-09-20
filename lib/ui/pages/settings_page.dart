@@ -12,40 +12,43 @@ import '../widgets/dialogs.dart';
 
 /// 设置页 —— 对应 `#page-settings`
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key, required this.state, required this.scrollController});
+  const SettingsPage({
+    super.key,
+    required this.state,
+    required this.scrollController,
+    required this.qqCookie,
+    required this.neteaseCookie,
+    required this.savePath,
+  });
 
   final AppState state;
   final ScrollController scrollController;
+
+  /// 输入框控制器由 shell 持有（见 AppShell 里的说明）：
+  /// 切到别的页面再回来，没保存的编辑内容还在。
+  final TextEditingController qqCookie;
+  final TextEditingController neteaseCookie;
+  final TextEditingController savePath;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  final TextEditingController _qqCookie = TextEditingController();
-  final TextEditingController _neteaseCookie = TextEditingController();
-  final TextEditingController _savePath = TextEditingController();
+  TextEditingController get _qqCookie => widget.qqCookie;
+  TextEditingController get _neteaseCookie => widget.neteaseCookie;
+  TextEditingController get _savePath => widget.savePath;
 
   bool _showQqCookie = false;
   bool _showNeteaseCookie = false;
   bool _qqVerifying = false;
   bool _neVerifying = false;
-  bool _synced = false;
 
-  @override
-  void dispose() {
-    _qqCookie.dispose();
-    _neteaseCookie.dispose();
-    _savePath.dispose();
-    super.dispose();
-  }
-
+  /// 保存目录会随「选择目录」而变，每次构建对齐一次。
+  ///
+  /// ck **不在这里同步** —— 它是用户正在编辑的内容，由 shell 在启动时灌一次；
+  /// 每次构建都从状态覆盖的话，没保存的编辑会被冲掉。
   void _syncFromState() {
-    if (!_synced) {
-      _synced = true;
-      _qqCookie.text = widget.state.qqCookie;
-      _neteaseCookie.text = widget.state.neteaseCookie;
-    }
     final path = widget.state.savePath;
     if (_savePath.text != path) _savePath.text = path;
   }
