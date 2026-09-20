@@ -70,6 +70,15 @@ jobs:
             Write-Host 're-adding UTF-8 BOM to elia_music.iss'
             [System.IO.File]::WriteAllBytes($iss, [byte[]](0xEF, 0xBB, 0xBF) + $bytes)
           }
+          # choco 装的 Inno Setup 不带语言包，而 .iss 里引用了
+          # ChineseSimplified.isl —— 缺了它编译会直接中断，这里从官方源码仓库补一个。
+          $langDir = "${env:ProgramFiles(x86)}\Inno Setup 6\Languages"
+          $langFile = Join-Path $langDir 'ChineseSimplified.isl'
+          if (-not (Test-Path $langFile)) {
+            Write-Host 'downloading ChineseSimplified.isl'
+            New-Item -ItemType Directory -Force $langDir | Out-Null
+            Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/ChineseSimplified.isl' -OutFile $langFile -UseBasicParsing
+          }
           New-Item -ItemType Directory -Force dist | Out-Null
           & $iscc $iss /Q
 
