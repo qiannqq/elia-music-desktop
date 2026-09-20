@@ -43,17 +43,21 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path build\windows\x64\runner\Release -DestinationPath dist\EliaMusic-$v-Portable-x64.zip -Force
 
-      # 本地没有现成 Inno Setup；从 jrsoftware.org 静默装一份。
-      # 装到 D:\InnoSetup7：runner 上 D 盘是临时 SSD、可写、不需要管理员。
+      # runner 上没有现成 Inno Setup，用预装的 Chocolatey 装一份。
+      # 注意别用 jrsoftware.org 的 is.exe —— 那是个引导下载器，在 runner 上
+      # 下载到的是损坏文件（Start-Process 报 corrupted and unreadable）。
+      # 装完 ISCC.exe 的目录随版本变，直接搜出来用完整路径调用。
       # 失败不阻断（continue-on-error）—— zip 仍然是有效发行包。
-      - name: Install Inno Setup 7 + compile Setup exe
+      - name: Install Inno Setup + compile Setup exe
         continue-on-error: true
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          Invoke-WebRequest -Uri 'https://jrsoftware.org/download.php/is.exe' -OutFile IS7.exe -UseBasicParsing
-          Start-Process -FilePath .\IS7.exe -ArgumentList '/VERYSILENT','/DIR=D:\InnoSetup7','/SUPPRESSMSGBOXES','/SP-' -Wait -PassThru | Out-Null
-          & 'D:\InnoSetup7\ISCC.exe' packaging/windows/elia_music.iss /Q
+          choco install innosetup --no-progress -y
+          $iscc = Get-ChildItem -Path 'C:\Program Files (x86)\Inno Setup*' -Filter 'ISCC.exe' -Recurse -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $iscc) { throw "ISCC.exe not found after choco install" }
+          & $iscc.FullName packaging/windows/elia_music.iss /Q
 
       - name: Upload artifacts
         if: always()
