@@ -190,7 +190,7 @@ class _AddButtonState extends State<AddButton> {
   void _close() {
     if (!_expanded) return;
     // 不能直接移除 OverlayEntry：那样收起是「啪一下没了」，
-    // 展开有 250ms 动画、收起却是瞬时的，观感很割裂（用户反馈）。
+    // 展开有 250ms 动画、收起却是瞬时的，观感很割裂。
     // 改为先让 _Popup 播收起动画，动画结束再移除。
     final popup = _popupKey.currentState;
     if (popup == null) {
@@ -366,7 +366,7 @@ class _PopupState extends State<_Popup> {
     //   250ms，cubic-bezier(0.16,1,0.3,1)，transform-origin 按翻转方向取角。
     // end 必须跟随 _closing：
     // 原来写死 end: 1.0，只在**创建时**播一次展开；关闭时整个 OverlayEntry
-    // 被直接移除 → 收起没有动画、啪一下就没了（用户反馈）。
+    // 被直接移除 → 收起没有动画、啪一下就没了。
     // 现在关闭时把 end 改成 0，TweenAnimationBuilder 会从当前值动画回去，
     // 动画结束后再通过 onEnd 通知外部移除。
     return TweenAnimationBuilder<double>(

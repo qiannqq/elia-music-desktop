@@ -45,7 +45,7 @@ Future<void> main() async {
   // app.init() 会读取 Cookie 并发起「后台校验」，而校验是走本地 API 的。
   // 之前服务在 app.init() 之后才起，校验请求打到了默认端口（17071）而失败，
   // 于是每次启动都提示「Cookie 已失效」，手动点【验证】又正常
-  // （那时服务已就绪）—— 用户反馈的正是这个现象。
+  // （那时服务已就绪）—— 表现就是启动时的这次误报。
   // 端口由系统分配空闲端口（不再固定 17071），避免与原版 Electron 冲突。
   final apiPort = await httpServerService.start();
   setApiPort(apiPort);

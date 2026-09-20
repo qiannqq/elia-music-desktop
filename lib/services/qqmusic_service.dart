@@ -311,8 +311,8 @@ class QQMusicService {
     // 并行发起两条线：
     //  * QRC（逐字歌词，需要先取 songId 再解密，**明显更慢**）
     //  * 普通 LRC（快）
-    // QRC 超过 10s 就放弃、直接用普通歌词 —— 否则慢的时候用户会长时间
-    // 看不到歌词 / 拉不到翻译（用户反馈过）。
+    // QRC 超过 10s 就放弃、直接用普通歌词 —— 否则慢的时候会长时间
+    // 看不到歌词 / 拉不到翻译。
     final Future<({String lyric, String trans, dynamic raw, bool isQrc})> qrcFuture =
         _fetchQrc(mid);
 
@@ -339,7 +339,7 @@ class QQMusicService {
 
     // QRC 的行头是 `[起点ms,时长ms]`，**不是** `[mm:ss.xx]` ——
     // 必须单独识别。之前只认 LRC 时间戳，导致 QRC 明明拉到了却被判无效、
-    // 回退成普通歌词（用户反馈「拉不到逐字歌词」的真正原因）。
+    // 回退成普通歌词 —— 逐字歌词永远出不来。
     // 真解析一遍：能解析出逐字行才算 QRC 可用
     final qrcParsedLines = parseQrc(qrcLyric);
 

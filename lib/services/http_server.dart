@@ -100,7 +100,7 @@ class HttpServerService {
       }
       responded = true;
       // 请求级日志：这样「某次搜索/取歌词慢或失败」在日志里能直接看到，
-      // 不用靠猜（用户反馈过「发行版出问题时日志里什么都没有」）。
+      // 不用靠猜（发行版出问题时日志里什么都没有，是排查不了的）。
       // 封面图代理不记（一次搜索会打几十条，纯噪音），失败时仍会走下面的 catch。
       if (pathname.startsWith('/api/') && !pathname.startsWith('/api/proxy/image')) {
         final ms = sw.elapsedMilliseconds;
@@ -266,7 +266,7 @@ class HttpServerService {
     final sw = Stopwatch()..start();
     final result = await qqMusicService.search(keyword, page, pageSize);
     // 记下条数：这样「0 条」与「报错」在日志里能区分开
-    //（用户反馈过「点搜索转圈后什么都没发生、也没报错」）
+    //（点搜索转圈之后既没结果也没报错，是两种原因，必须能分辨）
     fileLogger.info('Search',
         'qq keyword="$keyword" page=$page → ${result.list.length} 首'
         '（total=${result.total}, ${sw.elapsedMilliseconds}ms）');

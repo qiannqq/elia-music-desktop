@@ -298,7 +298,7 @@ class _SearchPageState extends State<SearchPage> {
 
   /// 翻页：换页后回到顶部
   ///
-  /// 不回去的话，新一页会停在上一页的滚动位置（用户反馈），
+  /// 不回去的话，新一页会停在上一页的滚动位置，
   /// 而且从列表底部直接换内容观感很跳。
   void _changePage(AppState state, int target) {
     state.changePage(target);

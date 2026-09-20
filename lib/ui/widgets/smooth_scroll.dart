@@ -61,7 +61,7 @@ class _SmoothWheelScrollState extends State<SmoothWheelScroll> {
   /// 必须**累计**，不能每次都用 `当前 pixels + delta`：
   /// 快速连续滚动时上一段动画还没走完就被取消，
   /// 那部分位移会被丢掉 —— 表现为「滚起来很费劲/滚不动」
-  /// （用户反馈设置页尤其明显，因为那里一屏内容长、滚轮事件密集）。
+  /// （设置页尤其明显：那里一屏内容长、滚轮事件密集）。
   double _target = 0;
   bool _targetValid = false;
 

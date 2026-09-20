@@ -497,7 +497,7 @@ class SongCover extends StatelessWidget {
 ///
 /// 图标**内置在 assets 里**，不再从 `https://y.qq.com/favicon.ico` 远程加载。
 /// 原版是 `<img src=favicon onerror=隐藏>`，网络一抖图标就消失/闪烁
-/// （用户反馈「QQ音乐图标有时显示有时不显示」）；而且 Flutter 也解不了 ICO 格式。
+/// （QQ音乐图标时有时无）；而且 Flutter 也解不了 ICO 格式。
 /// 这里用离线 PNG，永远稳定显示。
 class SourceIcon extends StatelessWidget {
   const SourceIcon({super.key, required this.source, this.size = 16});
