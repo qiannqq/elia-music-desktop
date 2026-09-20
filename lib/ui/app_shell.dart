@@ -16,6 +16,7 @@ import 'sidebar.dart';
 import 'titlebar.dart';
 import 'toast_overlay.dart';
 import 'widgets/modal.dart';
+import 'widgets/smooth_scroll.dart';
 
 /// 应用外壳：标题栏 + 侧边栏 + 主内容 + 播放器栏 + Toast
 class AppShell extends StatefulWidget {
@@ -25,13 +26,20 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell>
+    with SingleTickerProviderStateMixin {
   final AppState state = app;
 
-  final ScrollController _searchScroll = ScrollController();
-  final ScrollController _playlistScroll = ScrollController();
-  final ScrollController _settingsScroll = ScrollController();
-  final ScrollController _aboutScroll = ScrollController();
+  // 用 SmoothScrollController：滚轮与键盘共用**同一条连续动画**
+  // （逐个事件起 animateTo 会让曲线反复重置，连发时就是一顿一顿的感觉）
+  late final SmoothScrollController _searchScroll =
+      SmoothScrollController(vsync: this);
+  late final SmoothScrollController _playlistScroll =
+      SmoothScrollController(vsync: this);
+  late final SmoothScrollController _settingsScroll =
+      SmoothScrollController(vsync: this);
+  late final SmoothScrollController _aboutScroll =
+      SmoothScrollController(vsync: this);
 
   // 输入框控制器与滚动控制器同理，必须由 shell 持有：
   // 页面是按 `switch (state.page)` 构建的，切走就 dispose，
@@ -103,24 +111,15 @@ class _AppShellState extends State<AppShell> {
   // "Don't do anything if the user isn't allowed to scroll"）。
   // 所以这里显式补回来，顺便沿用滚轮那套缓动。
   void _scrollBy(double delta) {
-    final ctrl = _controllerFor(state.page);
-    if (!ctrl.hasClients) return;
-    final pos = ctrl.position;
-    ctrl.animateTo(
-      (pos.pixels + delta).clamp(pos.minScrollExtent, pos.maxScrollExtent),
-      duration: const Duration(milliseconds: 150),
-      curve: Curves.easeOutCubic,
-    );
+    // 只累加目标，动画由控制器那条连续曲线负责 —— 连发时曲线不会被打断
+    _controllerFor(state.page).scrollBy(delta);
   }
 
   void _scrollToEdge({required bool top}) {
     final ctrl = _controllerFor(state.page);
     if (!ctrl.hasClients) return;
-    ctrl.animateTo(
-      top ? ctrl.position.minScrollExtent : ctrl.position.maxScrollExtent,
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOutCubic,
-    );
+    ctrl.scrollTo(
+        top ? ctrl.position.minScrollExtent : ctrl.position.maxScrollExtent);
   }
 
   /// 一屏的高度（翻页键走这么多）
@@ -160,7 +159,7 @@ class _AppShellState extends State<AppShell> {
     return KeyEventResult.handled;
   }
 
-  ScrollController _controllerFor(String page) => switch (page) {
+  SmoothScrollController _controllerFor(String page) => switch (page) {
         'playlist' => _playlistScroll,
         'settings' => _settingsScroll,
         'about' => _aboutScroll,
@@ -180,6 +179,8 @@ class _AppShellState extends State<AppShell> {
       ctrl.position.minScrollExtent,
       ctrl.position.maxScrollExtent,
     ));
+    // 程序改了位置，清掉动画基准，免得下一次滚动从过期的目标起步
+    ctrl.invalidateTarget();
   }
 
   void _onPlayer() {
