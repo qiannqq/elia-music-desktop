@@ -43,35 +43,26 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path build\windows\x64\runner\Release -DestinationPath dist\EliaMusic-$v-Portable-x64.zip -Force
 
-      # windows-latest 镜像里预装了 Inno Setup，直接按候选目录找 ISCC.exe。
-      # 不用 choco install：包"已安装"时它往 stderr 写 warning，配合
-      # $ErrorActionPreference='Stop' 会被 PowerShell 7 当成终止错误。
-      # 版本随镜像变（6 / 7），所以路径要两边都试；都找不到再从 PATH 找 iscc。
+      # 镜像里那个 Inno Setup 是"残"的：ISCC.exe 在（Test-Path 为 True）但启动即报
+      # "The system cannot find the path specified." 且 0 秒退出、不打印任何
+      # Inno Setup 自身输出 —— 是进程起不来，不是路径写错。所以强制重装一个版本。
+      # choco 在"已安装"时往 stderr 写 warning，先临时放宽 ErrorActionPreference，
+      # 否则 PowerShell 7 会把它当终止错误。脚本用绝对路径传，避开相对路径的坑。
       # 失败不阻断（continue-on-error）—— zip 仍然是有效发行包。
       - name: Compile Setup exe
         continue-on-error: true
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $candidates = @(
-            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-            "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe"
-            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
-            "$env:ProgramFiles\Inno Setup 7\ISCC.exe"
-          )
-          $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-          if (-not $exe) {
-            $cmd = Get-Command iscc -ErrorAction SilentlyContinue
-            if ($cmd) { $exe = $cmd.Source }
-          }
-          if (-not $exe) { throw 'ISCC.exe not found on this runner' }
-          Write-Host "using ISCC: $exe"
-          # ISCC 不会自己创建输出目录，OutputDir 指向的目录不存在时它就报
-          # "The system cannot find the path specified." 然后退出 1。
+          $old = $ErrorActionPreference
+          $ErrorActionPreference = 'Continue'
+          choco install innosetup --version=6.2.2 -y --force 2>&1 | Out-Null
+          $ErrorActionPreference = $old
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found at $iscc" }
+          Write-Host "using ISCC: $iscc (size $((Get-Item $iscc).Length))"
           New-Item -ItemType Directory -Force dist | Out-Null
-          Write-Host "cwd: $(Get-Location)"
-          Write-Host "dist: $(Test-Path dist) | icon: $(Test-Path windows\runner\resources\app_icon.ico) | built-exe: $(Test-Path build\windows\x64\runner\Release\elia_music.exe)"
-          & $exe packaging/windows/elia_music.iss /Q
+          & $iscc (Resolve-Path 'packaging/windows/elia_music.iss').Path /Q
 
       - name: Upload artifacts
         if: always()
