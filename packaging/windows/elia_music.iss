@@ -1,7 +1,7 @@
 ﻿; Elia Music Desktop - Inno Setup 安装脚本
 ; 适用于 Windows x64
 
-#define MyAppName "伊莉雅音乐播放器"
+#define MyAppName "Elia Music"
 #define MyAppNameEn "Elia Music"
 #define MyAppVersion "1.1.0"
 #define MyAppVersionFull "1.1.0-alpha-001"
