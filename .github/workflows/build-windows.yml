@@ -1,0 +1,76 @@
+name: Build Windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [Flutter]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Cache pub-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.pub-cache
+          key: pub-${{ hashFiles('pubspec.lock') }}
+          restore-keys: pub-
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: Flutter build
+        run: flutter build windows --release
+
+      # 总是产 zip；Setup exe 那步是无 Inno 时仍能拿到发行包。
+      - name: Pack portable zip
+        shell: pwsh
+        run: |
+          $v = (Select-String pubspec.yaml -Pattern '^version:\s*(\S+)').Matches[0].Groups[1].Value -replace '\+.*', ''
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path build\windows\x64\runner\Release -DestinationPath dist\EliaMusic-$v-Portable-x64.zip -Force
+
+      # 本地没有现成 Inno Setup；从 jrsoftware.org 静默装一份。
+      # 装到 D:\InnoSetup7：runner 上 D 盘是临时 SSD、可写、不需要管理员。
+      # 失败不阻断（continue-on-error）—— zip 仍然是有效发行包。
+      - name: Install Inno Setup 7 + compile Setup exe
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Invoke-WebRequest -Uri 'https://jrsoftware.org/download.php/is.exe' -OutFile IS7.exe -UseBasicParsing
+          Start-Process -FilePath .\IS7.exe -ArgumentList '/VERYSILENT','/DIR=D:\InnoSetup7','/SUPPRESSMSGBOXES','/SP-' -Wait -PassThru | Out-Null
+          & 'D:\InnoSetup7\ISCC.exe' packaging/windows/elia_music.iss /Q
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EliaMusic-Windows-x64
+          path: |
+            dist\EliaMusic-*.zip
+            dist\EliaMusic-*.exe
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist\EliaMusic-*.zip
+            dist\EliaMusic-*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
