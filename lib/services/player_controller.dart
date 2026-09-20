@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:path/path.dart' as p;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
@@ -8,6 +9,7 @@ import '../core/local_store.dart';
 import '../core/lyric.dart';
 import '../models/song.dart';
 import 'api_client.dart';
+import 'audio_cache.dart';
 import 'lyric_cache.dart';
 
 enum PlayMode { repeatAll, repeatOne, shuffle }
@@ -170,7 +172,6 @@ class PlayerController extends ChangeNotifier {
 
     _loadLyrics(song);
 
-    final proxyUrl = ApiClient.getProxyAudioUrl(url);
     try {
       // 这里必须**再停一次并 await**：prepare() 里的 stop() 是 fire-and-forget，
       // 若它还没结束就调用 play()，两者会竞态 —— 实测旧歌会继续出声、
@@ -178,7 +179,20 @@ class PlayerController extends ChangeNotifier {
       await _player.stop();
       await _player.setReleaseMode(ReleaseMode.stop);
       await _player.setVolume(volume);
-      await _player.play(UrlSource(proxyUrl));
+
+      // 先看本地缓存：命中就直接播本地文件，完全不碰网络 ——
+      // 也就不会再因为上游频控（HTTP 418）而放不出来。
+      final cached = AudioDiskCache.find(song.mid);
+      if (cached != null) {
+        fileLogger.info('Player', '命中音频缓存 ${p.basename(cached.path)}');
+        // 记下「这首歌刚被听过」——「30 天没听过就删」那条规则靠它
+        AudioDiskCache.touch(song.mid);
+        await _player.play(DeviceFileSource(cached.path));
+      } else {
+        await _player.play(UrlSource(ApiClient.getProxyAudioUrl(url)));
+        // 边播边缓存：本次不等它，下一次播放就快了
+        unawaited(AudioDiskCache.warm(song.mid, url));
+      }
       _preparing = false; // 新歌已开始，后续事件都属于它
       isLoading = false;
       fileLogger.info('Player', 'playing mid=${song.mid} name=${song.name}');

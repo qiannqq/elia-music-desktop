@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../core/file_logger.dart';
 import '../core/lyric.dart';
+import 'lyric_cache.dart';
 import 'qrc_decrypt.dart';
 import '../models/song.dart';
 
@@ -364,6 +365,16 @@ class QQMusicService {
     fileLogger.info('QQMusic',
         'lyric(${qrcTimedOut ? 'simple-after-qrc-timeout' : 'simple'}) mid=$mid '
         '${sw.elapsedMilliseconds}ms lyric=${simple.lyric.length} trans=${simple.trans.length}');
+
+    // 超时只是「不再等它」，那个请求还在飞。它回来时如果带着有效的 QRC，
+    // 就补进缓存 —— 否则这份没有翻译的降级结果会被缓存住，
+    // 之后无论怎么打开歌词都看不到逐字和翻译。
+    if (qrcTimedOut) {
+      unawaited(qrcFuture.then((q) {
+        if (q.lyric.isEmpty || !looksLikeQrc(q.lyric)) return;
+        LyricCache.putRaw(mid, q.lyric, q.trans);
+      }).catchError((_) {}));
+    }
     return (
       lyric: simple.lyric.isNotEmpty ? simple.lyric : qrcLyric,
       trans: hasValidTrans ? qrcTrans : simple.trans,
