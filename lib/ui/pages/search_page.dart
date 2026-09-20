@@ -303,11 +303,15 @@ class _SearchPageState extends State<SearchPage> {
           runSpacing: 8,
           children: [
             for (final song in state.searchResults)
-              SizedBox(
-                // 稳定 key：与歌单一致，避免列表变动时子项 State 错位
-                key: ValueKey('search-${song.mid}'),
-                width: itemWidth,
-                child: _SongCard(song: song, state: state),
+              // 每个卡片独立成层：滚动时只需平移图层，不必重新光栅化整屏卡片。
+              // （歌单页用的 ListView.builder 自带这层边界，Wrap 没有。）
+              RepaintBoundary(
+                child: SizedBox(
+                  // 稳定 key：与歌单一致，避免列表变动时子项 State 错位
+                  key: ValueKey('search-${song.mid}'),
+                  width: itemWidth,
+                  child: _SongCard(song: song, state: state),
+                ),
               ),
           ],
         );
