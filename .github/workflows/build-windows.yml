@@ -43,26 +43,29 @@ jobs:
           New-Item -ItemType Directory -Force dist | Out-Null
           Compress-Archive -Path build\windows\x64\runner\Release -DestinationPath dist\EliaMusic-$v-Portable-x64.zip -Force
 
-      # windows-latest 镜像里通常已经带了 Inno Setup（choco 会回
-      # "already installed"），所以先幂等地装一次，再把 PATH 刷成机器级的，
-      # 然后直接用 iscc；PATH 里没有再退回按目录搜。
-      # 不能写死 ISCC.exe 的路径 —— 目录名跟着版本号变（Inno Setup 6 / 7 …）。
+      # windows-latest 镜像里预装了 Inno Setup，直接按候选目录找 ISCC.exe。
+      # 不用 choco install：包"已安装"时它往 stderr 写 warning，配合
+      # $ErrorActionPreference='Stop' 会被 PowerShell 7 当成终止错误。
+      # 版本随镜像变（6 / 7），所以路径要两边都试；都找不到再从 PATH 找 iscc。
       # 失败不阻断（continue-on-error）—— zip 仍然是有效发行包。
       - name: Compile Setup exe
         continue-on-error: true
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          choco install innosetup --no-progress -y
-          $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
-                      [Environment]::GetEnvironmentVariable('Path','User')
-          $iscc = Get-Command iscc -ErrorAction SilentlyContinue
-          if (-not $iscc) {
-            $iscc = Get-ChildItem 'C:\Program Files (x86)','C:\Program Files' -Filter 'ISCC.exe' -Recurse -Depth 3 -ErrorAction SilentlyContinue |
-              Select-Object -First 1
+          $candidates = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+            "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe"
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+            "$env:ProgramFiles\Inno Setup 7\ISCC.exe"
+          )
+          $exe = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $exe) {
+            $cmd = Get-Command iscc -ErrorAction SilentlyContinue
+            if ($cmd) { $exe = $cmd.Source }
           }
-          if (-not $iscc) { throw 'ISCC.exe not found' }
-          $exe = if ($iscc.Source) { $iscc.Source } else { $iscc.FullName }
+          if (-not $exe) { throw 'ISCC.exe not found on this runner' }
+          Write-Host "using ISCC: $exe"
           & $exe packaging/windows/elia_music.iss /Q
 
       - name: Upload artifacts
