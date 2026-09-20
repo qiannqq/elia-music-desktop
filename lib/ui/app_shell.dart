@@ -88,6 +88,12 @@ class _AppShellState extends State<AppShell>
   void _reclaimFocusIfLost() {
     Future.delayed(const Duration(milliseconds: 120), () {
       if (!mounted) return;
+      // 焦点在输入框里就绝不能碰。
+      //
+      // 弹窗（歌词编辑、重命名……）挂在 Navigator 的 overlay 上，本来就不在
+      // 根节点之下 —— 只看「在不在根之下」会把输入框刚要到的焦点抢回来，
+      // 表现为「点编辑框，光标闪一下就没了」，而且每次重试都一样。
+      if (isTextFieldFocused()) return;
       final primary = FocusManager.instance.primaryFocus;
       if (_isUnderRoot(primary)) return;
       _rootFocus.requestFocus();
