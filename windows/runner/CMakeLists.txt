@@ -49,6 +49,11 @@ target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 # 混在一个目标里会被 /WX 直接卡死，所以这里自己设一套宽松的编译选项。
 add_library(smtc_bridge STATIC "smtc_bridge.cpp")
 target_compile_features(smtc_bridge PUBLIC cxx_std_17)
+# MSVC 14.51（VS 18）起 <experimental/coroutine> 被判成 C2338 硬错误，
+# 而 C++/WinRT 在 C++17 下正是靠它实现协程 —— 不加这个宏，Visual Studio
+# 版本比本机新的机器上（GitHub runner 就是）smtc_bridge 会直接编译失败，
+# 整个 flutter build 挂掉。
+target_compile_definitions(smtc_bridge PUBLIC "_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS")
 # /utf-8：源码是 UTF-8，不加的话 MSVC 会按系统代码页(936)读，
 # 中文注释触发 C4819，在 /WX 的目标里直接变成错误。
 target_compile_options(smtc_bridge PRIVATE /W3 /EHsc /utf-8)
