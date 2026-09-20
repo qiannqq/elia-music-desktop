@@ -61,8 +61,16 @@ jobs:
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { throw "ISCC.exe not found at $iscc" }
           Write-Host "using ISCC: $iscc (size $((Get-Item $iscc).Length))"
+          # .iss 里有中文，Inno Setup 靠 UTF-8 BOM 识别编码。
+          # 文件经过网页编辑器提交后 BOM 可能被吃掉，这里补回来。
+          $iss = (Resolve-Path 'packaging/windows/elia_music.iss').Path
+          $bytes = [System.IO.File]::ReadAllBytes($iss)
+          if (-not ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)) {
+            Write-Host 're-adding UTF-8 BOM to elia_music.iss'
+            [System.IO.File]::WriteAllBytes($iss, [byte[]](0xEF, 0xBB, 0xBF) + $bytes)
+          }
           New-Item -ItemType Directory -Force dist | Out-Null
-          & $iscc (Resolve-Path 'packaging/windows/elia_music.iss').Path /Q
+          & $iscc $iss /Q
 
       - name: Upload artifacts
         if: always()
