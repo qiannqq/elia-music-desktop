@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -115,6 +116,33 @@ class SmtcService {
     });
   }
 
+  /// 把封面转成系统一定解得了的格式。
+  ///
+  /// 缩略图最终由 Windows 图像组件（WIC）解码，而 QQ 的封面经常是 **WebP**
+  /// —— 跟 URL 后缀是不是 `.jpg` 无关，取决于上游的 content negotiation。
+  /// 系统没装 WebP 解码扩展时，塞进去既不报错也不显示，面板上就一直空着。
+  /// 所以非 JPEG/PNG 的先在这里解一遍、重新编码成 PNG。
+  Future<Uint8List> _toDecodable(Uint8List bytes) async {
+    bool startsWith(List<int> magic) {
+      if (bytes.length < magic.length) return false;
+      for (var i = 0; i < magic.length; i++) {
+        if (bytes[i] != magic[i]) return false;
+      }
+      return true;
+    }
+
+    if (startsWith(const [0xFF, 0xD8, 0xFF]) ||
+        startsWith(const [0x89, 0x50, 0x4E, 0x47])) {
+      return bytes;
+    }
+    final codec = await ui.instantiateImageCodec(bytes);
+    final frame = await codec.getNextFrame();
+    final data = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+    frame.image.dispose();
+    codec.dispose();
+    return data == null ? bytes : data.buffer.asUint8List();
+  }
+
   /// 封面走内存流交给原生。
   ///
   /// 封面本来就要经本地代理取一次给界面用，这里复用同一个地址再取一遍字节，
@@ -134,24 +162,26 @@ class SmtcService {
           fileLogger.warn('SMTC', '封面取回失败: HTTP ${res.statusCode}');
           return;
         }
-        bytes = res.bodyBytes;
+        final raw = res.bodyBytes;
+        // 封面失败是「静默」的（面板上只是空白），所以把原始字节数、图片魔数
+        // 都记下来 —— 出问题时一眼能看出是没取到、格式不对，还是原生没塞进去。
+        final magic = raw.length >= 4
+            ? raw
+                .sublist(0, 4)
+                .map((b) => b.toRadixString(16).padLeft(2, '0'))
+                .join()
+            : '';
+        bytes = await _toDecodable(raw);
+        fileLogger.info('SMTC',
+            '封面 原始=${raw.length}B magic=$magic → 送出=${bytes.length}B');
         _coverCache[url] = bytes;
         // 只留最近几首，长播一个歌单时不让它无限涨
         if (_coverCache.length > 8) _coverCache.remove(_coverCache.keys.first);
       }
       // 取封面的过程中可能已经换歌了，别把旧封面盖上去
       if (song.mid != _mid) return;
-      // 封面失败是「静默」的（面板上只是空白），所以把字节数、图片魔数和
-      // 原生侧的回执都记下来 —— 出问题时一眼能看出卡在哪一步。
-      final magic = bytes.length >= 4
-          ? bytes
-              .sublist(0, 4)
-              .map((b) => b.toRadixString(16).padLeft(2, '0'))
-              .join()
-          : '';
       final status = await _channel.invokeMethod<String>('thumbnail', bytes);
-      fileLogger.info(
-          'SMTC', '封面 ${bytes.length}B magic=$magic → ${status ?? 'null'}');
+      fileLogger.info('SMTC', '封面回执: ${status ?? 'null'}');
     } catch (e) {
       fileLogger.warn('SMTC', '封面处理失败: $e');
     }

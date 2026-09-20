@@ -1,6 +1,7 @@
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
 #include <dwmapi.h>
+#include <shobjidl_core.h>  // SetCurrentProcessExplicitAppUserModelID
 #include <windows.h>
 
 #include "flutter_window.h"
@@ -15,10 +16,6 @@ namespace {
 // DWMWCP_ROUND makes DWM round the window (and its shadow) natively.
 // This is a window-level DWM attribute, so the later SWP_FRAMECHANGED issued by
 // window_manager's setAsFrameless() does not clear it.
-//
-// NOTE: keep this file ASCII-only. MSVC compiles with code page 936 here and
-// treats C4819 (unrepresentable characters) as an error, so non-ASCII comments
-// break the build unless the file is saved as UTF-8 with BOM.
 void EnableRoundedCorners(HWND hwnd) {
   constexpr DWORD kWindowCornerPreference = 33;  // DWMWA_WINDOW_CORNER_PREFERENCE
   constexpr int kRound = 2;                      // DWMWCP_ROUND
@@ -38,6 +35,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // Initialize COM, so that it is available for use in the library and/or
   // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+
+  // 声明本进程的应用标识（App User Model ID）。
+  //
+  // 绿色 exe 没有安装过程，系统手上没有任何可解析的应用身份，于是 Windows 11
+  // 的媒体面板只能显示「未知应用」。这里显式声明一个 AUMID，让它和开始菜单
+  // 快捷方式里带的那个对上 —— 系统就是从快捷方式解析出显示名和图标。
+  //
+  // 必须在创建任何窗口之前调用。
+  ::SetCurrentProcessExplicitAppUserModelID(L"com.elia.music.desktop");
 
   flutter::DartProject project(L"data");
 
