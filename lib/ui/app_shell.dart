@@ -17,6 +17,7 @@ import 'titlebar.dart';
 import 'toast_overlay.dart';
 import 'widgets/modal.dart';
 import 'widgets/smooth_scroll.dart';
+import 'widgets/keyboard_scroll.dart';
 
 /// 应用外壳：标题栏 + 侧边栏 + 主内容 + 播放器栏 + Toast
 class AppShell extends StatefulWidget {
@@ -68,12 +69,49 @@ class _AppShellState extends State<AppShell>
     // 切页面回来不能再从状态里覆盖一遍，否则没保存的编辑会被冲掉。
     _qqCookie.text = state.qqCookie;
     _neteaseCookie.text = state.neteaseCookie;
+    FocusManager.instance.addListener(_reclaimFocusIfLost);
+  }
+
+  /// 焦点跑丢时把它收回根节点。
+  ///
+  /// 点一下页面空白（或者点过输入框再点别处），EditableText 会自己 unfocus，
+  /// 此时**没有任何节点持有焦点**：键盘事件没有起点，也就冒泡不到根节点，
+  /// 空格 / PgUp / PgDn 全部失灵 —— 明明焦点不在输入框里，却什么都按不动。
+  /// 把焦点收回根节点就恢复了。
+  ///
+  /// 两个都不能省：
+  ///  * 同步 requestFocus 会重入（焦点变化正在派发）；
+  ///  * 但只等一帧也不够 —— 点击输入框时，焦点会**先**短暂地落到 rootScope，
+  ///    再交给输入框。这时候立刻收回，就把输入框刚要到的焦点抢走了，
+  ///    表现为「点输入框点不进去、一个字也打不了」。所以要等一小会儿，
+  ///    确认焦点**真的**没人要，才收回。
+  void _reclaimFocusIfLost() {
+    Future.delayed(const Duration(milliseconds: 120), () {
+      if (!mounted) return;
+      final primary = FocusManager.instance.primaryFocus;
+      if (_isUnderRoot(primary)) return;
+      _rootFocus.requestFocus();
+    });
+  }
+
+  /// 焦点是不是落在根节点自己或它的后代上。
+  ///
+  /// 不能用「是不是 rootScope」来判断：点一下页面空白，焦点会落到
+  /// **Navigator 的 FocusScopeNode** 上 —— 那是根节点的**祖先**，
+  /// 键盘事件从它往上冒，永远不经过根节点，PgUp/PgDn 就此失灵。
+  /// 反过来，焦点在输入框里时它是根节点的后代，就该原样不动。
+  bool _isUnderRoot(FocusNode? node) {
+    for (var n = node; n != null; n = n.parent) {
+      if (identical(n, _rootFocus)) return true;
+    }
+    return false;
   }
 
   @override
   void dispose() {
     state.removeListener(_onState);
     player.removeListener(_onPlayer);
+    FocusManager.instance.removeListener(_reclaimFocusIfLost);
     _searchScroll.dispose();
     _playlistScroll.dispose();
     _settingsScroll.dispose();
@@ -132,29 +170,32 @@ class _AppShellState extends State<AppShell>
   /// 挂在根 Focus 上的键盘滚动。
   ///
   /// 用 `onKeyEvent` 而不是 Shortcuts：键事件从**当前焦点节点**往上冒，
-  /// 挂在根节点上就同时覆盖「根节点自己持有焦点」和「页面里的输入框持有焦点」
-  /// 两种情况（输入框会先吃掉方向键去做光标移动，PgUp/PgDn 才落到这里）。
+  /// 挂在根节点上，无论焦点在根节点还是页面里某个控件上都能收到。
+  ///
+  /// 但「能收到」不等于「都该处理」：这个节点在冒泡链上比 WidgetsApp 那层
+  /// `DefaultTextEditingShortcuts` **更靠近焦点**，也就是滚动处理先于文本编辑
+  /// 拿到按键。所以焦点在输入框里时必须原样放行，否则空格、方向键、
+  /// PgUp/PgDn 全被抢去滚动，输入框一个字都打不进去。
   KeyEventResult _onRootKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
       return KeyEventResult.ignored;
     }
-    final key = event.logicalKey;
-    if (key == LogicalKeyboardKey.pageDown) {
-      _scrollBy(_pageStep());
-    } else if (key == LogicalKeyboardKey.pageUp) {
-      _scrollBy(-_pageStep());
-    } else if (key == LogicalKeyboardKey.space) {
-      _scrollBy(_pageStep());
-    } else if (key == LogicalKeyboardKey.arrowDown) {
-      _scrollBy(48);
-    } else if (key == LogicalKeyboardKey.arrowUp) {
-      _scrollBy(-48);
-    } else if (key == LogicalKeyboardKey.home) {
-      _scrollToEdge(top: true);
-    } else if (key == LogicalKeyboardKey.end) {
-      _scrollToEdge(top: false);
-    } else {
-      return KeyEventResult.ignored;
+    if (isTextFieldFocused()) return KeyEventResult.ignored;
+    switch (scrollIntentFor(event.logicalKey)) {
+      case KeyScrollIntent.pageDown:
+        _scrollBy(_pageStep());
+      case KeyScrollIntent.pageUp:
+        _scrollBy(-_pageStep());
+      case KeyScrollIntent.lineDown:
+        _scrollBy(48);
+      case KeyScrollIntent.lineUp:
+        _scrollBy(-48);
+      case KeyScrollIntent.top:
+        _scrollToEdge(top: true);
+      case KeyScrollIntent.bottom:
+        _scrollToEdge(top: false);
+      case null:
+        return KeyEventResult.ignored;
     }
     return KeyEventResult.handled;
   }
