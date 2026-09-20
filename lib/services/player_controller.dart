@@ -344,7 +344,7 @@ class PlayerController extends ChangeNotifier {
     }
     try {
       // 走共享缓存：播放时即预取，歌词弹窗稍后打开可直接命中（不再重复拉网络）
-      final bundle = await LyricCache.load(song.mid, isNetease: song.isNetease);
+      final bundle = await LyricCache.load(song.mid, source: song.source);
       if (gen != _lyricGeneration) return;
       lyricLines = bundle?.lines ?? const [];
       activeLyricIndex = -1;

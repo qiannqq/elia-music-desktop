@@ -92,7 +92,7 @@ class _SearchPageState extends State<SearchPage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '搜索歌曲、歌手，或粘贴QQ音乐/网易云音乐歌单链接',
+                      '搜索歌曲、歌手，或粘贴歌单链接 / B站 BV 号',
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 14, color: c.textTertiary),
                     ),
@@ -165,6 +165,14 @@ class _SearchPageState extends State<SearchPage> {
           disabled: state.isSearching,
           onTap: () => state.setSearchSource('netease'),
         ),
+        const SizedBox(width: 8),
+        _SourceTab(
+          source: 'bilibili',
+          label: 'B站',
+          active: state.searchSource == 'bilibili',
+          disabled: state.isSearching,
+          onTap: () => state.setSearchSource('bilibili'),
+        ),
       ],
     );
   }
@@ -200,7 +208,7 @@ class _SearchPageState extends State<SearchPage> {
                 isDense: true,
                 border: InputBorder.none,
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                hintText: '搜索歌曲、歌手、专辑 或 粘贴QQ/网易云歌单链接',
+                hintText: '搜索歌曲、歌手 或 粘贴歌单链接、BV 号',
                 hintStyle: TextStyle(fontSize: 14, color: c.textTertiary),
               ),
             ),

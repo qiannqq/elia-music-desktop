@@ -10,7 +10,7 @@ class Song {
   final String link;
   final String mediaMid;
 
-  /// 'qq' | 'netease'
+  /// 'qq' | 'netease' | 'bilibili'
   final String source;
 
   /// 上游原始数据（持久化后为空 map）
@@ -36,6 +36,8 @@ class Song {
   });
 
   bool get isNetease => source == 'netease';
+
+  bool get isBilibili => source == 'bilibili';
 
   /// 持久化用（等价 `trimSong()`）
   Map<String, dynamic> toStoreJson() => {

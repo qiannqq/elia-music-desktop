@@ -507,35 +507,41 @@ class SourceIcon extends StatelessWidget {
 
   static const _qqAsset = 'assets/source_icons/qq.png';
   static const _neAsset = 'assets/source_icons/netease.png';
+  static const _biliAsset = 'assets/source_icons/bilibili.png';
 
   @override
   Widget build(BuildContext context) {
-    final isQq = source != 'netease';
-    final letter = isQq ? 'Q' : 'N';
-    final letterColor = isQq ? const Color(0xFF33C1FF) : const Color(0xFFEC4141);
+    // 三个源各自的外观。字母只是图标资源缺失时的兜底。
+    final (letter, color, asset, label) = switch (source) {
+      'netease' => ('N', const Color(0xFFEC4141), _neAsset, '网易云音乐'),
+      'bilibili' => ('B', const Color(0xFFFB7299), _biliAsset, 'B站'),
+      _ => ('Q', const Color(0xFF33C1FF), _qqAsset, 'QQ音乐'),
+    };
+
+    final fallback = Center(
+      child: Text(
+        letter,
+        style: TextStyle(
+          fontSize: size * 0.75,
+          fontWeight: FontWeight.w700,
+          color: color,
+          height: 1,
+        ),
+      ),
+    );
 
     return Tooltip(
-      message: isQq ? 'QQ音乐' : '网易云音乐',
+      message: label,
       child: SizedBox(
         width: size,
         height: size,
         child: Image.asset(
-          isQq ? _qqAsset : _neAsset,
+          asset,
           width: size,
           height: size,
           fit: BoxFit.cover,
           // 资源缺失时才退化成字母（正常不会走到）
-          errorBuilder: (_, _, _) => Center(
-            child: Text(
-              letter,
-              style: TextStyle(
-                fontSize: size * 0.75,
-                fontWeight: FontWeight.w700,
-                color: letterColor,
-                height: 1,
-              ),
-            ),
-          ),
+          errorBuilder: (_, _, _) => fallback,
         ),
       ),
     );

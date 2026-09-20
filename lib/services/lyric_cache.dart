@@ -8,6 +8,7 @@ import '../core/file_logger.dart';
 import '../core/local_store.dart';
 import '../core/lyric.dart';
 import 'api_client.dart';
+import 'bilibili_service.dart';
 
 /// 一份完整歌词（原文 + 翻译 + 解析结果）
 class LyricBundle {
@@ -51,7 +52,7 @@ class LyricCache {
   /// 取歌词：命中缓存直接返回；否则发请求（同一 mid 并发只请求一次）
   static Future<LyricBundle?> load(
     String mid, {
-    required bool isNetease,
+    required String source,
     bool force = false,
   }) {
     if (!force) {
@@ -60,7 +61,7 @@ class LyricCache {
       final pending = _inflight[mid];
       if (pending != null) return pending;
     }
-    final fut = _fetch(mid, isNetease);
+    final fut = _fetch(mid, source);
     _inflight[mid] = fut;
     fut.whenComplete(() => _inflight.remove(mid));
     return fut;
@@ -93,7 +94,7 @@ class LyricCache {
     }
   }
 
-  static Future<LyricBundle?> _fetch(String mid, bool isNetease) async {
+  static Future<LyricBundle?> _fetch(String mid, String source) async {
     try {
       var raw = '';
       var trans = '';
@@ -113,9 +114,13 @@ class LyricCache {
           fromDisk = true;
         } else {
           // 3) 最后才请求网络
-          final res = isNetease
-              ? await ApiClient.neLyric(mid)
-              : await ApiClient.getLyric(mid);
+          // B 站的歌词来自视频字幕：没有字幕就返回空串，
+          // 上层按「没有歌词」处理即可。
+          final res = switch (source) {
+            'netease' => await ApiClient.neLyric(mid),
+            'bilibili' => await bilibiliService.getLyricByMid(mid),
+            _ => await ApiClient.getLyric(mid),
+          };
           raw = res.lyric;
           trans = res.trans;
           if (raw.isNotEmpty) _saveToDisk(mid, raw, trans);
@@ -139,7 +144,7 @@ class LyricCache {
       final withWords = bundle.lines.where((l) => l.hasWords).length;
       fileLogger.info(
         'Lyric',
-        '$mid ${isNetease ? 'netease' : 'qq'}${isQrc ? ' qrc' : ''} raw=${raw.length} trans=${trans.length}'
+        '$mid $source${isQrc ? ' qrc' : ''} raw=${raw.length} trans=${trans.length}'
         ' → lines=${bundle.lines.length} 其中逐字行=$withWords transMap=${bundle.transMap.length}',
       );
       if (raw.isNotEmpty && bundle.lines.isEmpty) {

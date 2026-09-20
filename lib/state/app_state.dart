@@ -11,6 +11,7 @@ import '../core/local_store.dart';
 import '../core/lyric.dart';
 import '../models/song.dart';
 import '../services/api_client.dart';
+import '../services/bilibili_service.dart';
 import '../services/lyric_cache.dart';
 import '../services/player_controller.dart';
 import '../services/qqmusic_service.dart';
@@ -43,6 +44,7 @@ class AppState extends ChangeNotifier {
   /// 否则表现为「点了下一页，页面瞬间回到顶部、内容还是旧的」。
   bool pageLoading = false;
   bool isPlaylistPage = false;
+  /// 当前音源：'qq' | 'netease' | 'bilibili'
   String searchSource = 'qq';
 
   /// 是否已经完成过一次搜索。
@@ -546,10 +548,27 @@ class AppState extends ChangeNotifier {
     final v = value.trim();
     final isLink = RegExp(r'playlist/(\d+)|song/(\w+)|[?&]id=\d+|^\d+$').hasMatch(v);
     final isNeteaseLink = v.contains('music.163.com');
-    final next = isLink || isNeteaseLink;
+    // BV 号也是「直接定位」，跟粘贴链接一样把按钮切成链接样式
+    final isBv = BilibiliService.bvPattern.hasMatch(v);
+    final next = isLink || isNeteaseLink || isBv;
     if (next != searchLinkStyle) {
       searchLinkStyle = next;
       notifyListeners();
+    }
+  }
+
+  /// 按当前音源搜索。三个源的入口集中在这里，加音源时只改这一处。
+  Future<({List<Song> list, int total})> _searchCurrentSource(
+    String keyword, [
+    int page = 1,
+  ]) {
+    switch (searchSource) {
+      case 'netease':
+        return ApiClient.neSearch(keyword, page);
+      case 'bilibili':
+        return bilibiliService.search(keyword, page);
+      default:
+        return ApiClient.search(keyword, page);
     }
   }
 
@@ -563,7 +582,21 @@ class AppState extends ChangeNotifier {
 
     try {
       String? m;
-      if ((m = _nePlaylistRe.firstMatch(keyword)?.group(1)) != null) {
+      // 粘贴 BV 号 → 直接定位到那一个视频，不当作关键词去搜
+      if (BilibiliService.bvPattern.hasMatch(keyword)) {
+        final song = await bilibiliService.resolveBv(keyword);
+        if (song == null) {
+          toast.show('没有找到该 BV 号对应的视频', type: ToastType.error);
+        } else {
+          searchResults = [song];
+          searchTotal = 1;
+          searchKeyword = song.name;
+          currentPage = 1;
+          isPlaylistPage = false;
+          hasSearched = true;
+          notifyListeners();
+        }
+      } else if ((m = _nePlaylistRe.firstMatch(keyword)?.group(1)) != null) {
         final toastId = toast.show('网易云音乐 歌单加载中...歌曲过多可能需要十几秒种加载~',
             type: ToastType.progress, duration: 0);
         try {
@@ -595,8 +628,9 @@ class AppState extends ChangeNotifier {
         } else {
           toast.show('歌曲不存在', type: ToastType.error);
         }
-      } else if (searchSource == 'netease' && !keyword.contains('y.qq.com')) {
-        final res = await ApiClient.neSearch(keyword);
+      } else if ((searchSource == 'netease' || searchSource == 'bilibili') &&
+          !keyword.contains('y.qq.com')) {
+        final res = await _searchCurrentSource(keyword);
         searchResults = res.list;
         searchTotal = res.total;
         searchKeyword = keyword;
@@ -677,9 +711,7 @@ class AppState extends ChangeNotifier {
     pageLoading = true;
     notifyListeners();
     try {
-      final res = searchSource == 'netease'
-          ? await ApiClient.neSearch(searchKeyword, target)
-          : await ApiClient.search(searchKeyword, target);
+      final res = await _searchCurrentSource(searchKeyword, target);
       _pageCache[_pageCacheKey(target)] = (list: res.list, total: res.total);
       searchResults = res.list;
       searchTotal = res.total;
@@ -1109,7 +1141,7 @@ class AppState extends ChangeNotifier {
 
     if (cached != null) return;
 
-    final bundle = await LyricCache.load(mid, isNetease: song?.isNetease ?? false);
+    final bundle = await LyricCache.load(mid, source: song?.source ?? 'qq');
     if (currentLyricMid != mid) return; // 期间用户又切了别的歌
     if (bundle != null) _applyLyricBundle(bundle);
     lyricLoading = false;
@@ -1130,7 +1162,7 @@ class AppState extends ChangeNotifier {
     currentLyricMid = mid;
     lyricLoading = true;
     notifyListeners();
-    final bundle = await LyricCache.load(mid, isNetease: song?.isNetease ?? false);
+    final bundle = await LyricCache.load(mid, source: song?.source ?? 'qq');
     if (currentLyricMid != mid) return;
     if (bundle != null) _applyLyricBundle(bundle);
     lyricLoading = false;

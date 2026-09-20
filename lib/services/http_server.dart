@@ -5,6 +5,7 @@ import 'dart:io';
 import '../core/app_paths.dart';
 import '../core/file_logger.dart';
 import '../models/song.dart';
+import 'bilibili_service.dart';
 import 'netease_service.dart';
 import 'qqmusic_service.dart';
 
@@ -166,6 +167,45 @@ class HttpServerService {
 
   // ------------------------------------------------------------ 请求辅助
 
+  /// 按目标 URL 判断它属于哪个源。
+  ///
+  /// 代理转发时必须带上**对应源**的 Referer：三家 CDN 都会校验，
+  /// 给 B 站的图/流带上 `y.qq.com` 的 Referer 会被直接拒掉。
+  static String _sourceOfUrl(String url) {
+    if (url.contains('music.126.net') || url.contains('music.163.com')) {
+      return 'netease';
+    }
+    if (url.contains('hdslb.com') ||
+        url.contains('bilivideo') ||
+        url.contains('bilibili.com')) {
+      return 'bilibili';
+    }
+    return 'qq';
+  }
+
+  static String _refererOf(String source) => switch (source) {
+        'netease' => 'https://music.163.com/',
+        'bilibili' => 'https://www.bilibili.com/',
+        _ => 'https://y.qq.com/',
+      };
+
+  /// 按音源取播放地址。三个源各有一套取流方式，集中在这里分发，
+  /// 免得每加一个源就要在好几处复制一遍同样的 if/else。
+  Future<String> _resolvePlayUrl(Song song, {required bool hq}) {
+    switch (song.source) {
+      case 'netease':
+        return neteaseMusicService.getMusicUrl(
+          song,
+          quality: hq ? 'exhigh' : 'standard',
+        );
+      case 'bilibili':
+        // B 站音频不分档，服务端已经挑了带宽最高的那条
+        return bilibiliService.getAudioUrl(song);
+      default:
+        return qqMusicService.getMusicUrl(song, highQuality: hq);
+    }
+  }
+
   String _qqCookie(HttpRequest req) {
     final cookie = req.headers.value('x-qqmusic-cookie') ?? '';
     if (cookie.isNotEmpty) qqMusicService.setCookie(cookie);
@@ -286,12 +326,7 @@ class HttpServerService {
     final body = await _getBody(req);
 
     final song = _songFromBody(body['song'], mid);
-    String playUrl;
-    if (song.source == 'netease') {
-      playUrl = await neteaseMusicService.getMusicUrl(song, quality: hq ? 'exhigh' : 'standard');
-    } else {
-      playUrl = await qqMusicService.getMusicUrl(song, highQuality: hq);
-    }
+    final playUrl = await _resolvePlayUrl(song, hq: hq);
     _json(res, {
       'code': 0,
       'data': {'url': playUrl, 'mid': mid},
@@ -308,12 +343,7 @@ class HttpServerService {
     final results = await Future.wait(songs.map((raw) async {
       final song = _songFromBody(raw, '');
       try {
-        String url;
-        if (song.source == 'netease') {
-          url = await neteaseMusicService.getMusicUrl(song, quality: hq ? 'exhigh' : 'standard');
-        } else {
-          url = await qqMusicService.getMusicUrl(song, highQuality: hq);
-        }
+        final url = await _resolvePlayUrl(song, hq: hq);
         return {..._songToJson(song), 'url': url, 'success': true};
       } catch (e) {
         return {..._songToJson(song), 'url': '', 'success': false, 'error': e.toString()};
@@ -404,12 +434,7 @@ class HttpServerService {
 
     fileLogger.info('Download', 'song="${song.name}" mid=${song.mid} source=${song.source}');
 
-    String playUrl;
-    if (song.source == 'netease') {
-      playUrl = await neteaseMusicService.getMusicUrl(song, quality: 'exhigh');
-    } else {
-      playUrl = await qqMusicService.getMusicUrl(song, highQuality: true);
-    }
+    final playUrl = await _resolvePlayUrl(song, hq: true);
     if (playUrl.isEmpty) return _json(res, {'error': '无法获取播放链接'}, 500);
 
     _json(res, {
@@ -434,8 +459,7 @@ class HttpServerService {
         return;
       }
       final targetUrl = Uri.decodeComponent(rawUrl);
-      final isNetease = targetUrl.contains('music.126.net') || targetUrl.contains('music.163.com');
-      final referer = isNetease ? 'https://music.163.com/' : 'https://y.qq.com/';
+      final referer = _refererOf(_sourceOfUrl(targetUrl));
 
       final up = await _client.getUrl(Uri.parse(targetUrl));
       up.headers.set('Referer', referer);
@@ -481,9 +505,14 @@ class HttpServerService {
 
     final rangeHeader = req.headers.value('range');
     try {
-      final isNetease = targetUrl.contains('music.126.net') || targetUrl.contains('music.163.com');
-      final referer = isNetease ? 'https://music.163.com/' : 'https://y.qq.com/';
-      final cookie = isNetease ? neteaseMusicService.cookie : qqMusicService.cookie;
+      final src = _sourceOfUrl(targetUrl);
+      final referer = _refererOf(src);
+      // B 站取流不需要 ck（也不该带 QQ 的）
+      final cookie = switch (src) {
+        'netease' => neteaseMusicService.cookie,
+        'bilibili' => '',
+        _ => qqMusicService.cookie,
+      };
 
       final up = await _client.getUrl(Uri.parse(targetUrl));
       up.headers.set('Referer', referer);
