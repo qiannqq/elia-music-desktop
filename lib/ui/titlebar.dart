@@ -77,7 +77,15 @@ class AppTitlebar extends StatelessWidget {
             icon: AppIcons.close,
             tooltip: '关闭',
             isClose: true,
-            onTap: () => windowManager.close(),
+            onTap: () async {
+              // 先把窗口收掉，再走关闭流程。
+              //
+              // 关闭时要落盘（LocalStore.flush），那一步可能要几百毫秒到几秒；
+              // 让用户盯着一个「点了没反应」的窗口，就是那种卡顿感的来源。
+              // 窗口一收，剩下的慢活都发生在看不见的地方。
+              await windowManager.hide();
+              await windowManager.close();
+            },
           ),
         ],
       ),

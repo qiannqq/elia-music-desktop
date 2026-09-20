@@ -35,6 +35,12 @@ class AppState extends ChangeNotifier {
   int currentPage = 1;
   int searchTotal = 0;
   bool isSearching = false;
+
+  /// 正在换页（翻页按钮据此禁用并显示加载态）。
+  ///
+  /// 换页请求慢的时候，界面上必须**先有反馈**再换内容 ——
+  /// 否则表现为「点了下一页，页面瞬间回到顶部、内容还是旧的」。
+  bool pageLoading = false;
   bool isPlaylistPage = false;
   String searchSource = 'qq';
 
@@ -561,6 +567,7 @@ class AppState extends ChangeNotifier {
         currentPage = 1;
         isPlaylistPage = false;
         hasSearched = true;
+        _cacheCurrentPage();   // 首屏也进缓存，翻回第 1 页就不再请求
         notifyListeners();
       } else if ((m = _playlistRe.firstMatch(keyword)?.group(1) ??
               _idRe.firstMatch(keyword)?.group(1) ??
@@ -604,6 +611,7 @@ class AppState extends ChangeNotifier {
         currentPage = 1;
         isPlaylistPage = false;
         hasSearched = true;
+        _cacheCurrentPage();   // 首屏也进缓存，翻回第 1 页就不再请求
         notifyListeners();
       }
     } catch (e) {
@@ -617,17 +625,53 @@ class AppState extends ChangeNotifier {
 
   Future<void> changePage(int target) async {
     if (searchKeyword.isEmpty || target < 1) return;
+
+    // 命中缓存就直接显示：翻回上一页、来回翻同一页都不该重新发请求
+    // （QQ 音乐有频控，翻页本来就慢，能省一次是一次）。
+    final cached = _pageCache[_pageCacheKey(target)];
+    if (cached != null) {
+      searchResults = cached.list;
+      searchTotal = cached.total;
+      currentPage = target;
+      pageLoading = false;
+      notifyListeners();
+      return;
+    }
+
+    pageLoading = true;
+    notifyListeners();
     try {
       final res = searchSource == 'netease'
           ? await ApiClient.neSearch(searchKeyword, target)
           : await ApiClient.search(searchKeyword, target);
+      _pageCache[_pageCacheKey(target)] = (list: res.list, total: res.total);
       searchResults = res.list;
       searchTotal = res.total;
       currentPage = target;
-      notifyListeners();
     } catch (e) {
       toast.show('加载失败: $e', type: ToastType.error);
+    } finally {
+      // 必须在 finally 里收掉加载态：失败时也要让按钮恢复可用
+      pageLoading = false;
+      notifyListeners();
     }
+  }
+
+  /// 已加载过的分页缓存，key = 来源|关键词|页码
+  final Map<String, ({List<Song> list, int total})> _pageCache = {};
+
+  String _pageCacheKey(int page) => '$searchSource|$searchKeyword|$page';
+
+  /// 把当前这一页记进缓存。
+  ///
+  /// 搜索的首屏不走 changePage，所以这里也要记一次 ——
+  /// 否则从第 2 页翻回第 1 页时又会重新请求一次（QQ 音乐那边很慢）。
+  void _cacheCurrentPage() {
+    if (searchKeyword.isEmpty || isPlaylistPage) return;
+    _pageCache[_pageCacheKey(currentPage)] =
+        (list: searchResults, total: searchTotal);
+    // 简单的上限：翻得再多也不至于无限涨（key 里带关键词，不会串页）
+    if (_pageCache.length > 40) _pageCache.clear();
   }
 
   void setSearchSource(String source) {

@@ -94,6 +94,72 @@ class _AppShellState extends State<AppShell> {
     setState(() {});
   }
 
+  // ------------------------------------------------------------ 键盘滚动
+  //
+  // 页面用的是 SmoothWheelScroll，它为了让滚轮不被 Scrollable 重复处理，
+  // 把 physics 的 `shouldAcceptUserOffset` 关成了 false —— 而框架的
+  // ScrollAction 拿**同一个**判断来决定「用户能不能滚」，于是 PgUp/PgDn、
+  // 方向键、空格被一起拦掉了（scrollable_helpers.dart 里那句
+  // "Don't do anything if the user isn't allowed to scroll"）。
+  // 所以这里显式补回来，顺便沿用滚轮那套缓动。
+  void _scrollBy(double delta) {
+    final ctrl = _controllerFor(state.page);
+    if (!ctrl.hasClients) return;
+    final pos = ctrl.position;
+    ctrl.animateTo(
+      (pos.pixels + delta).clamp(pos.minScrollExtent, pos.maxScrollExtent),
+      duration: const Duration(milliseconds: 150),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _scrollToEdge({required bool top}) {
+    final ctrl = _controllerFor(state.page);
+    if (!ctrl.hasClients) return;
+    ctrl.animateTo(
+      top ? ctrl.position.minScrollExtent : ctrl.position.maxScrollExtent,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  /// 一屏的高度（翻页键走这么多）
+  double _pageStep() {
+    final ctrl = _controllerFor(state.page);
+    if (!ctrl.hasClients) return 400;
+    return ctrl.position.viewportDimension * 0.9;
+  }
+
+  /// 挂在根 Focus 上的键盘滚动。
+  ///
+  /// 用 `onKeyEvent` 而不是 Shortcuts：键事件从**当前焦点节点**往上冒，
+  /// 挂在根节点上就同时覆盖「根节点自己持有焦点」和「页面里的输入框持有焦点」
+  /// 两种情况（输入框会先吃掉方向键去做光标移动，PgUp/PgDn 才落到这里）。
+  KeyEventResult _onRootKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.pageDown) {
+      _scrollBy(_pageStep());
+    } else if (key == LogicalKeyboardKey.pageUp) {
+      _scrollBy(-_pageStep());
+    } else if (key == LogicalKeyboardKey.space) {
+      _scrollBy(_pageStep());
+    } else if (key == LogicalKeyboardKey.arrowDown) {
+      _scrollBy(48);
+    } else if (key == LogicalKeyboardKey.arrowUp) {
+      _scrollBy(-48);
+    } else if (key == LogicalKeyboardKey.home) {
+      _scrollToEdge(top: true);
+    } else if (key == LogicalKeyboardKey.end) {
+      _scrollToEdge(top: false);
+    } else {
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
+  }
+
   ScrollController _controllerFor(String page) => switch (page) {
         'playlist' => _playlistScroll,
         'settings' => _settingsScroll,
@@ -149,6 +215,7 @@ class _AppShellState extends State<AppShell> {
         child: Focus(
           focusNode: _rootFocus,
           autofocus: true,
+          onKeyEvent: _onRootKey,
           child: Listener(
             onPointerSignal: (event) {
               if (event is! PointerScrollEvent) return;

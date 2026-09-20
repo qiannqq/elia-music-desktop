@@ -52,6 +52,15 @@ class _SearchPageState extends State<SearchPage> {
     final state = widget.state;
     final hasResults = state.searchResults.isNotEmpty;
 
+    // 新一页到了 → 滚回顶部（放在 postFrame 里，等这一帧布局完再滚）
+    if (_pendingPage != null && !state.pageLoading) {
+      final arrived = state.currentPage == _pendingPage;
+      _pendingPage = null;
+      if (arrived) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToTop());
+      }
+    }
+
     // 滚轮加过渡动画（不影响速度，只是不再一格一跳）
     return SmoothWheelScroll(
       controller: widget.scrollController,
@@ -306,24 +315,32 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
-  /// 翻页：换页后回到顶部
+  /// 换页后要不要滚回顶部，以及等的是哪一页。
   ///
-  /// 不回去的话，新一页会停在上一页的滚动位置，
-  /// 而且从列表底部直接换内容观感很跳。
+  /// 必须等**新一页真的到了**再滚：请求还没回来就滚上去，
+  /// 用户看到的是「跳回顶部、内容却还是旧的」，像卡住了。
+  int? _pendingPage;
+
+  void _scrollToTop() {
+    if (!widget.scrollController.hasClients) return;
+    widget.scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
+  }
+
+  /// 翻页：先给加载反馈，**新内容到了再**回到顶部
   void _changePage(AppState state, int target) {
+    if (state.pageLoading) return;
+    _pendingPage = target;
     state.changePage(target);
-    if (widget.scrollController.hasClients) {
-      widget.scrollController.animateTo(
-        0,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
-      );
-    }
   }
 
   Widget _buildPagination(AppColors c, AppState state) {
     final totalPages = ((state.searchTotal / 50).ceil()).clamp(1, 1 << 30);
     final hasNext = state.currentPage < totalPages;
+    final busy = state.pageLoading;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 24),
       child: Row(
@@ -331,19 +348,35 @@ class _SearchPageState extends State<SearchPage> {
         children: [
           AppButton(
             label: '上一页',
-            onPressed: state.currentPage <= 1
+            onPressed: busy || state.currentPage <= 1
                 ? null
                 : () => _changePage(state, state.currentPage - 1),
           ),
           const SizedBox(width: 16),
+          if (busy)
+            // 加载提示放在页码旁边：用户正在看这里，反馈最直接
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2, color: c.accent),
+            )
+          else
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: SizedBox.shrink(),
+            ),
+          const SizedBox(width: 8),
           Text(
-            '第 ${state.currentPage}/$totalPages 页',
+            busy ? '加载中…' : '第 ${state.currentPage}/$totalPages 页',
             style: TextStyle(fontSize: 13, color: c.textSecondary),
           ),
           const SizedBox(width: 16),
           AppButton(
             label: '下一页',
-            onPressed: hasNext ? () => _changePage(state, state.currentPage + 1) : null,
+            onPressed: !hasNext || busy
+                ? null
+                : () => _changePage(state, state.currentPage + 1),
           ),
         ],
       ),
