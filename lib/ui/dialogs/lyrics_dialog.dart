@@ -35,6 +35,8 @@ class _LyricsDialogState extends State<LyricsDialog> {
   bool _showTrans = false;
   bool _autoFollow = true;
   int _lastScrolledIdx = -1;
+  /// 上次同步到的歌词行 —— 用来避免「位置每变一次就重建整首歌词」
+  int _lastSyncedIdx = -2;
   bool _programmaticScroll = false;
   int _scrollResumeTimer = 0;
 
@@ -106,7 +108,13 @@ class _LyricsDialogState extends State<LyricsDialog> {
     }
 
     final idx = _activeIndex();
-    setState(() {});
+    // 只有「唱到下一句」才需要重建：位置每秒变化几十次，而这个弹窗一重建
+    // 就是整首歌词（几十行）。当前行的逐字高亮由它自己的
+    // ValueListenableBuilder 驱动，不依赖这里的 setState。
+    if (idx != _lastSyncedIdx) {
+      _lastSyncedIdx = idx;
+      setState(() {});
+    }
     if (!scroll || idx < 0 || idx == _lastScrolledIdx || !_autoFollow) return;
 
     final ctx = _lineKeys[idx]?.currentContext;
@@ -356,15 +364,20 @@ class _LyricsDialogState extends State<LyricsDialog> {
             children: [
               // 当前行且有逐字数据 → 逐字高亮（与播放栏同一套组件与过渡）
               (active && line.hasWords)
-                  ? KaraokeText(
-                      line: LyricLine(line.time, line.text, words: line.words),
-                      position: player.position.inMilliseconds / 1000.0,
-                      activeColor: c.accent,
-                      inactiveColor: c.textTertiary,
-                      fontSize: 15,
-                      height: 1.7,
-                      // 弹窗宽度足够：长句换行显示完整内容，不截断
-                      maxLines: null,
+                  // 只有这一行跟着播放位置走 —— 重建范围压到当前行，
+                  // 其余几十行保持不动
+                  ? ValueListenableBuilder<Duration>(
+                      valueListenable: player.positionNotifier,
+                      builder: (_, pos, _) => KaraokeText(
+                        line: LyricLine(line.time, line.text, words: line.words),
+                        position: pos.inMilliseconds / 1000.0,
+                        activeColor: c.accent,
+                        inactiveColor: c.textTertiary,
+                        fontSize: 15,
+                        height: 1.7,
+                        // 弹窗宽度足够：长句换行显示完整内容，不截断
+                        maxLines: null,
+                      ),
                     )
                   : Text(
                       line.text,
