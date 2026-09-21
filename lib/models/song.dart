@@ -77,9 +77,9 @@ class Song {
         source: (j['source'] ?? 'qq').toString(),
       );
 
-  Song copyWith({String? pic}) => Song(
+  Song copyWith({String? name, String? pic}) => Song(
         mid: mid,
-        name: name,
+        name: name ?? this.name,
         artist: artist,
         pic: pic ?? this.pic,
         link: link,

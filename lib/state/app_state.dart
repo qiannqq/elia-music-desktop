@@ -293,6 +293,17 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 改歌名。只动本地记录 —— 上游没有「改标题」这回事，改名也不影响
+  /// 取流和歌词（两者都按 mid 走）。
+  void renameSong(String mid, String newName) {
+    final i = songs.indexWhere((s) => s.mid == mid);
+    if (i < 0) return;
+    songs[i] = songs[i].copyWith(name: newName);
+    player.renameCurrentSong(mid, newName);
+    _saveSongs();
+    notifyListeners();
+  }
+
   void removeFromList(String mid) {
     songs.removeWhere((s) => s.mid == mid);
     selectedMids.remove(mid);

@@ -85,6 +85,17 @@ class PlayerController extends ChangeNotifier {
   /// 歌词高亮，让它们各自监听这个 notifier 就够了。
   final ValueNotifier<Duration> positionNotifier = ValueNotifier(Duration.zero);
 
+  /// 歌名被改后同步到播放栏与系统媒体面板。
+  ///
+  /// 播放栏和 SMTC 读的都是 `currentSong`，只改歌单里那份不够 ——
+  /// 会看到「列表里已经改名，播放栏还是旧名」。
+  void renameCurrentSong(String mid, String newName) {
+    final song = currentSong;
+    if (song == null || song.mid != mid) return;
+    currentSong = song.copyWith(name: newName);
+    notifyListeners();
+  }
+
   Future<void> init() async {
     playMode = PlayModeX.fromId(LocalStore.get('qqmusic_play_mode'));
     final savedVolume = double.tryParse(LocalStore.get('qqmusic_volume') ?? '');

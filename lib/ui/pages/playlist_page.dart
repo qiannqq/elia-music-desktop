@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/app_theme.dart';
 import '../../models/song.dart';
@@ -202,6 +203,86 @@ class _PlaylistItem extends StatefulWidget {
 }
 
 class _PlaylistItemState extends State<_PlaylistItem> {
+  bool _editingName = false;
+
+  /// 这一次按下是不是落在铅笔上。
+  ///
+  /// 点铅笔时，输入框会**先**失焦（框架的 TapRegion 在按下那一刻就把
+  /// 「点了外面」报过来），于是「失焦即提交」会先把编辑收起来，
+  /// 紧接着 onTap 又把它展开 —— 表现成「点铅笔没反应」。
+  /// 用这个标记把那次失焦让给铅笔的 onTap 去处理。
+  bool _pencilPressed = false;
+
+  /// 上一次量到的下划线长度。
+  ///
+  /// 收起动画要靠它：如果宽度跟着编辑态一起归零，线会在动画开始**之前**
+  /// 就没了 —— 表现成「展开有动画、收起没动画」。
+  double _lastLineWidth = 0;
+  final TextEditingController _nameCtrl = TextEditingController();
+  final FocusNode _nameFocus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    // 点到别处、或按 Tab 走掉，都当作「改完了」—— 就地编辑没有再放一个确定键。
+    _nameFocus.addListener(() {
+      if (!_nameFocus.hasFocus && _editingName && mounted) _commitName();
+    });
+    // 下划线的长度跟着名字走，所以打字时要重建（只在编辑态，别的时候不监听）
+    _nameCtrl.addListener(() {
+      if (_editingName && mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _nameFocus.dispose();
+    super.dispose();
+  }
+
+  void _startEditName() {
+    final wasEditing = _editingName;
+    _pencilPressed = false;
+    // 已经展开着 → 这一下是「收起」：改动照常保存，与点别处一致
+    if (wasEditing) {
+      _commitName();
+      return;
+    }
+    _nameCtrl.text = widget.song.name;
+    // 选中全部：改名多半是整体重写，不是改一两个字
+    _nameCtrl.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: _nameCtrl.text.length,
+    );
+    setState(() => _editingName = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _nameFocus.requestFocus();
+    });
+  }
+
+  void _commitName() {
+    if (!_editingName) return;
+    final name = _nameCtrl.text.trim();
+    setState(() => _editingName = false);
+    // 清空或没动过就当没改，不写存储
+    if (name.isEmpty || name == widget.song.name) return;
+    widget.state.renameSong(widget.song.mid, name);
+  }
+
+  void _cancelEditName() => setState(() => _editingName = false);
+
+  /// 量出这段文字渲染出来有多宽 —— 下划线要正好画到名字末尾。
+  /// 名字比可用宽度还长时按可用宽度截断（跟 Text 的省略号表现对齐）。
+  double _measureNameWidth(String text, TextStyle style, double maxWidth) {
+    final painter = TextPainter(
+      // 空串量出来是 0，给个空格免得线完全不见（此时光标还闪在开头）
+      text: TextSpan(text: text.isEmpty ? ' ' : text, style: style),
+      textDirection: TextDirection.ltr,
+      maxLines: 1,
+    )..layout();
+    return painter.width.clamp(0.0, maxWidth);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -253,14 +334,147 @@ class _PlaylistItemState extends State<_PlaylistItem> {
                       SourceIcon(source: song.source, size: 16),
                       const SizedBox(width: 2),
                       Expanded(
-                        child: Text(
-                          song.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: c.text,
+                        child: LayoutBuilder(
+                          builder: (ctx, cons) {
+                            // 显示态与编辑态**用同一个 TextStyle**：点编辑时
+                            // 只有下划线出现，字的粗细、大小、颜色都不动。
+                            //
+                            // 必须手动把 DefaultTextStyle 合进来：`Text` 会自动
+                            // 合并它，而 `TextField` 的 style **不会** —— 少了
+                            // 主题里的 fontFamily / fontFamilyFallback 之后，
+                            // 整段都是假名或汉字时（全靠回退字体渲染）两边会
+                            // 走不同的字体 metrics，行高差一点点，看起来就是
+                            // 「点编辑后歌名上下跳一下」。
+                            // 混进任意一个拉丁字符/空格就不会 —— 那时主字体
+                            // 自己能渲染，两边行高都由它决定。
+                            final nameStyle = DefaultTextStyle.of(context)
+                                .style
+                                .merge(TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: c.text,
+                            ));
+                            // 基线必须显式钉死，否则**整段都是假名或汉字**时，
+                            // 显示态会比编辑态高 1px，进出编辑态就上下跳一下：
+                            // 那种文本一个字都得靠回退字体（Microsoft YaHei）
+                            // 渲染，`Text` 于是拿回退字体的 ascent 算基线，而
+                            // `TextField` 是按主字体（Segoe UI）的模板算的。
+                            // 混进任意拉丁字符或空格就不会 —— 主字体自己能渲染，
+                            // 两边都按它算。
+                            // 两边挂同一个 strut（都用主字体的 metrics）之后，
+                            // 不管什么字符集基线都一致。
+                            final nameStrut = StrutStyle.fromTextStyle(
+                              nameStyle,
+                              forceStrutHeight: true,
+                            );
+                            // 下划线只画到名字那么长（不是整行）。只有编辑中的
+                            // 那一行需要量宽度，别的时候不测。
+                            // 收起时沿用记住的那次宽度，让动画从「满」缩到 0。
+                            final measured = _editingName
+                                ? _measureNameWidth(_nameCtrl.text, nameStyle,
+                                        cons.maxWidth)
+                                : null;
+                            if (measured != null) _lastLineWidth = measured;
+                            final lineWidth = measured ?? _lastLineWidth;
+                            return Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _editingName
+                                    ? CallbackShortcuts(
+                                        // Esc 放弃修改，回到原来的名字
+                                        bindings: {
+                                          const SingleActivator(
+                                            LogicalKeyboardKey.escape,
+                                          ): _cancelEditName,
+                                        },
+                                        child: TextField(
+                                          controller: _nameCtrl,
+                                          focusNode: _nameFocus,
+                                          style: nameStyle,
+                                          strutStyle: nameStrut,
+                                          cursorColor: c.accent,
+                                          cursorWidth: 1.5,
+                                          onSubmitted: (_) => _commitName(),
+                                          // 点别处 → 提交收起。写在这里而不是
+                                          // 靠焦点变化：这样能认出「点的是铅笔」
+                                          // 并放行（否则那一跳会把编辑先收掉，
+                                          // 铅笔的 onTap 又立刻展开）。
+                                          onTapOutside: (_) {
+                                            if (_pencilPressed) return;
+                                            _commitName();
+                                          },
+                                          // 无边框、无内边距 —— 外观完全交给
+                                          // 下面那条线，输入框本身不可见
+                                          decoration: const InputDecoration(
+                                            isCollapsed: true,
+                                            border: InputBorder.none,
+                                          ),
+                                        ),
+                                      )
+                                    : Text(
+                                        song.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: nameStyle,
+                                        strutStyle: nameStrut,
+                                      ),
+                                // 下划线：宽度 = 名字宽度 × 动画进度。
+                                // 展开时 0 → 满，视觉上是从左往右画出去；
+                                // 收起时满 → 0，右端先收，看起来是从右往左消失。
+                                // 打字引起的宽度变化不走动画（进度没变），
+                                // 所以线是即时跟着字走的，不会拖尾。
+                                TweenAnimationBuilder<double>(
+                                  tween: Tween<double>(
+                                    begin: 0,
+                                    end: _editingName ? 1 : 0,
+                                  ),
+                                  duration: const Duration(milliseconds: 200),
+                                  curve: Curves.easeOutCubic,
+                                  builder: (_, t, _) => Padding(
+                                    padding: const EdgeInsets.only(top: 2),
+                                    child: SizedBox(
+                                      height: 1.5,
+                                      width: lineWidth * t,
+                                      child: DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          color: c.accent,
+                                          borderRadius:
+                                              BorderRadius.circular(1),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      // 铅笔只在鼠标停在这一行时出现（占着位，进出不会让名字
+                      // 左右跳）。hover 时**只把铅笔本身变蓝**：不传 hoverBg
+                      // 会拿到默认的圆角底，这里用全透明的同色顶掉。
+                      IgnorePointer(
+                        ignoring: !widget.hovered,
+                        child: AnimatedOpacity(
+                          opacity: widget.hovered ? 1 : 0,
+                          duration: const Duration(milliseconds: 120),
+                          child: Listener(
+                            // 铅笔在命中链上比框架的 TapRegion 更靠里，先收到
+                            // 按下事件 —— 靠这一点把「点的是铅笔」告诉输入框
+                            onPointerDown: (_) => _pencilPressed = true,
+                            onPointerCancel: (_) => _pencilPressed = false,
+                            child: AppIconButton(
+                              icon: AppIcons.edit,
+                              size: 20,
+                              iconSize: 12,
+                              baseColor: c.textTertiary,
+                              hoverColor: c.accent,
+                              hoverBg: c.accent.withValues(alpha: 0),
+                              tooltip: '重命名',
+                              onTap: _startEditName,
+                            ),
                           ),
                         ),
                       ),

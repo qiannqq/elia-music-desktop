@@ -31,6 +31,7 @@ class SmtcService {
 
   bool _ready = false;
   String? _mid;
+  String? _title;
   bool? _playing;
   int _lastTimelineAt = 0;
   final Map<String, Uint8List> _coverCache = {};
@@ -82,8 +83,10 @@ class SmtcService {
       return;
     }
 
-    if (song.mid != _mid) {
+    // 去重按「mid + 歌名」：mid 没变但名字被改过时，面板上的标题也得跟着换
+    if (song.mid != _mid || song.name != _title) {
       _mid = song.mid;
+      _title = song.name;
       _push('enabled', {'enabled': true});
       _push('metadata', {
         'title': song.name,
