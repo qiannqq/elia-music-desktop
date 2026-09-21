@@ -231,9 +231,10 @@ class AppState extends ChangeNotifier {
           biliCookieStatus = 'invalid';
           LocalStore.set('bilibili_cookie_status', 'invalid');
         }
-      } catch (_) {
-        biliCookieStatus = 'invalid';
-        LocalStore.set('bilibili_cookie_status', 'invalid');
+      } catch (e) {
+        // 请求本身失败（超时、断网、服务端抽风）就**保留上一次的状态**：
+        // 把这些当成「ck 失效」会让用户白填一遍，而实际上什么都没变。
+        fileLogger.warn('Bilibili', '启动校验 ck 失败，保留原状态: $e');
       }
       notifyListeners();
     }

@@ -62,6 +62,56 @@ class BilibiliService {
     return this;
   }
 
+  /// 服务端下发过来的 cookie（响应里的 `Set-Cookie`）。
+  ///
+  /// **这一份必须接住**：B 站每次响应都可能刷新一批 cookie
+  /// （`buvid3` / `b_nut` / `bili_ticket` …），客户端一直拿旧的去请求，
+  /// 几次之后就会被当成异常客户端 —— 表现正是「ck 刚填上能用，过一会儿
+  /// 就失效」。PiliPlus 用 `cookie_jar` 做这件事，我们只需要一张键值表。
+  final Map<String, String> _jar = <String, String>{};
+
+  /// 把响应里的 `Set-Cookie` 收进 jar。同名的直接覆盖 —— 跟浏览器一致。
+  void _absorbCookies(Map<String, String> headers) {
+    final raw = headers['set-cookie'];
+    if (raw == null || raw.isEmpty) return;
+    // http 包会把多条 Set-Cookie 拼成一行。不能直接按逗号切：Expires 里
+    // 也有逗号（`Expires=Wed, 21 Oct ...`），所以只在「逗号后面跟着
+    // `名字=`」的地方断开。
+    for (final part in raw.split(RegExp(r',(?=\s*[A-Za-z0-9_\-]+=)'))) {
+      final seg = part.split(';').first.trim();
+      final i = seg.indexOf('=');
+      if (i <= 0) continue;
+      final name = seg.substring(0, i).trim();
+      final value = seg.substring(i + 1).trim();
+      if (name.isEmpty || value.isEmpty) continue;
+      if (_jar[name] != value) {
+        // 只在真的变了的时候记一行：这是「ck 为什么会过期」的直接证据
+        fileLogger.debug('Bili', '收到 Set-Cookie: $name='
+            '${value.length <= 8 ? value : '${value.substring(0, 8)}…'}');
+      }
+      _jar[name] = value;
+    }
+  }
+
+  /// 拼出这次请求要带的 Cookie。
+  ///
+  /// 优先级从低到高：自己申请的游客标识 → 用户填的 ck → 服务端最新下发的。
+  /// 反过来的话，自己申请的 buvid3 会盖掉 ck 里那个，B 站一眼就看出
+  /// 「设备标识和登录账号对不上」。
+  String _cookieHeader() {
+    final merged = <String, String>{
+      if (_buvid3.isNotEmpty) 'buvid3': _buvid3,
+      if (_buvid4.isNotEmpty) 'buvid4': _buvid4,
+    };
+    for (final part in cookie.split(';')) {
+      final i = part.indexOf('=');
+      if (i <= 0) continue;
+      merged[part.substring(0, i).trim()] = part.substring(i + 1).trim();
+    }
+    merged.addAll(_jar);
+    return merged.entries.map((e) => '${e.key}=${e.value}').join('; ');
+  }
+
   String _buvid3 = '';
   String _buvid4 = '';
   bool _buvidActivated = false;
@@ -97,13 +147,8 @@ class BilibiliService {
       'Sec-Fetch-Mode': 'cors',
       'Sec-Fetch-Site': 'same-site',
     };
-    final parts = <String>[
-      if (_buvid3.isNotEmpty) 'buvid3=$_buvid3',
-      if (_buvid4.isNotEmpty) 'buvid4=$_buvid4',
-      // 登录 cookie 整段接在后面：它自己就是 `a=1; b=2` 的形式
-      if (cookie.isNotEmpty) cookie,
-    ];
-    if (parts.isNotEmpty) h['Cookie'] = parts.join('; ');
+    final merged = _cookieHeader();
+    if (merged.isNotEmpty) h['Cookie'] = merged;
     return h;
   }
 
@@ -136,6 +181,8 @@ class BilibiliService {
                 .timeout(timeout);
         final text = utf8.decode(resp.bodyBytes);
         final ms = sw.elapsedMilliseconds;
+        // 服务端可能刷新了 cookie —— 不接住的话，下次还拿旧的去请求
+        _absorbCookies(resp.headers);
 
         fileLogger.debug('Bili', '← ${resp.statusCode} ($ms ms) $url\n'
             '  响应头: ${_formatHeaders(resp.headers)}\n'
@@ -289,6 +336,12 @@ class BilibiliService {
     if (ck != null) setCookie(ck);
     try {
       final res = await _getJson('$_host/x/web-interface/nav', attempts: 2);
+      final code = (res['code'] as num?)?.toInt() ?? 0;
+      // -101 是明确的「未登录」——这时 ck 才真的没用了。
+      // 其他错误码按「请求失败」抛出去，让调用方保留原状态：
+      // 把服务端抽风当成 ck 失效，会让用户白填一遍。
+      if (code == -101) return null;
+      if (code != 0) throw Exception('nav 返回 code=$code');
       final data = res['data'] as Map?;
       if (data == null || data['isLogin'] != true) return null;
       final name = (data['uname'] ?? '').toString();
