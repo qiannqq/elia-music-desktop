@@ -536,10 +536,16 @@ class HttpServerService {
         return;
       }
 
+      // B 站的音频流是 fMP4（路径以 `.m4s` 结尾），CDN 会把它标成
+      // **`video/mp4`** —— 里面确实只有音频，只是容器格式跟视频一样。
+      // 不认它的话这里会回 415，播放器拿到 415 就报
+      // `MediaEngine error 0xC00D2EFE`，表现成「取到流了但播不出来」。
+      final isMp4 = ct.contains('mp4') || ct.contains('m4a');
       if (upRes.statusCode != 206 &&
           !ct.contains('audio') &&
           !ct.contains('octet-stream') &&
-          !ct.contains('mpeg')) {
+          !ct.contains('mpeg') &&
+          !isMp4) {
         fileLogger.error('AudioProxy', 'Non-audio Content-Type: $ct');
         res.statusCode = 415;
         await res.close();
@@ -547,7 +553,20 @@ class HttpServerService {
       }
 
       res.statusCode = upRes.statusCode;
-      res.headers.set('Content-Type', ct.isNotEmpty ? ct : 'audio/mpeg');
+      // Content-Type 按**请求路径的后缀**来定，不信上游那个值 ——
+      // 同一个音频流，CDN 有时回 `video/mp4`（B站的 `.m4s` 就是这种）、
+      // 有时回 `application/octet-stream`，飘得很。而路径后缀是我们自己
+      // 拼的（见 `ApiClient._audioExt`），稳定。
+      final ext = req.uri.path.split('.').last.toLowerCase();
+      res.headers.set('Content-Type', switch (ext) {
+        'm4a' || 'mp4' => 'audio/mp4',
+        'mp3' => 'audio/mpeg',
+        'flac' => 'audio/flac',
+        'ogg' || 'opus' => 'audio/ogg',
+        'wav' => 'audio/wav',
+        'aac' => 'audio/aac',
+        _ => (ct.isNotEmpty ? ct : 'audio/mpeg'),
+      });
       res.headers.set('Accept-Ranges', 'bytes');
       res.headers.set('Access-Control-Allow-Origin', '*');
       if (cr != null) res.headers.set('Content-Range', cr);
