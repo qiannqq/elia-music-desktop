@@ -374,11 +374,16 @@ class AppState extends ChangeNotifier {
     toast.show('已置顶 ${toAdd.length} 首', type: ToastType.success);
   }
 
+  /// 按 mid 找歌。**歌单优先**。
+  ///
+  /// 歌名是可以就地改的，改的是歌单里那一份，搜索结果里还是旧的。
+  /// 先命中搜索结果的话，改名后去播放这首歌，播放栏拿到的就是改名前的名字
+  ///（要等播放中再改一次才显示新的）。
   Song? findSong(String mid) {
-    for (final s in searchResults) {
+    for (final s in songs) {
       if (s.mid == mid) return s;
     }
-    for (final s in songs) {
+    for (final s in searchResults) {
       if (s.mid == mid) return s;
     }
     return null;
@@ -1284,7 +1289,11 @@ class AppState extends ChangeNotifier {
       return;
     }
     if (raw.trim().isEmpty) {
-      LocalStore.remove('custom_lyric_$mid');
+      // **不能只是删掉这个键**：删掉之后取词会继续往下走
+      //（磁盘缓存 → 网络），旧歌词又被拉回来 —— 表现就是「清空不了」。
+      // 存一个空串当标记，意思是「这首歌就是没有歌词」。
+      LocalStore.set('custom_lyric_$mid', '');
+      LyricCache.dropDisk(mid);
     } else {
       LocalStore.set('custom_lyric_$mid', raw);
     }

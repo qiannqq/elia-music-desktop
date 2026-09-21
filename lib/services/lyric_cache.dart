@@ -67,6 +67,18 @@ class LyricCache {
     return fut;
   }
 
+  /// 丢掉这首歌的缓存（内存 + 磁盘）。用户把歌词清空时要用 ——
+  /// 不丢的话下次取词会命中磁盘缓存，旧歌词又回来了。
+  static void dropDisk(String mid) {
+    _cache.remove(mid);
+    try {
+      final f = _diskFile(mid);
+      if (f.existsSync()) f.deleteSync();
+    } catch (e) {
+      fileLogger.warn('Lyric', '$mid 删缓存失败: $e');
+    }
+  }
+
   /// 磁盘上的歌词缓存：`<data>/lyrics/<mid>.json`
   static File _diskFile(String mid) =>
       File(p.join(AppPaths.dataDir, 'lyrics', '$mid.json'));
@@ -101,9 +113,13 @@ class LyricCache {
       var fromDisk = false;
 
       // 1) 用户自定义歌词优先（与 `custom_lyric_<mid>` 键名保持一致）
+      //
+      // 注意判据是 `!= null` 而不是「非空」：**空串也是用户的意思**
+      //（他把歌词删干净了）。这时必须停在这里，不能再往磁盘缓存/网络走，
+      // 否则旧歌词又回来了。
       final localLrc = LocalStore.get('custom_lyric_$mid');
-      if (localLrc != null && localLrc.trim().isNotEmpty) {
-        raw = localLrc;
+      if (localLrc != null) {
+        raw = localLrc.trim().isEmpty ? '' : localLrc;
       } else {
         // 2) 其次磁盘缓存 —— 命中就完全不需要网络
         //    （内存缓存重启就没了，这是「每次都去请求」的主因之一）
