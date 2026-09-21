@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:elia_music/core/lyric.dart';
 import 'package:elia_music/models/song.dart';
+import 'package:elia_music/services/netease_service.dart';
 import 'package:elia_music/services/qqmusic_service.dart';
 import 'package:elia_music/state/app_state.dart';
 
@@ -109,6 +110,32 @@ void main() {
       expect(utf8.encode(key).length, 24);
       // 与 Node 中 crypto.createHash('md5') 的输入一致，确保未被 Dart 插值破坏
       expect(md5.convert(utf8.encode(key)).toString().length, 32);
+    });
+  });
+
+  group('网易云 cookie 归一化', () {
+    // 三种写法都得认：纯值、键值、完整 cookie 串。
+    // 判据是「有没有等号」—— MUSIC_U 的值是一长串十六进制，里面不会有等号。
+    test('纯值自动补上 MUSIC_U=', () {
+      expect(NeteaseMusicService.normalizeCookie('ABC123'), 'MUSIC_U=ABC123');
+    });
+
+    test('键值原样保留', () {
+      expect(NeteaseMusicService.normalizeCookie('MUSIC_U=ABC'), 'MUSIC_U=ABC');
+    });
+
+    test('完整 cookie 串原样保留', () {
+      const full = '__csrf=x; MUSIC_U=ABC; NMTID=y';
+      expect(NeteaseMusicService.normalizeCookie(full), full);
+    });
+
+    test('先清掉换行与空白', () {
+      expect(NeteaseMusicService.normalizeCookie('  ABC\n123\t  '), 'MUSIC_U=ABC123');
+    });
+
+    test('空串还是空串（不补成 MUSIC_U=）', () {
+      expect(NeteaseMusicService.normalizeCookie('   '), '');
+      expect(NeteaseMusicService.normalizeCookie(''), '');
     });
   });
 }

@@ -13,6 +13,7 @@ import '../models/song.dart';
 import '../services/api_client.dart';
 import '../services/bilibili_service.dart';
 import '../services/lyric_cache.dart';
+import '../services/netease_service.dart';
 import '../services/player_controller.dart';
 import '../services/qqmusic_service.dart';
 import 'toast.dart';
@@ -88,6 +89,10 @@ class AppState extends ChangeNotifier {
   bool qqIsWechat = false;
   bool qqIsVip = false;
 
+  // 网易云同理（昵称 / 是否黑胶）——网易云 cookie 看不出登录方式，就没这一项
+  String neNickname = '';
+  bool neIsVip = false;
+
   // ------------------------------------------------------------ 下载
 
   final Map<String, String> downloadedPaths = {};
@@ -147,6 +152,8 @@ class AppState extends ChangeNotifier {
     qqNickname = LocalStore.getOr('qqmusic_nickname', '');
     qqIsWechat = LocalStore.getOr('qqmusic_is_wechat', 'false') == 'true';
     qqIsVip = LocalStore.getOr('qqmusic_is_vip', 'false') == 'true';
+    neNickname = LocalStore.getOr('netease_nickname', '');
+    neIsVip = LocalStore.getOr('netease_is_vip', 'false') == 'true';
 
     // ck 被刷新后要落盘：服务层只负责换 key，存储归这里管
     qqMusicService.onCookieRefreshed = (fresh) {
@@ -183,8 +190,18 @@ class AppState extends ChangeNotifier {
     if (neteaseCookie.isNotEmpty) {
       try {
         await ApiClient.verifyNeteaseCookie(neteaseCookie);
-        neteaseCookieStatus = 'valid';
-        LocalStore.set('netease_cookie_status', 'valid');
+        // 顺手把昵称和会员状态取回来 —— 设置页的账号信息就靠它，
+        // 不然每次启动都得手动点一次验证才看得到。
+        final info = await neteaseMusicService.getUserInfo();
+        if (info != null) {
+          applyNeUserInfo(
+            nickname: (info['nickname'] ?? '').toString(),
+            isVip: info['isVip'] == true,
+          );
+        } else {
+          neteaseCookieStatus = 'valid';
+          LocalStore.set('netease_cookie_status', 'valid');
+        }
       } catch (_) {
         neteaseCookieStatus = 'invalid';
         LocalStore.set('netease_cookie_status', 'invalid');
@@ -801,6 +818,17 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 记录网易云的校验结果（昵称 / 黑胶），并落盘。
+  void applyNeUserInfo({required String nickname, required bool isVip}) {
+    neNickname = nickname;
+    neIsVip = isVip;
+    neteaseCookieStatus = 'valid';
+    LocalStore.set('netease_nickname', nickname);
+    LocalStore.set('netease_is_vip', isVip ? 'true' : 'false');
+    LocalStore.set('netease_cookie_status', 'valid');
+    notifyListeners();
+  }
+
   void setQqCookie(String cookie) {
     qqCookie = cookie;
     LocalStore.set('qqmusic_cookie', cookie);
@@ -838,8 +866,12 @@ class AppState extends ChangeNotifier {
   void clearNeteaseCookie() {
     neteaseCookie = '';
     neteaseCookieStatus = 'pending';
+    neNickname = '';
+    neIsVip = false;
     LocalStore.remove('netease_cookie');
     LocalStore.remove('netease_cookie_status');
+    LocalStore.remove('netease_nickname');
+    LocalStore.remove('netease_is_vip');
     notifyListeners();
   }
 

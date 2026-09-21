@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
 import '../../services/api_client.dart';
+import '../../services/netease_service.dart';
 import '../../services/qqmusic_service.dart';
 import '../../state/app_state.dart';
 import '../../state/theme_controller.dart';
@@ -93,8 +94,9 @@ class _SettingsPageState extends State<SettingsPage> {
                 _FieldLabel('账号信息', c),
                 _AccountTags(
                   nickname: state.qqNickname,
-                  isWechat: state.qqIsWechat,
+                  loginLabel: state.qqIsWechat ? '微信登录' : 'QQ登录',
                   isVip: state.qqIsVip,
+                  vipLabel: '绿钻',
                 ),
               ],
               const SizedBox(height: 16),
@@ -116,23 +118,9 @@ class _SettingsPageState extends State<SettingsPage> {
               Row(
                 children: [
                   AppButton(
-                    label: _qqVerifying ? '验证中...' : '验证',
+                    label: _qqVerifying ? '验证中...' : '验证并保存',
                     variant: AppButtonVariant.primary,
                     onPressed: _qqVerifying ? null : _verifyQq,
-                  ),
-                  const SizedBox(width: 8),
-                  AppButton(
-                    label: '保存',
-                    variant: AppButtonVariant.accent,
-                    onPressed: () {
-                      final v = _qqCookie.text.trim();
-                      if (v.isEmpty) {
-                        toast.show('请输入 Cookie', type: ToastType.error);
-                        return;
-                      }
-                      state.setQqCookie(v);
-                      toast.show('Cookie 已保存', type: ToastType.success);
-                    },
                   ),
                   const SizedBox(width: 8),
                   AppButton(
@@ -155,19 +143,32 @@ class _SettingsPageState extends State<SettingsPage> {
           // ---------------- 网易云 Cookie ----------------
           _Section(
             title: '网易云音乐 Cookie',
-            desc: '设置网易云音乐 Cookie (MUSIC_U) 以获取高品质资源和完整歌单。在浏览器中登录 music.163.com，'
-                '按 F12 打开开发者工具，在 Application > Cookies 中找到 MUSIC_U 的键值。',
+            desc: '设置网易云音乐 Cookie 以获取高品质资源和完整歌单。'
+                '填入完整 cookie 字符串、MUSIC_U 的键值、或者只有 MUSIC_U 那一长串的值都行 '
+                '—— 一般直接粘完整 cookie 字符串就会自动识别。'
+                '在浏览器中登录 music.163.com，按 F12 打开开发者工具，在 Application > Cookies 里找。',
             children: [
               _FieldLabel('Cookie 状态', c),
               _CookieStatus(
                 hasCookie: state.neteaseCookie.isNotEmpty,
                 status: state.neteaseCookieStatus,
               ),
+              if (state.neNickname.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                _FieldLabel('账号信息', c),
+                _AccountTags(
+                  nickname: state.neNickname,
+                  // 网易云 cookie 里看不出登录方式，这一项就空着
+                  loginLabel: '',
+                  isVip: state.neIsVip,
+                  vipLabel: '黑胶',
+                ),
+              ],
               const SizedBox(height: 16),
-              _FieldLabel('MUSIC_U Cookie', c),
+              _FieldLabel('Cookie 字符串 / MUSIC_U', c),
               AppTextField(
                 controller: _neteaseCookie,
-                hint: '粘贴 MUSIC_U Cookie 键值，例如：MUSIC_U=XXXXXX ...',
+                hint: '粘贴完整 Cookie，或 MUSIC_U 键值 / 纯值...',
                 obscure: !_showNeteaseCookie,
                 mono: true,
                 trailing: AppIconButton(
@@ -182,23 +183,9 @@ class _SettingsPageState extends State<SettingsPage> {
               Row(
                 children: [
                   AppButton(
-                    label: _neVerifying ? '验证中...' : '验证',
+                    label: _neVerifying ? '验证中...' : '验证并保存',
                     variant: AppButtonVariant.primary,
                     onPressed: _neVerifying ? null : _verifyNetease,
-                  ),
-                  const SizedBox(width: 8),
-                  AppButton(
-                    label: '保存',
-                    variant: AppButtonVariant.accent,
-                    onPressed: () {
-                      final v = _neteaseCookie.text.trim();
-                      if (v.isEmpty) {
-                        toast.show('请输入 MUSIC_U Cookie', type: ToastType.error);
-                        return;
-                      }
-                      state.setNeteaseCookie(v);
-                      toast.show('网易云 Cookie 已保存', type: ToastType.success);
-                    },
                   ),
                   const SizedBox(width: 8),
                   AppButton(
@@ -443,7 +430,7 @@ class _SettingsPageState extends State<SettingsPage> {
       final info = await qqMusicService.fetchUserInfo(ck: v);
       if (info == null) {
         widget.state.markQqCookieInvalid();
-        toast.show('Cookie 无效或已失效', type: ToastType.error);
+        toast.show('Cookie 无效或已失效，未保存', type: ToastType.error);
         return;
       }
       widget.state.setQqCookie(v);
@@ -470,10 +457,21 @@ class _SettingsPageState extends State<SettingsPage> {
     setState(() => _neVerifying = true);
     try {
       await ApiClient.verifyNeteaseCookie(v);
-      widget.state.neteaseCookieStatus = 'valid';
-      widget.state.setNeteaseCookie(v);
-      widget.state.neteaseCookieStatus = 'valid';
-      toast.show('网易云 Cookie 验证通过', type: ToastType.success);
+      // 存整理后的形式（纯值会补上 `MUSIC_U=`），下次启动直接用，不必再整理
+      final normalized = NeteaseMusicService.normalizeCookie(v);
+      widget.state.setNeteaseCookie(normalized);
+      if (mounted) _neteaseCookie.text = normalized;
+      final info = await neteaseMusicService.getUserInfo();
+      if (info != null) {
+        widget.state.applyNeUserInfo(
+          nickname: (info['nickname'] ?? '').toString(),
+          isVip: info['isVip'] == true,
+        );
+        toast.show('验证通过：${info['nickname']}', type: ToastType.success);
+      } else {
+        widget.state.neteaseCookieStatus = 'valid';
+        toast.show('网易云 Cookie 验证通过', type: ToastType.success);
+      }
     } catch (e) {
       widget.state.neteaseCookieStatus = 'invalid';
       toast.show('$e', type: ToastType.error);
@@ -539,21 +537,30 @@ class _FieldLabel extends StatelessWidget {
   }
 }
 
-/// 账号信息：昵称 + 登录方式 + 是否绿钻。
+/// 账号信息：昵称 + 登录方式 + 会员。
 class _AccountTags extends StatelessWidget {
   const _AccountTags({
     required this.nickname,
-    required this.isWechat,
+    required this.loginLabel,
     required this.isVip,
+    required this.vipLabel,
   });
 
   final String nickname;
-  final bool isWechat;
+
+  /// 登录方式。空串表示不显示（网易云 cookie 里看不出登录方式）。
+  final String loginLabel;
+
   final bool isVip;
+
+  /// 会员叫法：QQ 是「绿钻」、网易云是「黑胶」。
+  final String vipLabel;
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    // 会员用绿色 —— 绿钻本来就是绿的
+    const vipColor = Color(0xFF12B76A);
     return Align(
       alignment: Alignment.centerLeft,
       child: Wrap(
@@ -561,18 +568,12 @@ class _AccountTags extends StatelessWidget {
         runSpacing: 8,
         children: [
           _Tag(text: nickname, color: c.textSecondary, bg: c.surfaceAlt),
+          if (loginLabel.isNotEmpty)
+            _Tag(text: loginLabel, color: c.textSecondary, bg: c.surfaceAlt),
           _Tag(
-            text: isWechat ? '微信登录' : 'QQ登录',
-            color: c.textSecondary,
-            bg: c.surfaceAlt,
-          ),
-          _Tag(
-            text: isVip ? '绿钻' : '非绿钻',
-            // 绿钻用金色，一眼能区分；非会员就压成普通灰
-            color: isVip ? const Color(0xFFB8860B) : c.textTertiary,
-            bg: isVip
-                ? const Color(0xFFB8860B).withValues(alpha: 0.12)
-                : c.surfaceAlt,
+            text: isVip ? vipLabel : '非$vipLabel',
+            color: isVip ? vipColor : c.textTertiary,
+            bg: isVip ? vipColor.withValues(alpha: 0.12) : c.surfaceAlt,
           ),
         ],
       ),

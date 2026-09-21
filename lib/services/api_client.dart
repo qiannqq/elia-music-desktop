@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../core/file_logger.dart';
 import '../core/local_store.dart';
 import '../models/song.dart';
+import 'netease_service.dart';
 
 /// 本地 API 基地址。
 ///
@@ -348,8 +349,13 @@ class ApiClient {
   }
 
   static Future<bool> verifyNeteaseCookie(String cookie) async {
-    final clean = sanitizeCookie(cookie);
+    // 纯值也认（会自动补上 `MUSIC_U=`）。这里和保存走同一套整理规则，
+    // 免得出现「校验时按纯值、保存时按整串」两边不一致。
+    final clean = NeteaseMusicService.normalizeCookie(cookie);
     if (clean.isEmpty) throw Exception('Cookie 不能为空');
+    if (!clean.contains('MUSIC_U=')) {
+      throw Exception('这段内容里没有 MUSIC_U，请粘贴完整 cookie 或 MUSIC_U 的值');
+    }
     final ok = await neValidateCookie(clean);
     if (ok) return true;
     throw Exception('Cookie 验证未通过');

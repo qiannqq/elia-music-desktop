@@ -27,8 +27,23 @@ class NeteaseMusicService {
   String nickname = '';
   bool isVip = false;
 
+  /// 把用户填的东西整理成可用的 cookie。
+  ///
+  /// 三种写法都认：
+  ///  * 完整 cookie 字符串（`_ntes_nuid=...; MUSIC_U=xxx; ...`）—— 原样用；
+  ///  * 键值（`MUSIC_U=xxx`）—— 原样用；
+  ///  * **纯值**（只有 MUSIC_U 那一长串）—— 补上 `MUSIC_U=`。
+  ///
+  /// 判据是「有没有等号」：cookie 一定是 `名字=值` 的形式，而 MUSIC_U 的值
+  /// 是一长串十六进制，里面不会有等号。
+  static String normalizeCookie(String raw) {
+    final s = raw.replaceAll(RegExp(r'[\r\n\t\x00]'), '').trim();
+    if (s.isEmpty) return '';
+    return s.contains('=') ? s : 'MUSIC_U=$s';
+  }
+
   NeteaseMusicService setCookie(String value) {
-    cookie = value.replaceAll(RegExp(r'[\r\n\t\x00]'), '').trim();
+    cookie = normalizeCookie(value);
     return this;
   }
 
@@ -192,16 +207,21 @@ class NeteaseMusicService {
       'Cookie': cookie,
     });
 
-    if (res['code'] == 200 && res['profile'] != null) {
-      final profile = res['profile'] as Map;
-      return {
-        'userId': profile['userId'],
-        'nickname': profile['nickname'],
-        'avatarUrl': (profile['avatarUrl'] ?? '').toString(),
-        'isVip': (((res['account'] as Map?)?['vipType'] as num?)?.toInt() ?? 0) != 0,
-      };
-    }
-    return null;
+    if (res['code'] != 200 || res['profile'] == null) return null;
+
+    final profile = res['profile'] as Map;
+    // vipType 是**位标志**：bit0 = 音乐包、bit1 = 黑胶 VIP。
+    // 只看「不等于 0」会把只买了音乐包的账号也算成黑胶，所以按位判。
+    final vipType = (profile['vipType'] as num?)?.toInt() ??
+        ((res['account'] as Map?)?['vipType'] as num?)?.toInt() ??
+        0;
+
+    return {
+      'userId': (profile['userId'] ?? '').toString(),
+      'nickname': (profile['nickname'] ?? '').toString(),
+      'avatarUrl': (profile['avatarUrl'] ?? '').toString(),
+      'isVip': (vipType & 2) != 0,
+    };
   }
 
   Future<List<Map>> _batchGetTrackDetails(List<dynamic> trackIds) async {
