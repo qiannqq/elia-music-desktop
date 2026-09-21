@@ -49,6 +49,7 @@ class _AppShellState extends State<AppShell>
   final TextEditingController _searchInput = TextEditingController();
   final TextEditingController _qqCookie = TextEditingController();
   final TextEditingController _neteaseCookie = TextEditingController();
+  final TextEditingController _biliCookie = TextEditingController();
   final TextEditingController _savePath = TextEditingController();
 
   final FocusNode _rootFocus = FocusNode();
@@ -69,6 +70,7 @@ class _AppShellState extends State<AppShell>
     // 切页面回来不能再从状态里覆盖一遍，否则没保存的编辑会被冲掉。
     _qqCookie.text = state.qqCookie;
     _neteaseCookie.text = state.neteaseCookie;
+    _biliCookie.text = state.biliCookie;
     FocusManager.instance.addListener(_reclaimFocusIfLost);
   }
 
@@ -126,6 +128,7 @@ class _AppShellState extends State<AppShell>
     _searchInput.dispose();
     _qqCookie.dispose();
     _neteaseCookie.dispose();
+    _biliCookie.dispose();
     _savePath.dispose();
     super.dispose();
   }
@@ -325,6 +328,7 @@ class _AppShellState extends State<AppShell>
                                                 scrollController: _settingsScroll,
                                                 qqCookie: _qqCookie,
                                                 neteaseCookie: _neteaseCookie,
+                                                biliCookie: _biliCookie,
                                                 savePath: _savePath,
                                               ),
                                           'about' =>

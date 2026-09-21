@@ -84,6 +84,10 @@ class AppState extends ChangeNotifier {
   String qqCookieStatus = 'pending';
   String neteaseCookieStatus = 'pending';
 
+  /// B站 cookie。不填也能用（游客态），填了才能拿私密投稿、搜索排序也才与网页一致。
+  String biliCookie = '';
+  String biliCookieStatus = 'pending';
+
   // 校验通过后填充，供设置页显示（昵称 / 登录方式 / 是否绿钻）
   String qqNickname = '';
   bool qqIsWechat = false;
@@ -92,6 +96,10 @@ class AppState extends ChangeNotifier {
   // 网易云同理（昵称 / 是否黑胶）——网易云 cookie 看不出登录方式，就没这一项
   String neNickname = '';
   bool neIsVip = false;
+
+  // B站（昵称 / 是否大会员）
+  String biliNickname = '';
+  bool biliIsVip = false;
 
   // ------------------------------------------------------------ 下载
 
@@ -154,6 +162,10 @@ class AppState extends ChangeNotifier {
     qqIsVip = LocalStore.getOr('qqmusic_is_vip', 'false') == 'true';
     neNickname = LocalStore.getOr('netease_nickname', '');
     neIsVip = LocalStore.getOr('netease_is_vip', 'false') == 'true';
+    biliCookie = LocalStore.getOr('bilibili_cookie', '');
+    biliCookieStatus = LocalStore.getOr('bilibili_cookie_status', 'pending');
+    biliNickname = LocalStore.getOr('bilibili_nickname', '');
+    biliIsVip = LocalStore.getOr('bilibili_is_vip', 'false') == 'true';
 
     // ck 被刷新后要落盘：服务层只负责换 key，存储归这里管
     qqMusicService.onCookieRefreshed = (fresh) {
@@ -205,6 +217,23 @@ class AppState extends ChangeNotifier {
       } catch (_) {
         neteaseCookieStatus = 'invalid';
         LocalStore.set('netease_cookie_status', 'invalid');
+      }
+      notifyListeners();
+    }
+
+    if (biliCookie.isNotEmpty) {
+      bilibiliService.setCookie(biliCookie);
+      try {
+        final info = await bilibiliService.fetchUserInfo();
+        if (info != null) {
+          applyBiliUserInfo(nickname: info.nickname, isVip: info.isVip);
+        } else {
+          biliCookieStatus = 'invalid';
+          LocalStore.set('bilibili_cookie_status', 'invalid');
+        }
+      } catch (_) {
+        biliCookieStatus = 'invalid';
+        LocalStore.set('bilibili_cookie_status', 'invalid');
       }
       notifyListeners();
     }
@@ -815,6 +844,41 @@ class AppState extends ChangeNotifier {
     LocalStore.set('qqmusic_is_wechat', isWechat ? 'true' : 'false');
     LocalStore.set('qqmusic_is_vip', isVip ? 'true' : 'false');
     LocalStore.set('qqmusic_cookie_status', 'valid');
+    notifyListeners();
+  }
+
+  /// 记录 B站的校验结果（昵称 / 大会员），并落盘。
+  void applyBiliUserInfo({required String nickname, required bool isVip}) {
+    biliNickname = nickname;
+    biliIsVip = isVip;
+    biliCookieStatus = 'valid';
+    LocalStore.set('bilibili_nickname', nickname);
+    LocalStore.set('bilibili_is_vip', isVip ? 'true' : 'false');
+    LocalStore.set('bilibili_cookie_status', 'valid');
+    notifyListeners();
+  }
+
+  void setBiliCookie(String cookie) {
+    biliCookie = cookie;
+    bilibiliService.setCookie(cookie);
+    LocalStore.set('bilibili_cookie', cookie);
+    if (biliCookieStatus != 'valid') {
+      biliCookieStatus = 'pending';
+      LocalStore.set('bilibili_cookie_status', 'pending');
+    }
+    notifyListeners();
+  }
+
+  void clearBiliCookie() {
+    biliCookie = '';
+    biliCookieStatus = 'pending';
+    biliNickname = '';
+    biliIsVip = false;
+    bilibiliService.setCookie('');
+    LocalStore.remove('bilibili_cookie');
+    LocalStore.remove('bilibili_cookie_status');
+    LocalStore.remove('bilibili_nickname');
+    LocalStore.remove('bilibili_is_vip');
     notifyListeners();
   }
 

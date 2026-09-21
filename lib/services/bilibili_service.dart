@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
@@ -33,53 +34,189 @@ class BilibiliService {
   /// BV 号：BV + 10 位 base58
   static final RegExp bvPattern = RegExp(r'^BV[0-9A-Za-z]{10}$');
 
+  /// 登录后的 cookie（`SESSDATA=xxx; bili_jct=xxx; ...`）。
+  ///
+  /// 不配也能用：搜索、取流、字幕都按游客身份走。配上之后有三点好处 ——
+  ///  * 搜索走**登录态**排序，和网页端一致（游客态 B 站给的是另一套排序）；
+  ///  * 能拿到自己投稿里的**私密视频**（普通搜索搜不到）；
+  ///  * 更不容易撞 gaia 风控。
+  String cookie = '';
+
+  /// 把用户填的东西整理成可用的 cookie。
+  ///
+  /// 三种写法都认（跟网易云那边同一套思路）：
+  ///  * 完整 cookie 串（`buvid3=...; SESSDATA=xxx; ...`）—— 原样用；
+  ///  * 键值（`SESSDATA=xxx`）—— 原样用；
+  ///  * 纯值（只有 SESSDATA 那一串）—— 补上 `SESSDATA=`。
+  ///
+  /// 判据是「有没有等号」：cookie 一定是 `名字=值`，而 SESSDATA 的值是
+  /// 一长串带 `%2C` 的编码，里面不会有等号。
+  static String normalizeCookie(String raw) {
+    final s = raw.replaceAll(RegExp(r'[\r\n\t\x00]'), '').trim();
+    if (s.isEmpty) return '';
+    return s.contains('=') ? s : 'SESSDATA=$s';
+  }
+
+  BilibiliService setCookie(String value) {
+    cookie = normalizeCookie(value);
+    return this;
+  }
+
   String _buvid3 = '';
   String _buvid4 = '';
+  bool _buvidActivated = false;
   String _mixinKey = '';
   DateTime? _mixinKeyAt;
+
+  /// 上一次请求的时刻，用来给请求之间留最小间隔。
+  /// B 站对高频请求很敏感（尤其搜索），隔开一点能明显少撞风控。
+  DateTime? _lastRequestAt;
+  static const Duration _minRequestGap = Duration(milliseconds: 350);
+
+  final Random _random = Random();
+
+  /// gaia 风控的返回码。撞上时接口不给数据、只给这个码 ——
+  /// 得让用户知道「是被拦了」，而不是「没搜到」。
+  static const Set<int> _riskCodes = <int>{-352, -412, -509};
 
   /// 视频的 aid + cid。取流时**两个都要**：
   /// playurl 只认真实的 avid，只传 bvid（或把 avid 填 0）会被风控回 412。
   final Map<String, ({int aid, int cid})> _infoCache =
       <String, ({int aid, int cid})>{};
 
-  Map<String, String> _headers({String? referer}) {
+  Map<String, String> _headers({String? referer, String? origin}) {
     final h = <String, String>{
       'User-Agent': _ua,
       'Referer': referer ?? 'https://www.bilibili.com',
+      // 下面这几个是浏览器一定会带的。缺了它们，请求看起来就像脚本 ——
+      // 这是 gaia 风控最容易抓的特征之一。
+      'Accept': 'application/json, text/plain, */*',
+      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+      'Origin': origin ?? 'https://www.bilibili.com',
+      'Sec-Fetch-Dest': 'empty',
+      'Sec-Fetch-Mode': 'cors',
+      'Sec-Fetch-Site': 'same-site',
     };
-    final cookie = <String>[
+    final parts = <String>[
       if (_buvid3.isNotEmpty) 'buvid3=$_buvid3',
       if (_buvid4.isNotEmpty) 'buvid4=$_buvid4',
+      // 登录 cookie 整段接在后面：它自己就是 `a=1; b=2` 的形式
+      if (cookie.isNotEmpty) cookie,
     ];
-    if (cookie.isNotEmpty) h['Cookie'] = cookie.join('; ');
+    if (parts.isNotEmpty) h['Cookie'] = parts.join('; ');
     return h;
   }
 
   Future<Map<String, dynamic>> _getJson(
     String url, {
     Map<String, String>? headers,
+    String? body,
     int attempts = 3,
     Duration timeout = const Duration(seconds: 20),
   }) async {
+    final h = {..._headers(), ...?headers};
+    if (body != null) h['Content-Type'] = 'application/json';
     Object? lastErr;
+
     for (var i = 0; i < attempts; i++) {
+      await _throttle();
+      final sw = Stopwatch()..start();
       try {
-        final resp = await http
-            .get(Uri.parse(url), headers: {..._headers(), ...?headers})
-            .timeout(timeout);
+        // 请求和响应都完整记一份：B 站对「同一个 URL、不同请求头」会给出
+        // 完全不同的结果（排序、风控、空数据），出问题时只看 URL 和条数
+        // 根本查不出来 —— 得能看到当时到底带了什么头、返回了什么。
+        fileLogger.debug('Bili', '→ ${body == null ? 'GET' : 'POST'} $url\n'
+            '  请求头: ${_formatHeaders(h)}\n'
+            '  请求体: ${body ?? '(无)'}');
+
+        final resp = body == null
+            ? await http.get(Uri.parse(url), headers: h).timeout(timeout)
+            : await http
+                .post(Uri.parse(url), headers: h, body: body)
+                .timeout(timeout);
+        final text = utf8.decode(resp.bodyBytes);
+        final ms = sw.elapsedMilliseconds;
+
+        fileLogger.debug('Bili', '← ${resp.statusCode} ($ms ms) $url\n'
+            '  响应头: ${_formatHeaders(resp.headers)}\n'
+            '  响应体: ${_brief(text)}');
+
         if (resp.statusCode < 200 || resp.statusCode >= 300) {
           throw Exception('HTTP ${resp.statusCode}');
         }
-        return jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+        return jsonDecode(text) as Map<String, dynamic>;
       } catch (e) {
         lastErr = e;
+        fileLogger.warn('Bili', '请求失败(${i + 1}/$attempts) $url → $e');
         if (i < attempts - 1) {
           await Future<void>.delayed(Duration(milliseconds: 400 * (i + 1)));
         }
       }
     }
     throw Exception('$lastErr');
+  }
+
+  /// 给两次请求之间留一个最小间隔，别把接口打得太密。
+  Future<void> _throttle() async {
+    final last = _lastRequestAt;
+    if (last != null) {
+      final elapsed = DateTime.now().difference(last);
+      if (elapsed < _minRequestGap) {
+        await Future<void>.delayed(_minRequestGap - elapsed);
+      }
+    }
+    _lastRequestAt = DateTime.now();
+  }
+
+  /// 日志里怎么显示请求/响应头。
+  ///
+  /// cookie 只留每个值的前 8 位：够认出是哪一个，又不至于把凭据整份写进日志。
+  static String _formatHeaders(Map<String, String> h) {
+    if (h.isEmpty) return '(无)';
+    return h.entries.map((e) {
+      if (e.key.toLowerCase() != 'cookie') return '${e.key}=${e.value}';
+      final masked = e.value.split('; ').map((part) {
+        final i = part.indexOf('=');
+        if (i < 0) return part;
+        final v = part.substring(i + 1);
+        return '${part.substring(0, i)}=${v.length <= 8 ? v : '${v.substring(0, 8)}…'}';
+      }).join('; ');
+      return '${e.key}=$masked';
+    }).join('; ');
+  }
+
+  /// 响应体可能几十 KB，日志里只留开头 —— 够看清 code 和结构就行。
+  static String _brief(String body, [int max = 600]) => body.length <= max
+      ? body
+      : '${body.substring(0, max)}…(共 ${body.length} 字符)';
+
+  /// 上报一次指纹，把游客身份「激活」。
+  ///
+  /// 只带 buvid 而不激活，高频请求照样会被 gaia 风控拦下来（返回 -352）。
+  /// payload 的形状照 PiliPlus 抄：`3c43.bfe9` 是一段随机 base64 的尾巴。
+  Future<void> _activateBuvid() async {
+    if (_buvidActivated) return;
+    _buvidActivated = true;
+    try {
+      final rand = base64.encode(<int>[
+        ...List<int>.generate(32, (_) => _random.nextInt(256)),
+        0, 0, 0, 0, 73, 69, 78, 68,
+        ...List<int>.generate(4, (_) => _random.nextInt(256)),
+      ]);
+      final payload = jsonEncode({
+        '3064': 1,
+        '39c8': '333.1387.fp.risk',
+        '3c43': {'adca': 'Linux', 'bfe9': rand.substring(rand.length - 50)},
+      });
+      final res = await _getJson(
+        '$_host/x/internal/gaia-gateway/ExClimbWuzhi',
+        body: jsonEncode({'payload': payload}),
+        attempts: 2,
+      );
+      fileLogger.info('Bilibili', '游客身份已激活（code=${res['code']}）');
+    } catch (e) {
+      fileLogger.warn('Bilibili', '激活游客身份失败（继续）: $e');
+    }
   }
 
   /// 游客标识。没有它时 B 站会把请求当成「无痕脚本」，容易触发风控。
@@ -91,6 +228,8 @@ class BilibiliService {
       _buvid3 = (data?['b_3'] ?? '').toString();
       _buvid4 = (data?['b_4'] ?? '').toString();
       fileLogger.debug('Bilibili', '已取到游客标识');
+      // 拿到标识还不够，得再上报一次指纹把它激活
+      await _activateBuvid();
     } catch (e) {
       // 拿不到也继续：实测不带它搜索与取流同样可用，只是更容易被限流
       fileLogger.warn('Bilibili', '取游客标识失败（继续）: $e');
@@ -139,6 +278,74 @@ class BilibiliService {
 
   // ---------------------------------------------------------------- 搜索
 
+  /// 取账号信息（昵称 / 大会员）。没登录或 ck 失效时返回 null。
+  ///
+  /// 判据必须是 `isLogin == true`：nav 在未登录时回 `code: -101`，
+  /// 只看 code 会把「没登录」当成「请求失败」。
+  Future<({String nickname, bool isVip, String mid})?> fetchUserInfo({
+    String? ck,
+  }) async {
+    final saved = cookie;
+    if (ck != null) setCookie(ck);
+    try {
+      final res = await _getJson('$_host/x/web-interface/nav', attempts: 2);
+      final data = res['data'] as Map?;
+      if (data == null || data['isLogin'] != true) return null;
+      final name = (data['uname'] ?? '').toString();
+      if (name.isEmpty) return null;
+      return (
+        nickname: name,
+        // vipStatus: 1 = 大会员
+        isVip: (data['vipStatus'] as num?)?.toInt() == 1,
+        mid: (data['mid'] ?? '').toString(),
+      );
+    } finally {
+      if (ck != null) cookie = saved;
+    }
+  }
+
+  /// 取自己投稿的视频，**含未公开（私密）的那些**。
+  ///
+  /// 这个接口在创作中心，必须登录 —— 私密视频在普通搜索里根本搜不到，
+  /// 只能从这儿拿。没配 ck 时直接返回空。
+  Future<List<Song>> fetchMyVideos() async {
+    if (cookie.isEmpty) return const [];
+    try {
+      final res = await _getJson(
+        'https://member.bilibili.com/x/web/archives'
+        '?status=is_pubing,pubed,not_pubed&pn=1&ps=50',
+        attempts: 2,
+      );
+      if (res['code'] != 0) {
+        fileLogger.warn('Bilibili', '取自己投稿失败（code=${res['code']}）');
+        return const [];
+      }
+      final raw = ((res['data'] as Map?)?['arc_audits'] as List?) ?? const [];
+      final songs = <Song>[];
+      for (final item in raw) {
+        if (item is! Map) continue;
+        final arc = item['Archive'];
+        if (arc is! Map) continue;
+        final bvid = (arc['bvid'] ?? '').toString();
+        if (bvid.isEmpty) continue;
+        songs.add(Song(
+          mid: bvid,
+          name: _stripHtml((arc['title'] ?? '').toString()),
+          artist: '我的投稿',
+          pic: _httpsize((arc['cover'] ?? '').toString()),
+          link: 'https://www.bilibili.com/video/$bvid',
+          source: 'bilibili',
+          duration: (arc['duration'] as num?)?.toInt() ?? 0,
+        ));
+      }
+      fileLogger.info('Bilibili', '取到自己投稿 ${songs.length} 条');
+      return songs;
+    } catch (e) {
+      fileLogger.warn('Bilibili', '取自己投稿出错: $e');
+      return const [];
+    }
+  }
+
   /// 搜索视频。返回的 Song 里 `mid` = bvid、`mediaMid` = cid。
   Future<({List<Song> list, int total})> search(
     String keyword, [
@@ -161,8 +368,12 @@ class BilibiliService {
         'Origin': 'https://search.bilibili.com',
       },
     );
-    if (res['code'] != 0) {
-      throw Exception('B站搜索失败（code=${res['code']}）');
+    final code = (res['code'] as num?)?.toInt() ?? 0;
+    if (code != 0) {
+      if (_riskCodes.contains(code)) {
+        throw Exception('B站风控拦截（code=$code），隔一会儿再试或放慢搜索速度');
+      }
+      throw Exception('B站搜索失败（code=$code）');
     }
     final data = res['data'] as Map? ?? const {};
     // 风控凭证：出现它说明请求被判定为异常，需要人机验证
@@ -176,10 +387,23 @@ class BilibiliService {
       final song = _songFromSearchItem(raw);
       if (song != null) list.add(song);
     }
+    // 配了 ck 时，把自己投稿里标题命中的并到最前面 ——
+    // 私密视频搜不到，只能从「我的投稿」里捞。
+    if (page == 1 && cookie.isNotEmpty) {
+      final mine = await fetchMyVideos();
+      if (mine.isNotEmpty) {
+        final kw = keyword.toLowerCase();
+        final hit =
+            mine.where((s) => s.name.toLowerCase().contains(kw)).toList();
+        if (hit.isNotEmpty) list.insertAll(0, hit);
+      }
+    }
+
     final total = (data['numResults'] as num?)?.toInt() ??
         (data['total'] as num?)?.toInt() ??
         list.length;
-    fileLogger.info('Bilibili', '搜索 "$keyword" page=$page → ${list.length} 条');
+    fileLogger.info('Bilibili', '搜索 "$keyword" page=$page → ${list.length} 条'
+        '${cookie.isEmpty ? '' : '（含自己投稿）'}');
     return (list: list, total: total);
   }
 

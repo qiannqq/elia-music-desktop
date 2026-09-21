@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
 import '../../services/api_client.dart';
+import '../../services/bilibili_service.dart';
 import '../../services/netease_service.dart';
 import '../../services/qqmusic_service.dart';
 import '../../state/app_state.dart';
@@ -20,6 +21,7 @@ class SettingsPage extends StatefulWidget {
     required this.scrollController,
     required this.qqCookie,
     required this.neteaseCookie,
+    required this.biliCookie,
     required this.savePath,
   });
 
@@ -30,6 +32,7 @@ class SettingsPage extends StatefulWidget {
   /// 切到别的页面再回来，没保存的编辑内容还在。
   final TextEditingController qqCookie;
   final TextEditingController neteaseCookie;
+  final TextEditingController biliCookie;
   final TextEditingController savePath;
 
   @override
@@ -39,12 +42,15 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   TextEditingController get _qqCookie => widget.qqCookie;
   TextEditingController get _neteaseCookie => widget.neteaseCookie;
+  TextEditingController get _biliCookie => widget.biliCookie;
   TextEditingController get _savePath => widget.savePath;
 
   bool _showQqCookie = false;
   bool _showNeteaseCookie = false;
+  bool _showBiliCookie = false;
   bool _qqVerifying = false;
   bool _neVerifying = false;
+  bool _biliVerifying = false;
 
   /// 保存目录会随「选择目录」而变，每次构建对齐一次。
   ///
@@ -197,6 +203,73 @@ class _SettingsPageState extends State<SettingsPage> {
                       _neteaseCookie.text = '';
                       setState(() {});
                       toast.show('网易云 Cookie 已清除', type: ToastType.info);
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // ---------------- B站 Cookie ----------------
+          _Section(
+            title: 'B站 Cookie',
+            desc: '不填也能搜、能听 —— 填上之后可以获取自己上传的私密视频，'
+                '搜索结果排序也会和网页端一致（游客态 B 站给的是另一套排序），'
+                '而且更不容易撞风控。'
+                '填入完整 cookie 字符串、SESSDATA 的键值、或只有 SESSDATA 那一串的值都行。'
+                '在浏览器中登录 bilibili.com，按 F12 打开开发者工具，在 Application > Cookies 里找。',
+            children: [
+              _FieldLabel('Cookie 状态', c),
+              _CookieStatus(
+                hasCookie: state.biliCookie.isNotEmpty,
+                status: state.biliCookieStatus,
+              ),
+              if (state.biliNickname.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                _FieldLabel('账号信息', c),
+                _AccountTags(
+                  nickname: state.biliNickname,
+                  // B站 cookie 里看不出登录方式，这一项就空着
+                  loginLabel: '',
+                  isVip: state.biliIsVip,
+                  vipLabel: '大会员',
+                ),
+              ],
+              const SizedBox(height: 16),
+              _FieldLabel('Cookie 字符串 / SESSDATA', c),
+              AppTextField(
+                controller: _biliCookie,
+                hint: '粘贴完整 Cookie，或 SESSDATA 键值 / 纯值...',
+                obscure: !_showBiliCookie,
+                mono: true,
+                trailing: AppIconButton(
+                  icon: _showBiliCookie ? AppIcons.eyeClosed : AppIcons.eyeOpen,
+                  size: 28,
+                  iconSize: 16,
+                  tooltip: '显示/隐藏',
+                  onTap: () => setState(() => _showBiliCookie = !_showBiliCookie),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  AppButton(
+                    label: _biliVerifying ? '验证中...' : '验证并保存',
+                    variant: AppButtonVariant.primary,
+                    onPressed: _biliVerifying ? null : _verifyBili,
+                  ),
+                  const SizedBox(width: 8),
+                  AppButton(
+                    label: '清除',
+                    onPressed: () async {
+                      final ok =
+                          await showConfirmDialog(context, '确定清除已保存的 B站 Cookie 吗？');
+                      if (!ok) return;
+                      state.clearBiliCookie();
+                      _biliCookie.text = '';
+                      setState(() {});
+                      toast.show('B站 Cookie 已清除', type: ToastType.info);
                     },
                   ),
                 ],
@@ -477,6 +550,37 @@ class _SettingsPageState extends State<SettingsPage> {
       toast.show('$e', type: ToastType.error);
     } finally {
       if (mounted) setState(() => _neVerifying = false);
+    }
+  }
+
+  Future<void> _verifyBili() async {
+    final v = _biliCookie.text.trim();
+    if (v.isEmpty) {
+      toast.show('请输入 Cookie', type: ToastType.error);
+      return;
+    }
+    setState(() => _biliVerifying = true);
+    try {
+      final info = await bilibiliService.fetchUserInfo(ck: v);
+      if (info == null) {
+        widget.state.biliCookieStatus = 'invalid';
+        toast.show('Cookie 无效或已失效，未保存', type: ToastType.error);
+        return;
+      }
+      // 存整理后的形式（纯值会补上 `SESSDATA=`），下次启动直接用
+      final normalized = BilibiliService.normalizeCookie(v);
+      widget.state.setBiliCookie(normalized);
+      if (mounted) _biliCookie.text = normalized;
+      widget.state.applyBiliUserInfo(
+        nickname: info.nickname,
+        isVip: info.isVip,
+      );
+      toast.show('验证通过：${info.nickname}', type: ToastType.success);
+    } catch (e) {
+      widget.state.biliCookieStatus = 'invalid';
+      toast.show('$e', type: ToastType.error);
+    } finally {
+      if (mounted) setState(() => _biliVerifying = false);
     }
   }
 }
