@@ -543,20 +543,35 @@ class BilibiliService {
     final audios = (dash?['audio'] as List?) ?? const [];
     if (audios.isEmpty) throw Exception('该视频没有可用的音频流');
 
-    // 挑带宽最大的那条（实测 30280 是最高档，约 329kbps）
+    // 挑一条能播的：**AAC 优先**，同档里挑带宽最大的。
+    //
+    // B站的 dash 音频不止一种编码：绝大多数是 AAC（`mp4a.40.x`），
+    // 但有些视频还混着杜比全景声（`ec-3`）和 Hi-Res 无损（`fLaC`）。
+    // 后两种 Windows 自带的解码器不一定认，挑到它们就会
+    // 「取到流但播不出声」——所以给 AAC 一个大加权，让它永远排前面。
+    //
+    // 这里只读 `dash.audio`：视频和音频在 B站是分开的，绝不碰 `dash.video`。
     Map? best;
-    var bestBw = -1;
+    var bestScore = -1;
     for (final a in audios) {
       if (a is! Map) continue;
+      final codecs = (a['codecs'] ?? '').toString().toLowerCase();
       final bw = (a['bandwidth'] as num?)?.toInt() ?? 0;
-      if (bw > bestBw) {
-        bestBw = bw;
+      final score = bw + (codecs.contains('mp4a') ? (1 << 30) : 0);
+      if (score > bestScore) {
+        bestScore = score;
         best = a;
       }
     }
     final url = (best?['baseUrl'] ?? best?['base_url'] ?? '').toString();
     if (url.isEmpty) throw Exception('音频流地址为空');
-    fileLogger.info('Bilibili', '${song.mid} 音频 ${bestBw ~/ 1000}kbps');
+    final pickedCodecs = (best?['codecs'] ?? '').toString();
+    final pickedMime = (best?['mimeType'] ?? '').toString();
+    // 注意括号：`??` 的优先级比 `~/` 低，少一层括号会算成
+    //「先 0 ~/ 1000、再取值」，日志里就变成 108274kbps 这种数字。
+    final bwKbps = (((best?['bandwidth'] as num?)?.toInt()) ?? 0) ~/ 1000;
+    fileLogger.info('Bilibili',
+        '${song.mid} 音频 ${bwKbps}kbps codecs=$pickedCodecs mime=$pickedMime');
     return url;
   }
 
@@ -583,10 +598,16 @@ class BilibiliService {
               const [];
       if (subs.isEmpty) return (lyric: '', trans: '');
 
-      // 优先中文，其次第一个
+      // **只要人工字幕，不要 AI 字幕**。
+      //
+      // 字幕里 `type == 1` 是 AI 生成的（`type == 0` 是 UP 主上传的）。
+      // 音乐里的发音本来就不标准，AI 识别出来基本全错 —— 拿来当歌词
+      // 比没有歌词更糟，所以直接跳过。
+      // 优先中文，其次第一个。
       Map? pick;
       for (final s in subs) {
         if (s is! Map) continue;
+        if ((s['type'] as num?)?.toInt() == 1) continue; // AI 字幕，跳过
         final lan = (s['lan'] ?? '').toString();
         if (lan.startsWith('zh')) {
           pick = s;

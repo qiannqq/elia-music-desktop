@@ -303,9 +303,10 @@ class ApiClient {
     if (dot >= 0) {
       final ext = path.substring(dot).toLowerCase();
       if (known.contains(ext)) return ext;
-      // B 站的音频流路径以 .m4s 结尾（fMP4 封装的 AAC）。
-      // 直接把 .m4s 交给 Media Foundation 它不认，用 .m4a 才行。
-      if (ext == '.m4s') return '.m4a';
+      // B 站的音频流路径以 .m4s 结尾（fMP4 容器，里面是 AAC / FLAC / 杜比）。
+      // 直接把 .m4s 交给 Media Foundation 它不认，用 .m4a 才行；
+      // 少数情况下上游给的是 .mp4，那也是同一个容器，同样按 .m4a 处理。
+      if (ext == '.m4s' || ext == '.mp4') return '.m4a';
     }
     return '.mp3';
   }
