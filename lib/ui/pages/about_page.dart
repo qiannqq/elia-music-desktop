@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
+import '../../core/build_info.dart';
 import '../icons.dart';
 
 /// 关于页 —— 对应 `#page-about`
@@ -66,10 +67,17 @@ class AboutPage extends StatelessWidget {
                   border: Border(top: BorderSide(color: c.borderSubtle)),
                 ),
                 child: Column(
-                  children: const [
-                    _InfoRow('框架', 'Flutter'),
-                    _InfoRow('版本', appVersion),
-                    _InfoRow('作者', 'sena-senki(千奈千祁)'),
+                  children: [
+                    const _InfoRow('框架', 'Flutter'),
+                    const _InfoRow('版本', appVersion),
+                    const _InfoRow('作者', 'sena-senki(千奈千祁)'),
+                    // 构建产物得能说清自己是从哪个提交编出来的 ——
+                    // 鼠标停上去能看到那一条提交的标题
+                    const _InfoRow(
+                      '构建提交',
+                      kBuildCommit,
+                      tooltip: kBuildCommitTitle,
+                    ),
                   ],
                 ),
               ),
@@ -82,24 +90,32 @@ class AboutPage extends StatelessWidget {
 }
 
 class _InfoRow extends StatelessWidget {
-  const _InfoRow(this.label, this.value);
+  const _InfoRow(this.label, this.value, {this.tooltip});
 
   final String label;
   final String value;
 
+  /// 悬浮时显示的补充说明。提交号上放的是那一条提交的标题。
+  final String? tooltip;
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    Widget valueWidget = Text(
+      value,
+      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: c.text),
+    );
+    final tip = tooltip;
+    if (tip != null && tip.isNotEmpty) {
+      valueWidget = Tooltip(message: tip, child: valueWidget);
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: TextStyle(fontSize: 13, color: c.textTertiary)),
-          Text(
-            value,
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: c.text),
-          ),
+          valueWidget,
         ],
       ),
     );

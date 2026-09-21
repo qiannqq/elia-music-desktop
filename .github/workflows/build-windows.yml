@@ -29,6 +29,10 @@ jobs:
           key: pub-${{ hashFiles('pubspec.lock') }}
           restore-keys: pub-
 
+      - name: Generate build info
+        shell: bash
+        run: python tool/gen_build_info.py
+
       - name: Flutter pub get
         run: flutter pub get
 
