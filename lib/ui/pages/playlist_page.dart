@@ -35,7 +35,43 @@ class _PlaylistPageState extends State<PlaylistPage> {
   /// 原先每个条目各自维护 _hovered，靠 onExit 清除。鼠标快速划过时
   /// 上一个条目的 onExit 可能不生效，导致「两行同时高亮」。
   /// 改为由页面统一记录：进入 B 时 A 自然就不再是高亮态，不依赖 exit 事件。
-  String? _hoveredMid;
+  ///
+  /// 用 ValueNotifier 而不是 `setState`：原先悬浮一变就重建**整个页面**
+  /// （含整张 ListView 与所有可见行）。快速滚动时鼠标不断划过新行，
+  /// 等于每划过一行就重建一次列表。改成每行自己订阅，只有真正变了的那行重建。
+  final ValueNotifier<String?> _hoveredMid = ValueNotifier<String?>(null);
+
+  /// 挂在 `prototypeItem` 上，用来量真实行高。
+  /// 「定位到正在播放」要按行高算目标位置，手写公式字体一缩放就偏。
+  final GlobalKey _prototypeKey = GlobalKey();
+
+  double get _rowHeight => _prototypeKey.currentContext?.size?.height ?? 0;
+
+  /// 滚到正在播放的那一首。带滚动动画（与滚轮同一条曲线），不是直接跳。
+  void _scrollToNowPlaying() {
+    final mid = player.currentSong?.mid;
+    if (mid == null) return;
+    final index = widget.state.songs.indexWhere((s) => s.mid == mid);
+    if (index < 0) {
+      widget.state.showInfo('正在播放的歌不在歌单里');
+      return;
+    }
+    final h = _rowHeight;
+    if (h <= 0) {
+      // 还没布局过，量不到行高 —— 等这一帧结束再来
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) scrollListToRow(widget.scrollController, index, _rowHeight);
+      });
+      return;
+    }
+    scrollListToRow(widget.scrollController, index, h);
+  }
+
+  @override
+  void dispose() {
+    _hoveredMid.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -124,14 +160,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
                         song: songs[i],
                         state: state,
                         onOpenLyric: widget.onOpenLyric,
-                        hovered: _hoveredMid == mid,
-                        onHover: (v) => setState(() {
-                          if (v) {
-                            _hoveredMid = mid;
-                          } else if (_hoveredMid == mid) {
-                            _hoveredMid = null;
-                          }
-                        }),
+                        hoveredMid: _hoveredMid,
                       );
                     },
                   ),
@@ -186,17 +215,16 @@ class _PlaylistItem extends StatefulWidget {
     required this.song,
     required this.state,
     required this.onOpenLyric,
-    required this.hovered,
-    required this.onHover,
+    required this.hoveredMid,
   });
 
   final Song song;
   final AppState state;
   final ValueChanged<String> onOpenLyric;
 
-  /// 是否高亮 —— 由列表页统一裁决（见 _PlaylistPageState._hoveredMid）
-  final bool hovered;
-  final ValueChanged<bool> onHover;
+  /// 全页共用的「当前悬停行」（见 _PlaylistPageState._hoveredMid）。
+  /// 每行自己订阅，只重建自己。
+  final ValueNotifier<String?> hoveredMid;
 
   @override
   State<_PlaylistItem> createState() => _PlaylistItemState();
@@ -204,6 +232,11 @@ class _PlaylistItem extends StatefulWidget {
 
 class _PlaylistItemState extends State<_PlaylistItem> {
   bool _editingName = false;
+
+  /// 本行是不是当前悬停行。
+  ///
+  /// 只在**本行的悬停态真的变了**时才 setState —— 别的行变化不关本行的事。
+  bool _hovered = false;
 
   /// 这一次按下是不是落在铅笔上。
   ///
@@ -224,6 +257,8 @@ class _PlaylistItemState extends State<_PlaylistItem> {
   @override
   void initState() {
     super.initState();
+    _hovered = widget.hoveredMid.value == widget.song.mid;
+    widget.hoveredMid.addListener(_onHoverChanged);
     // 点到别处、或按 Tab 走掉，都当作「改完了」—— 就地编辑没有再放一个确定键。
     _nameFocus.addListener(() {
       if (!_nameFocus.hasFocus && _editingName && mounted) _commitName();
@@ -236,9 +271,27 @@ class _PlaylistItemState extends State<_PlaylistItem> {
 
   @override
   void dispose() {
+    widget.hoveredMid.removeListener(_onHoverChanged);
     _nameCtrl.dispose();
     _nameFocus.dispose();
     super.dispose();
+  }
+
+  /// 全页的悬停行变了 —— 只有「本行是否悬停」真的翻转时才重建自己
+  void _onHoverChanged() {
+    if (!mounted) return;
+    final now = widget.hoveredMid.value == widget.song.mid;
+    if (now == _hovered) return;
+    setState(() => _hovered = now);
+  }
+
+  /// 鼠标进出本行 —— 写回全页共用的那一个值
+  void _setHover(bool inside) {
+    if (inside) {
+      widget.hoveredMid.value = widget.song.mid;
+    } else if (widget.hoveredMid.value == widget.song.mid) {
+      widget.hoveredMid.value = null;
+    }
   }
 
   void _startEditName() {
@@ -303,8 +356,7 @@ class _PlaylistItemState extends State<_PlaylistItem> {
         margin: const EdgeInsets.only(bottom: 2),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: isPlaying ? c.accentLight : (widget.hovered ? c.hover : Colors.transparent),
-          border: isPlaying ? Border.all(color: c.accent, width: 1.5) : null,
+          color: isPlaying ? c.accentLight : (_hovered ? c.hover : Colors.transparent),
           borderRadius: BorderRadius.circular(c.radius),
           boxShadow: isPlaying
               ? [
@@ -456,9 +508,9 @@ class _PlaylistItemState extends State<_PlaylistItem> {
                       // 左右跳）。hover 时**只把铅笔本身变蓝**：不传 hoverBg
                       // 会拿到默认的圆角底，这里用全透明的同色顶掉。
                       IgnorePointer(
-                        ignoring: !widget.hovered,
+                        ignoring: !_hovered,
                         child: AnimatedOpacity(
-                          opacity: widget.hovered ? 1 : 0,
+                          opacity: _hovered ? 1 : 0,
                           duration: const Duration(milliseconds: 120),
                           child: Listener(
                             // 铅笔在命中链上比框架的 TapRegion 更靠里，先收到
