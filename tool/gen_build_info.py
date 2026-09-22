@@ -16,7 +16,17 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def git(*args: str) -> str:
-    r = subprocess.run(["git", *args], cwd=ROOT, capture_output=True, text=True)
+    # 必须显式指定 utf-8：不指定时 Windows 按 locale 编码（cp1252）解码子进程输出，
+    # git 返回的中文提交信息一读就 UnicodeDecodeError，脚本直接崩。
+    # errors="replace" 是兜底：万一 git 吐出非 UTF-8 字节，也别让构建挂在这。
+    r = subprocess.run(
+        ["git", *args],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
