@@ -103,6 +103,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   loginLabel: state.qqIsWechat ? '微信登录' : 'QQ登录',
                   isVip: state.qqIsVip,
                   vipLabel: '绿钻',
+                  vipColor: _qqVipColor,
                 ),
               ],
               const SizedBox(height: 16),
@@ -168,6 +169,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   loginLabel: '',
                   isVip: state.neIsVip,
                   vipLabel: '黑胶',
+                  vipColor: _neVipColor,
                 ),
               ],
               const SizedBox(height: 16),
@@ -234,6 +236,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   loginLabel: '',
                   isVip: state.biliIsVip,
                   vipLabel: '大会员',
+                  vipColor: _biliVipColor,
                 ),
               ],
               const SizedBox(height: 16),
@@ -642,12 +645,23 @@ class _FieldLabel extends StatelessWidget {
 }
 
 /// 账号信息：昵称 + 登录方式 + 会员。
+/// 绿钻 —— 绿色。
+const Color _qqVipColor = Color(0xFF12B76A);
+
+/// 黑胶 —— 黑金。比纯金暗一档，压在浅色底上不刺眼，
+/// 又比普通灰标签一眼能分出档次。
+const Color _neVipColor = Color(0xFFB8860B);
+
+/// 大会员 —— B站的粉，取自「我的大会员」那张卡片上的字色。
+const Color _biliVipColor = Color(0xFFFF6699);
+
 class _AccountTags extends StatelessWidget {
   const _AccountTags({
     required this.nickname,
     required this.loginLabel,
     required this.isVip,
     required this.vipLabel,
+    required this.vipColor,
   });
 
   final String nickname;
@@ -657,14 +671,18 @@ class _AccountTags extends StatelessWidget {
 
   final bool isVip;
 
-  /// 会员叫法：QQ 是「绿钻」、网易云是「黑胶」。
+  /// 会员叫法：QQ 是「绿钻」、网易云是「黑胶」、B站是「大会员」。
   final String vipLabel;
+
+  /// 会员标签的颜色。三家的品牌色差得远，各用各的：
+  ///  * 绿钻 —— 绿色；
+  ///  * 黑胶 —— 黑金（暗金）；
+  ///  * 大会员 —— B站的粉（`#FF6699`）。
+  final Color vipColor;
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    // 会员用绿色 —— 绿钻本来就是绿的
-    const vipColor = Color(0xFF12B76A);
     return Align(
       alignment: Alignment.centerLeft,
       child: Wrap(
