@@ -12,6 +12,7 @@ import '../core/lyric.dart';
 import '../core/perf_probe.dart';
 import '../models/song.dart';
 import '../services/api_client.dart';
+import '../services/audio_cache.dart';
 import '../services/bilibili_service.dart';
 import '../services/lyric_cache.dart';
 import '../services/netease_service.dart';
@@ -586,11 +587,20 @@ class AppState extends ChangeNotifier {
     player.prepare(song);
     notifyListeners();
     try {
-      final url = await ApiClient.getSongUrl(mid, true, song);
+      // 本地已经有这首歌的音频文件：直接播，**不去取播放地址**。
+      //
+      // 取地址是一串网络请求（B站要 4 次：游客标识 → ExClimbWuzhi → nav → view，
+      // 然后才是 playurl），请求之间还夹着 350ms 的最小间隔。冷启动时这一串就是
+      // 1.5 秒左右，而且它**挡在缓存前面** —— 上游一频控、一超时，本地明明躺着
+      // 文件也放不出来，表现就是「缓存没生效」。
+      //
+      // `play()` 本来就会先查缓存，这里只是把那一次查询提前，好把这段白等省掉。
+      final cached = AudioDiskCache.find(mid) != null;
+      final url = cached ? '' : await ApiClient.getSongUrl(mid, true, song);
       // 取地址期间用户已经切到别的歌了 —— 这个结果作废，
       // 既不能拿去播放（会把新歌顶掉），也不该弹错误提示
       if (gen != _playGeneration) return;
-      if (url.isNotEmpty) {
+      if (cached || url.isNotEmpty) {
         await player.play(song, url);
         if (gen != _playGeneration) return;
         notifyListeners();
