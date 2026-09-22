@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import '../core/app_paths.dart';
 import '../core/file_logger.dart';
 import '../models/song.dart';
 import 'bilibili_service.dart';
+import 'cover_cache.dart';
 import 'netease_service.dart';
 import 'qqmusic_service.dart';
 
@@ -457,6 +459,21 @@ class HttpServerService {
         return;
       }
       final targetUrl = Uri.decodeComponent(rawUrl);
+
+      // 命中封面磁盘缓存就直接回 —— 封面是重复率最高的请求，
+      // Flutter 那边只在内存里缓存，重启一次就等于全下一遍。
+      final cached = CoverCache.find(targetUrl);
+      if (cached != null) {
+        res.statusCode = 200;
+        res.headers.set('Content-Type', CoverCache.contentTypeOf(cached.path));
+        res.headers.set('Cache-Control', 'public, max-age=86400');
+        res.headers.set('Access-Control-Allow-Origin', '*');
+        res.headers.set('Content-Length', '${cached.lengthSync()}');
+        await res.addStream(cached.openRead());
+        await res.close();
+        return;
+      }
+
       final referer = _refererOf(_sourceOfUrl(targetUrl));
 
       final up = await _client.getUrl(Uri.parse(targetUrl));
@@ -471,16 +488,22 @@ class HttpServerService {
         return;
       }
 
+      // 先攒成完整的一份：要写进封面缓存，也要给出准确的 Content-Length。
+      // 封面都是几十 KB 的东西，攒一下不心疼。
+      final builder = BytesBuilder(copy: false);
+      await for (final chunk in upRes) {
+        builder.add(chunk);
+      }
+      final bytes = builder.takeBytes();
+      final type = upRes.headers.contentType?.toString() ?? 'image/jpeg';
+      CoverCache.put(targetUrl, bytes, type);
+
       res.statusCode = 200;
-      res.headers.set(
-        'Content-Type',
-        upRes.headers.contentType?.toString() ?? 'image/jpeg',
-      );
+      res.headers.set('Content-Type', type);
       res.headers.set('Cache-Control', 'public, max-age=86400');
       res.headers.set('Access-Control-Allow-Origin', '*');
-      final len = upRes.headers.contentLength;
-      if (len > 0) res.headers.set('Content-Length', '$len');
-      await res.addStream(upRes);
+      res.headers.set('Content-Length', '${bytes.length}');
+      res.add(bytes);
       await res.close();
     } catch (e) {
       fileLogger.error('ImageProxy', 'Error: $e');

@@ -3,13 +3,14 @@ import 'package:flutter/services.dart';
 import '../core/app_paths.dart';
 import '../core/file_logger.dart';
 import 'audio_cache.dart';
+import 'cover_cache.dart';
 import 'lyric_cache.dart';
 
 /// 缓存占用的一份快照。
 class CacheUsage {
   const CacheUsage({
     required this.audioBytes,
-    required this.lyricBytes,
+    required this.otherBytes,
     this.diskTotalBytes,
     this.diskFreeBytes,
   });
@@ -17,18 +18,18 @@ class CacheUsage {
   /// 音频缓存（`data/audio_cache`）
   final int audioBytes;
 
-  /// 歌词与其他（`data/lyrics`）
-  final int lyricBytes;
+  /// 歌词与其他（`data/lyrics` + `data/covers`）
+  final int otherBytes;
 
   /// 缓存所在盘的总容量。拿不到时为 null —— 那时只是不显示百分比。
   final int? diskTotalBytes;
   final int? diskFreeBytes;
 
-  int get totalBytes => audioBytes + lyricBytes;
+  int get totalBytes => audioBytes + otherBytes;
 
-  /// 音频 / 歌词各占总缓存的比例（0~1）
+  /// 音频 / 其他各占总缓存的比例（0~1）
   double get audioShare => totalBytes <= 0 ? 0 : audioBytes / totalBytes;
-  double get lyricShare => totalBytes <= 0 ? 0 : lyricBytes / totalBytes;
+  double get otherShare => totalBytes <= 0 ? 0 : otherBytes / totalBytes;
 
   /// 总缓存占整块盘的比例（0~1）
   double? get diskShare {
@@ -40,7 +41,7 @@ class CacheUsage {
 
 /// 缓存统计与清理。
 ///
-/// 只管两处：`data/audio_cache`（音频）和 `data/lyrics`（歌词与其他）。
+/// 只管两处：`data/audio_cache`（音频）和 `data/lyrics` + `data/covers`（其他）。
 /// **不碰** `data/local_storage.json`（里面是 Cookie 和设置）和 `temp/` ——
 /// 那两个不是缓存，删了要出事。
 class CacheManager {
@@ -53,7 +54,7 @@ class CacheManager {
   /// 统计各处占用。磁盘容量拿不到也能用，只是没有百分比。
   static Future<CacheUsage> measure() async {
     final audio = AudioDiskCache.sizeOnDisk();
-    final lyric = LyricCache.sizeOnDisk();
+    final other = LyricCache.sizeOnDisk() + CoverCache.sizeOnDisk();
 
     int? total;
     int? free;
@@ -82,11 +83,11 @@ class CacheManager {
   /// 清音频缓存，返回释放的字节数
   static int clearAudio() => AudioDiskCache.clearAll();
 
-  /// 清歌词与其他，返回释放的字节数
-  static int clearLyrics() => LyricCache.clearAll();
+  /// 清歌词与封面，返回释放的字节数
+  static int clearOther() => LyricCache.clearAll() + CoverCache.clearAll();
 
   /// 全部清掉，返回释放的字节数
-  static int clearAll() => clearAudio() + clearLyrics();
+  static int clearAll() => clearAudio() + clearOther();
 
   /// 人类可读的体积
   static String formatBytes(int bytes) {
