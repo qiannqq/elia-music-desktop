@@ -85,6 +85,9 @@ class _AppShellState extends State<AppShell>
     player.addListener(_onPlayer);
     player.onEnded = (action) => state.handleEndedAction(action);
     player.onModeChange = state.onModeChanged;
+    // 播放栏停在「记忆态」或上次取地址失败时，点播放要重新取一次地址 ——
+    // 回到状态层走一遍正常的播放流程
+    player.onReloadRequested = (song) => state.playSong(song.mid);
     _lastLyricRequest = state.lyricDialogRequest;
     // 设置页的 ck 只在启动时灌一次；之后输入框里的内容就是「编辑中的那份」，
     // 切页面回来不能再从状态里覆盖一遍，否则没保存的编辑会被冲掉。
