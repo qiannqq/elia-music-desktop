@@ -31,6 +31,10 @@ jobs:
 
       - name: Generate build info
         shell: bash
+        env:
+          # Windows runner 上 Python 默认按 cp1252 处理子进程和 stdout，
+          # 提交信息里的中文会让脚本直接崩 —— 强制 UTF-8 模式。
+          PYTHONUTF8: "1"
         run: python tool/gen_build_info.py
 
       - name: Flutter pub get
