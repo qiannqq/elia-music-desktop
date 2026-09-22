@@ -145,6 +145,22 @@ class _PlaylistPageState extends State<PlaylistPage> {
                     controller: widget.scrollController,
                     padding: const EdgeInsets.symmetric(horizontal: 32),
                     itemCount: songs.length,
+                    // 必须让列表知道行高。
+                    //
+                    // 没有它时，`RenderSliverList` 无从由偏移反推行号，
+                    // 只能从第 0 行逐行往下量 —— 切页回来恢复滚动位置那一次
+                    // `jumpTo`，几百首就要在一帧里建出几百行（实测 376 首
+                    // 建 345 行，还只是空行）。
+                    //
+                    // 用真实的一行当原型（它只被量高度，不参与绘制），
+                    // 字体、文字缩放怎么变都自动跟上，不必手写行高公式。
+                    prototypeItem: _PlaylistItem(
+                      key: _prototypeKey,
+                      song: const Song(mid: '', name: '歌名', artist: '歌手'),
+                      state: state,
+                      onOpenLyric: widget.onOpenLyric,
+                      hoveredMid: _hoveredMid,
+                    ),
                     itemBuilder: (ctx, i) {
                       // 在这里就把 mid 取出来捕获进闭包。
                       // 若闭包里写 songs[i].mid，`i` 是回调触发时才求值的 ——
