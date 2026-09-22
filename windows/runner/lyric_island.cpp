@@ -605,7 +605,17 @@ void Paint() {
       const GraphicsState saved = g.Save();
       g.SetClip(&clip, CombineModeIntersect);
       g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
-      g.DrawImage(g_cover.get(), scaled);
+      // 从源图里取居中的正方形再填进来。B站的封面常是 16:9 的横幅，
+      // 直接按目标框拉伸会把画面压扁。
+      const int iw = static_cast<int>(g_cover->GetWidth());
+      const int ih = static_cast<int>(g_cover->GetHeight());
+      const int side = iw < ih ? iw : ih;
+      const int sx = (iw - side) / 2;
+      const int sy = (ih - side) / 2;
+      // 源矩形那几个参数显式转成 REAL：直接传 int 会匹配到 REAL 的重载，
+      // 而本目标是 /WX，C4244 会直接把编译拦下。
+      g.DrawImage(g_cover.get(), scaled, static_cast<REAL>(sx), static_cast<REAL>(sy),
+                  static_cast<REAL>(side), static_cast<REAL>(side), UnitPixel);
       g.Restore(saved);
       Pen ring(Color(Alpha(56, content), 255, 255, 255), 1.f);
       GraphicsPath outline;
