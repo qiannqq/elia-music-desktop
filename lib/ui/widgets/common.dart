@@ -548,6 +548,20 @@ class SongCover extends StatelessWidget {
         child: Center(child: AppIcon(AppIcons.music, size: size * 0.4, color: c.textTertiary)),
       );
     }
+    // 按显示尺寸解码。封面原图常有 300~800px，为一个 40px 的格子解出整张，
+    // 几百首歌就能把图片缓存挤爆、反复重新解码。
+    //
+    // 只给 cacheWidth：同时给 width/height 会按指定尺寸拉伸（等同 BoxFit.fill），
+    // 宽封面会被压扁。留 2 倍余量，16:9 的封面填进方格时也仍是缩小采样。
+    //
+    // 尺寸再**取整到 2 的幂**：歌单是 40px、搜索页是 44px，直接算出来 80 / 88，
+    // 缓存键不同 —— 同一个封面在两个页面之间来回切会被反复重新解码。
+    // 取整到同一档就能共用一份。
+    final wanted = size * MediaQuery.devicePixelRatioOf(context) * 2;
+    var cachePx = 64;
+    while (cachePx < wanted && cachePx < 512) {
+      cachePx *= 2;
+    }
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
       child: Image.network(
@@ -555,6 +569,7 @@ class SongCover extends StatelessWidget {
         width: size,
         height: size,
         fit: BoxFit.cover,
+        cacheWidth: cachePx,
         errorBuilder: (_, _, _) => Container(
           width: size,
           height: size,
