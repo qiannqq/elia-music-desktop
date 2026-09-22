@@ -215,6 +215,107 @@ class AppColors extends ThemeExtension<AppColors> {
   }
 }
 
+/// accent 家族的派生规则。
+///
+/// 旧版 CSS 里那组蓝是**手调**的：`#0078D4`（浅色主色）、`#106EBE`（浅色悬停）、
+/// `#60CDFF`（深色主色）、`#7AD5FF`（深色悬停）、`#003A52`（深色下的反色文字）。
+/// 它们各自的色相偏移是 `+1.55° / +0.08° / −7.17° / −1.31°` —— 互相矛盾，
+/// 不存在单一公式能同时解释这四对，所以别指望「反推出一个漂亮算法」。
+///
+/// 做法反过来：在 HSL 里用一组**标定过的常数**去拟合，让默认蓝能被逐位还原
+/// （`test/accent_theme_test.dart` 盯着这件事，改坏会立刻红），
+/// 再把这组常数套到用户选的任何主题色上。每个常数后面都写着它是从哪一对
+/// 颜色标定出来的，这样以后想微调也能知道动了什么。
+abstract final class AccentShades {
+  /// 色相绕回 [0, 360)。红色系（色相 < 7°）减一档就成负数，
+  /// 而 `HSLColor` 会直接断言失败 —— 必须绕，不能让它越界。
+  static double _hue(double v) {
+    if (v < 0) return v + 360;
+    if (v >= 360) return v - 360;
+    return v;
+  }
+
+  /// 深色主题的主色 —— 用户选的色「淡一号」。
+  ///
+  /// 标定自 `#0078D4` → `#60CDFF`：往白走 46.64%，色相 −7.17°，饱和度不动。
+  /// 往白走用比例（而不是加一个固定值）是为了不撞顶：很亮的色再往上加会直接
+  /// 被钳成纯白，比例式只会越来越接近白，不会一步撞死。
+  static Color forDark(Color accent) {
+    final h = HSLColor.fromColor(accent);
+    return HSLColor.fromAHSL(
+      h.alpha,
+      _hue(h.hue - 7.17),
+      h.saturation,
+      h.lightness + (1 - h.lightness) * 0.4664,
+    ).toColor();
+  }
+
+  /// 悬停态。
+  ///
+  /// * 浅色标定自 `#0078D4` → `#106EBE`：色相 +1.55°、亮度 ×0.9717、饱和度 ×0.8447。
+  /// * 深色标定自 `#60CDFF` → `#7AD5FF`：色相 +0.08°、亮度 ×1.0741、饱和度不动。
+  ///
+  /// 两边方向相反不是笔误：浅色主题的主色本来就偏深，悬停该更沉；
+  /// 深色主题的主色是亮蓝，悬停该更亮。这是两套主题各自的观感需求。
+  static Color hover(Color accent, {required bool dark}) {
+    final h = HSLColor.fromColor(accent);
+    final dH = dark ? 0.08 : 1.55;
+    final kL = dark ? 1.0741 : 0.9717;
+    final kS = dark ? 1.0 : 0.8447;
+    return HSLColor.fromAHSL(
+      h.alpha,
+      _hue(h.hue + dH),
+      (h.saturation * kS).clamp(0.0, 1.0),
+      (h.lightness * kL).clamp(0.0, 1.0),
+    ).toColor();
+  }
+
+  /// 主色上的文字色。
+  ///
+  /// 按**对比度**选，不按主题选：主色够亮就用它的深色版当字，否则用白字。
+  /// 阈值 0.30 是算出来的 —— 白字要够用需要主色的相对亮度低于 0.30
+  /// （再高就只有 3:1 以下，读不清）。
+  ///
+  /// 深色版的标定：`#60CDFF` → `#003A52`，色相 −1.31°、亮度 ×0.2336。
+  static Color onAccent(Color accent) {
+    if (accent.computeLuminance() < 0.30) return const Color(0xFFFFFFFF);
+    final h = HSLColor.fromColor(accent);
+    return HSLColor.fromAHSL(
+      h.alpha,
+      _hue(h.hue - 1.31),
+      h.saturation,
+      h.lightness * 0.2336,
+    ).toColor();
+  }
+
+  /// 选中底 / 光晕用的淡色 —— 就是主色本身压到很低的透明度。
+  ///
+  /// 标定自 `Color(0x140078D4)` / `Color(0x1A60CDFF)`：深浅两套的 alpha 不同
+  /// （20 / 26），因为深色底上淡色更难看出来，得给厚一点。
+  static Color wash(Color accent, {required bool dark}) =>
+      accent.withAlpha(dark ? 0x1A : 0x14);
+}
+
+/// 调色板预设。第一个是默认蓝 —— 与旧版完全一致，也是 [ThemeController] 的初值。
+const List<Color> kAccentPresets = [
+  Color(0xFF0078D4), // 默认蓝（旧版配色）
+  Color(0xFF2B88D8), // 天蓝
+  Color(0xFF00B7C3), // 青
+  Color(0xFF038387), // 深青
+  Color(0xFF0F7B0F), // 绿
+  Color(0xFF498205), // 橄榄
+  Color(0xFF7B3FE4), // 紫
+  Color(0xFF8764B8), // 藕荷
+  Color(0xFFC239B3), // 品红
+  Color(0xFFE8115A), // 玫红
+  Color(0xFFC42B1C), // 红
+  Color(0xFFE8590C), // 橙
+  Color(0xFFB8860B), // 金
+  Color(0xFF6B6B6B), // 灰
+  Color(0xFF8E562E), // 棕
+  Color(0xFF1A1A1A), // 近黑
+];
+
 /// 从 context 取设计令牌
 extension AppColorsX on BuildContext {
   AppColors get c => Theme.of(this).extension<AppColors>() ?? AppColors.light;

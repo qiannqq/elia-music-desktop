@@ -4,10 +4,12 @@ import 'dart:ui' as ui;
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 
+import '../core/app_theme.dart';
 import '../core/file_logger.dart';
 import '../core/local_store.dart';
 import '../core/lyric.dart';
 import '../models/song.dart';
+import '../state/theme_controller.dart';
 import 'api_client.dart';
 import 'lyric_cache.dart';
 import 'player_controller.dart';
@@ -39,12 +41,15 @@ class LyricIslandFrame {
   final int lineIndex;
 
   /// 没在放、正在换歌、没有歌：不显示。
-  /// 有当前句就用当前句；空行往前找最近一句有字的，翻译跟着那一句。
-  /// 一句都还没到，就退到「歌名 · 歌手」。
+  /// 没在放、正在换歌、没有歌：不显示。
+  ///
+  /// [lyricPaused] 与播放栏同源：暂停时、以及最后一句唱完 5 秒后它为真，
+  /// 那时播放栏改显示歌名，胶囊也一起换成歌名，两边不要各走各的。
   static LyricIslandFrame compose({
     required bool playing,
     required bool loading,
     required bool hasSong,
+    required bool lyricPaused,
     required String title,
     required String artist,
     required List<LyricLine> lines,
@@ -53,7 +58,7 @@ class LyricIslandFrame {
   }) {
     if (!playing || loading || !hasSong) return const LyricIslandFrame.hidden();
 
-    final i = _pick(lines, index);
+    final i = lyricPaused ? -1 : _pick(lines, index);
     if (i >= 0) {
       final line = lines[i];
       return LyricIslandFrame(
@@ -112,8 +117,33 @@ class LyricIslandService {
     enabled = LocalStore.get(kDesktopLyricKey) == '1';
     player.addListener(_onPlayer);
     player.positionNotifier.addListener(_onPosition);
+    // 换主题色时胶囊的逐字高亮也要跟着变 —— 原生层不知道 Flutter 的主题
+    themeController.addListener(_onTheme);
     if (!enabled) return;
     await _apply(true);
+  }
+
+  /// 主题色变了。胶囊没开就不用推 —— 开的时候 [\_apply] 会补一次。
+  void _onTheme() {
+    if (!enabled) return;
+    unawaited(_pushAccent());
+  }
+
+  /// 把逐字高亮的颜色推给原生层。
+  ///
+  /// 取的是**深色主题那一档** accent：胶囊永远画在深色底上，用浅色主题那个
+  /// 偏深的蓝会糊在底上 —— 应用内深色主题下的歌词高亮也是这个色。
+  Future<void> _pushAccent() async {
+    final argb = AccentShades.forDark(themeController.accent).toARGB32();
+    try {
+      await _channel.invokeMethod('accent', {
+        'r': (argb >> 16) & 0xFF,
+        'g': (argb >> 8) & 0xFF,
+        'b': argb & 0xFF,
+      });
+    } catch (e) {
+      fileLogger.warn('LyricIsland', 'accent 推送失败: $e');
+    }
   }
 
   /// 开关立刻改内存里的值（设置页跟着刷新），窗口的创建放到通道那边。
@@ -141,7 +171,8 @@ class LyricIslandService {
     _channel.invokeMethod('clock', {
       'positionMs': ms,
     }).catchError((Object e) {
-      fileLogger.warn('LyricIsland', 'clock 失败: $e');
+      fileLogger.warn('LyricIsland',
+          'clock(${ms}ms) 失败: $e');
       return null;
     });
   }
@@ -155,19 +186,24 @@ class LyricIslandService {
     try {
       final ok = await _channel.invokeMethod<bool>('setEnabled', {
         'enabled': value,
-      });
-      if (value && ok != true) {
-        fileLogger.warn('LyricIsland', '窗口没有建起来');
+      }) ??
+          false;
+      fileLogger.info('LyricIsland',
+          '开关=${value ? '开' : '关'} 原生窗口=${ok ? '已建立' : '未建立'}');
+      if (value && !ok) {
+        fileLogger.warn('LyricIsland', '原生窗口未建立，胶囊不会显示');
         return;
       }
-      fileLogger.info('LyricIsland', value ? '已打开' : '已关闭');
-      if (value) _push(force: true);
-      if (!value) {
+      if (value) {
+        // 颜色要在第一帧之前送到，否则会先闪一下默认蓝
+        await _pushAccent();
+        _push(force: true);
+      } else {
         _last = '';
         _coverFor = '';
       }
     } catch (e) {
-      fileLogger.warn('LyricIsland', 'setEnabled 失败: $e');
+      fileLogger.warn('LyricIsland', 'setEnabled(enabled=$value) 失败: $e');
     }
   }
 
@@ -178,6 +214,7 @@ class LyricIslandService {
       playing: player.isPlaying,
       loading: player.isLoading,
       hasSong: song != null,
+      lyricPaused: player.lyricPaused,
       title: song?.name ?? '',
       artist: song?.artist ?? '',
       lines: player.lyricLines,
@@ -228,7 +265,8 @@ class LyricIslandService {
       'endMs': endMs,
       'words': words,
     }).catchError((Object e) {
-      fileLogger.warn('LyricIsland', 'update 失败: $e');
+      fileLogger.warn('LyricIsland',
+          'update 失败 mid=${song?.mid ?? '-'} text="${frame.text}" : $e');
       return null;
     });
 
@@ -249,27 +287,39 @@ class LyricIslandService {
           final res = await http
               .get(Uri.parse(url))
               .timeout(const Duration(seconds: 8));
-          if (res.statusCode == 200 && res.bodyBytes.isNotEmpty) {
-            cached = await _toDecodable(res.bodyBytes);
+          if (res.statusCode != 200 || res.bodyBytes.isEmpty) {
+            fileLogger.warn('LyricIsland',
+                '封面取回失败 mid=${song.mid} HTTP ${res.statusCode} url=$url');
+          } else {
+            final raw = res.bodyBytes;
+            cached = await _toDecodable(raw);
             _coverCache[url] = cached;
             if (_coverCache.length > 8) {
               _coverCache.remove(_coverCache.keys.first);
             }
+            fileLogger.info('LyricIsland',
+                '封面 mid=${song.mid} 原始=${raw.length}B → 送出=${cached.length}B');
           }
         }
         if (cached != null) bytes = cached;
       } catch (e) {
-        fileLogger.warn('LyricIsland', '封面取回失败: $e');
+        fileLogger.warn('LyricIsland', '封面取回异常 mid=${song.mid} url=$url : $e');
       }
     }
-    if (gen != _coverGen || song.mid != player.currentSong?.mid) return;
+    // 取封面的过程中可能已经换歌了，别把旧封面盖上去
+    if (gen != _coverGen || song.mid != player.currentSong?.mid) {
+      fileLogger.info('LyricIsland',
+          '封面已过期，丢弃 mid=${song.mid}（当前=${player.currentSong?.mid ?? '-'}）');
+      return;
+    }
     try {
       await _channel.invokeMethod('cover', {
         'song': song.mid,
         'bytes': bytes,
       });
     } catch (e) {
-      fileLogger.warn('LyricIsland', 'cover 失败: $e');
+      fileLogger.warn('LyricIsland',
+          'cover 下发失败 mid=${song.mid} bytes=${bytes.length} : $e');
     }
   }
 

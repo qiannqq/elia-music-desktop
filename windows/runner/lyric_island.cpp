@@ -42,14 +42,28 @@ constexpr UINT_PTR kAnimTimer = 1;
 /// 逐字高亮的两端颜色，取深色主题的 textTertiary 与 accent ——
 /// 胶囊底色本来就是深的，用浅色主题那对（accent 是深蓝）会糊在底上。
 constexpr BYTE kIdleR = 112, kIdleG = 112, kIdleB = 112;
-constexpr BYTE kHotR = 96, kHotG = 205, kHotB = 255;
+
+/// 逐字高亮色。初值就是深色主题的 accent（`#60CDFF`），
+/// 用户改了主题色之后由 Dart 经 `accent` 方法推过来覆盖。
+BYTE g_hot_r = 96, g_hot_g = 205, g_hot_b = 255;
 
 /// 翻译的灰。应用里翻译用的是 textTertiary，在深色底上偏暗；
 /// 这里提亮一档：能看清，又压得住，不会把原词盖过去。
 constexpr BYTE kTransGray = 153;
 
-/// 换行时上下平移的时长（按 16ms 一帧折算的步长）
-constexpr float kSlideStep = 0.07f;
+/// 换行时上下平移的时长（秒）。
+///
+/// 与应用内播放栏的 400ms 对齐。原先的 230ms 只有它的一半多，
+/// 同样的位移走得更快，看起来就是被弹了一下。
+constexpr float kSlideSeconds = 0.4f;
+
+/// 指数逼近的速率（每秒吃掉剩余距离的比例）。
+///
+/// 动画一律按**真实经过的时间**推进，不用「每帧固定走一步」——
+/// 这个重绘跑在平台线程上，Flutter 一滚动它就会漏帧；
+/// 固定步长下漏帧 = 动画变慢且一顿一顿，按 dt 算则只是少画几帧。
+constexpr float kPresenceRate = 11.f;
+constexpr float kSizeRate = 17.f;
 
 std::unique_ptr<flutter::MethodChannel<EncodableValue>> g_channel;
 HWND g_host = nullptr;
@@ -435,7 +449,7 @@ void DrawLine(Graphics& g, Font& lyric, Font& trans, const Line& line, const Rec
 
   if (!karaoke) {
     // 没有逐字时间：整句直接用高亮色，与应用内选中行的处理一致。
-    SolidBrush br(Color(Alpha(255, alpha), kHotR, kHotG, kHotB));
+    SolidBrush br(Color(Alpha(255, alpha), g_hot_r, g_hot_g, g_hot_b));
     const RectF rc(x, top, std::max(line.text_w, 1.f), lh);
     DrawWord(g, lyric, line.text, rc, fmt, &br);
   } else {
@@ -446,7 +460,7 @@ void DrawLine(Graphics& g, Font& lyric, Font& trans, const Line& line, const Rec
       // 不描边、不加光晕 —— 加亮之外的任何效果都会让「正在唱的这个字」
       // 看起来和前面已经唱完的字不一样亮。
       const float t = WordProgress(w, now);
-      const Color col = LerpColor(kIdleR, kIdleG, kIdleB, kHotR, kHotG, kHotB, t);
+      const Color col = LerpColor(kIdleR, kIdleG, kIdleB, g_hot_r, g_hot_g, g_hot_b, t);
       SolidBrush brush(Color(Alpha(255, alpha), col.GetR(), col.GetG(), col.GetB()));
       const RectF rc(pen, top, w.width + 2.f, lh);
       DrawWord(g, lyric, w.text, rc, fmt, &brush);
@@ -900,6 +914,28 @@ void HandleCall(const flutter::MethodCall<EncodableValue>& call,
   if (method == "update") {
     OnUpdate(args);
     if (g_hwnd) StartTimer();
+    result->Success();
+    return;
+  }
+  if (method == "accent") {
+    // 逐字高亮色。先钳到 0~255 再存 —— 通道那头算错了也不该画出一个越界的颜色。
+    g_hot_r = static_cast<BYTE>(std::clamp<int64_t>(GetInt(args, "r"), 0, 255));
+    g_hot_g = static_cast<BYTE>(std::clamp<int64_t>(GetInt(args, "g"), 0, 255));
+    g_hot_b = static_cast<BYTE>(std::clamp<int64_t>(GetInt(args, "b"), 0, 255));
+    // 静态画面重绘一百遍还是同一张，所以颜色变了得主动重画一次 ——
+    // 光靠定时器的话，一句唱完停在那儿时换了色是看不到变化的。
+    if (g_hwnd && g_presence > 0.01f) Paint();
+    result->Success();
+    return;
+  }
+  if (method == "accent") {
+    // 逐字高亮色。先钳到 0~255 再存 —— 通道那头算错了也不该画出一个越界的颜色。
+    g_hot_r = static_cast<BYTE>(std::clamp<int64_t>(GetInt(args, "r"), 0, 255));
+    g_hot_g = static_cast<BYTE>(std::clamp<int64_t>(GetInt(args, "g"), 0, 255));
+    g_hot_b = static_cast<BYTE>(std::clamp<int64_t>(GetInt(args, "b"), 0, 255));
+    // 静态画面重绘一百遍还是同一张，所以颜色变了得主动重画一次 ——
+    // 光靠定时器的话，一句唱完停在那儿时换了色是看不到变化的。
+    if (g_hwnd && g_presence > 0.01f) Paint();
     result->Success();
     return;
   }
