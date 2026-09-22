@@ -8,8 +8,8 @@ import '../../services/player_controller.dart';
 import '../../state/app_state.dart';
 import '../icons.dart';
 import '../widgets/common.dart';
+import '../widgets/context_menu.dart';
 import '../widgets/smooth_scroll.dart';
-import '../widgets/dialogs.dart';
 import '../widgets/song_actions.dart';
 
 /// 歌单页 —— 对应 `#page-playlist`
@@ -111,15 +111,6 @@ class _PlaylistPageState extends State<PlaylistPage> {
                   label: '全选',
                   small: true,
                   onPressed: state.selectAll,
-                ),
-                const SizedBox(width: 8),
-                AppButton(
-                  label: '清空',
-                  small: true,
-                  onPressed: () async {
-                    final ok = await showConfirmDialog(context, '确定清空所有歌曲吗？');
-                    if (ok) state.clearList();
-                  },
                 ),
                 const SizedBox(width: 8),
                 AppButton(
