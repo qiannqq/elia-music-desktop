@@ -232,16 +232,6 @@ class ApiClient {
     );
   }
 
-  static Future<String> neSongUrl(Song song, [String quality = 'exhigh']) async {
-    if (song.mid.isEmpty) throw Exception('song.id 不能为空');
-    final res = await _request(
-      '$apiBase/api/netease/song/url',
-      method: 'POST',
-      body: jsonEncode({'song': song.toApiJson(), 'quality': quality}),
-    );
-    return (res['data']?['url'] ?? '').toString();
-  }
-
   static Future<({String lyric, String trans})> neLyric(String id) async {
     if (id.isEmpty) throw Exception('id 不能为空');
     final res = await _request('$apiBase/api/netease/song/lyric?id=${_enc(id)}');

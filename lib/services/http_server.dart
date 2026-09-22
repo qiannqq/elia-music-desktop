@@ -43,8 +43,6 @@ class HttpServerService {
   int port = 17071;
   final HttpClient _client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
 
-  bool get isRunning => _server != null;
-
   /// 启动服务并返回**实际监听端口**。
   ///
   /// 传 0（或不传）时由系统分配一个空闲端口 —— 这是默认行为，用于避免

@@ -150,11 +150,62 @@ class AppColors extends ThemeExtension<AppColors> {
     shadowLg: [BoxShadow(color: Color(0x4D000000), blurRadius: 32, offset: Offset(0, 8))],
   );
 
-  /// 主色调的 RGB（用于 glow 动画等需要 alpha 组合的场景）
-  Color accentWithOpacity(double opacity) => accent.withValues(alpha: opacity);
-
   @override
   AppColors copyWith() => this;
+
+  /// 换掉整套 accent 家族，其余令牌沿用当前这套。
+  ///
+  /// [a] 是**已经定好的**那一档主色（深色主题要传深色档），
+  /// 由 [themed] 负责挑档。
+  AppColors withAccent(Color a, {required bool dark}) => AppColors(
+        bg: bg,
+        surface: surface,
+        surfaceAlt: surfaceAlt,
+        text: text,
+        textSecondary: textSecondary,
+        textTertiary: textTertiary,
+        accent: a,
+        accentHover: AccentShades.hover(a, dark: dark),
+        accentLight: AccentShades.wash(a, dark: dark),
+        accentText: AccentShades.onAccent(a),
+        border: border,
+        borderSubtle: borderSubtle,
+        hover: hover,
+        active: active,
+        card: card,
+        cardHover: cardHover,
+        titlebarBg: titlebarBg,
+        sidebarBg: sidebarBg,
+        playerBg: playerBg,
+        modalOverlay: modalOverlay,
+        scrollbarThumb: scrollbarThumb,
+        inputBg: inputBg,
+        inputBorder: inputBorder,
+        inputFocus: a,
+        badgeBg: badgeBg,
+        badgeText: badgeText,
+        progressBg: progressBg,
+        toastBg: toastBg,
+        toastBorder: toastBorder,
+        success: success,
+        danger: danger,
+        shadow: shadow,
+        shadowLg: shadowLg,
+        radius: radius,
+        radiusLg: radiusLg,
+      );
+
+  /// 按用户选的主题色生成一整套令牌。
+  ///
+  /// [accent] 传用户选的**那个**色（浅色主题下直接就是它）；深色主题这一档
+  /// 由 [AccentShades.forDark] 现推 —— 用户只挑一个色，两套主题都得能用。
+  factory AppColors.themed(Color accent, {required bool dark}) {
+    final base = dark ? AppColors.dark : AppColors.light;
+    return base.withAccent(
+      dark ? AccentShades.forDark(accent) : accent,
+      dark: dark,
+    );
+  }
 
   @override
   AppColors lerp(ThemeExtension<AppColors>? other, double t) {

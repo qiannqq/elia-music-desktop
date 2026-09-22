@@ -35,8 +35,6 @@ class Song {
     this.album = '',
   });
 
-  bool get isNetease => source == 'netease';
-
   bool get isBilibili => source == 'bilibili';
 
   /// 持久化用（等价 `trimSong()`）

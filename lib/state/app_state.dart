@@ -319,6 +319,30 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 把**已经在歌单里**的一首挪到最前。
+  ///
+  /// 与 [addToTop] 不同：那个是「加进来」，已经在歌单里就直接返回、挪不动。
+  void moveToTop(String mid) {
+    final i = songs.indexWhere((s) => s.mid == mid);
+    if (i <= 0) return;
+    final song = songs.removeAt(i);
+    songs.insert(0, song);
+    _saveSongs();
+    notifyListeners();
+    toast.show('已置顶: ${song.name}', type: ToastType.success);
+  }
+
+  /// 把已经在歌单里的一首挪到最后
+  void moveToBottom(String mid) {
+    final i = songs.indexWhere((s) => s.mid == mid);
+    if (i < 0 || i == songs.length - 1) return;
+    final song = songs.removeAt(i);
+    songs.add(song);
+    _saveSongs();
+    notifyListeners();
+    toast.show('已置底: ${song.name}', type: ToastType.success);
+  }
+
   /// 改歌名。只动本地记录 —— 上游没有「改标题」这回事，改名也不影响
   /// 取流和歌词（两者都按 mid 走）。
   void renameSong(String mid, String newName) {
@@ -333,13 +357,6 @@ class AppState extends ChangeNotifier {
   void removeFromList(String mid) {
     songs.removeWhere((s) => s.mid == mid);
     selectedMids.remove(mid);
-    _saveSongs();
-    notifyListeners();
-  }
-
-  void clearList() {
-    songs = [];
-    selectedMids.clear();
     _saveSongs();
     notifyListeners();
   }
