@@ -186,17 +186,22 @@ class AppState extends ChangeNotifier {
       await qqMusicService.ensureCookieFresh();
 
       final info = await qqMusicService.fetchUserInfo();
-      if (info != null) {
-        applyQqUserInfo(
-          nickname: info.nickname,
-          isWechat: info.isWechat,
-          isVip: info.isVip,
-        );
-      } else {
-        qqCookieStatus = 'invalid';
-        LocalStore.set('qqmusic_cookie_status', 'invalid');
-        toast.show('QQ 音乐 Cookie 已失效，请在设置中重新配置', type: ToastType.error);
-        notifyListeners();
+      switch (info.outcome) {
+        case CkOutcome.ok:
+          applyQqUserInfo(
+            nickname: info.nickname,
+            isWechat: info.isWechat,
+            isVip: info.isVip,
+          );
+        case CkOutcome.rejected:
+          qqCookieStatus = 'invalid';
+          LocalStore.set('qqmusic_cookie_status', 'invalid');
+          toast.show('QQ 音乐 Cookie 已失效，请在设置中重新配置', type: ToastType.error);
+          notifyListeners();
+        case CkOutcome.unreachable:
+          // 账号接口没连上，这份 ck 是好是坏无从判断 ——
+          // 拿一次网络抖动去改用户看到的状态，只会让他白填一遍。
+          fileLogger.warn('App', 'QQ ck 校验未能完成，保留原状态（$qqCookieStatus）');
       }
     }
     if (neteaseCookie.isNotEmpty) {

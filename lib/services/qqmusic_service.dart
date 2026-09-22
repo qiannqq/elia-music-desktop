@@ -32,6 +32,32 @@ const String kLyricUrl = 'https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.
 const String kQrcLyricUrl = 'https://c.y.qq.com/qqmusic/fcgi-bin/lyric_download.fcg';
 const String kSongIdUrl = 'https://c.y.qq.com/v8/fcg-bin/fcg_play_single_song.fcg';
 
+/// ck 校验的结论。
+///
+/// 分三态而不是「能用 / 不能用」两态。请求**根本没到腾讯那边**时（连接被
+/// 提前关掉、超时），这份 ck 是好是坏无从判断 —— 它和「服务端查无此人」
+/// 是两件事。以前两者一起返回 `null`，于是每次开机都可能弹一条
+/// 「Cookie 已失效」，用户点一次「验证并保存」又好了。
+enum CkOutcome {
+  /// 服务端认了，账号信息可信
+  ok,
+
+  /// 服务端明确不认（未登录、账号不存在）
+  rejected,
+
+  /// 请求没能完成，结论未知 —— 不要据此改任何状态
+  unreachable,
+}
+
+/// 一次 ck 校验的结果。[outcome] 不是 [CkOutcome.ok] 时其余字段无意义。
+typedef CkResult = ({
+  CkOutcome outcome,
+  String nickname,
+  String uin,
+  bool isWechat,
+  bool isVip,
+});
+
 /// QQ 音乐服务 —— `electron/service/qqmusic.js` 的 Dart 移植。
 ///
 /// 所有响应体都用 `utf8.decode(resp.bodyBytes)` 解码，**不要用 `resp.body`**：
@@ -61,6 +87,13 @@ class QQMusicService {
   static const Duration _kRefreshThrottle = Duration(minutes: 10);
   /// 连续失败这么多次就停手（多半是 refresh_token 也失效了，再试没意义）
   static const int _kMaxRefreshFails = 3;
+
+  /// ck 校验的尝试次数与单次超时。
+  ///
+  /// 超时给得比取地址那类接口紧：账号主页正常不到 1 秒，卡住就说明这一路
+  /// 不通了，早点换一次重试比干等 30 秒强（实测那次挂了 19 秒才被关连接）。
+  static const int _kCkAttempts = 3;
+  static const Duration _kCkTimeout = Duration(seconds: 10);
 
   DateTime? _lastRefreshCheck;
   int _refreshFails = 0;
@@ -632,51 +665,88 @@ class QQMusicService {
   /// **不能只看 `code == 0`**：这个接口在未登录/ck 无效时同样会回 0，
   /// 真正能证明「这份 ck 对应一个真实账号」的是 `data.creator` 里的昵称。
   /// 少了这一层判断，随便填一串字符都会被判成「有效」。
-  Future<({String nickname, String uin, bool isWechat, bool isVip})?>
-      fetchUserInfo({String? ck}) async {
+  ///
+  /// 这个接口偶发在**没有任何响应**的情况下被提前关掉连接
+  /// （`ClientException: Connection closed before full header was received`，
+  /// 实测能挂十几秒才断）。单次失败就判失效，用户每次开机都会看到一条假提示，
+  /// 所以这里自己重试几次，只有服务端真的答「查无此人」才返回
+  /// [CkOutcome.rejected]；连不上则返回 [CkOutcome.unreachable]，由上层决定。
+  Future<CkResult> fetchUserInfo({String? ck}) async {
     final raw = (ck ?? cookie).trim();
-    if (raw.isEmpty) return null;
+    if (raw.isEmpty) return _ckFail(CkOutcome.rejected);
+
     // 结构就不合法的，不必浪费一次请求：
     // 登录态一定带着 unionid（QQ 是 psrf_qqunionid，微信是 wxunionid）
     final map = parseCookie(raw);
     final wxUnion = map['wxunionid'] ?? '';
     final qqUnion = map['psrf_qqunionid'] ?? '';
-    if (wxUnion.isEmpty && qqUnion.isEmpty) return null;
-    if ((map['qqmusic_key'] ?? map['qm_keyst'] ?? '').isEmpty) return null;
-
-    try {
-      final url = 'https://c.y.qq.com/rsc/fcgi-bin/fcg_get_profile_homepage.fcg'
-          '?_=${DateTime.now().millisecondsSinceEpoch}&cv=4747474&ct=24&format=json'
-          '&inCharset=utf-8&outCharset=utf-8&notice=0&platform=yqq.json&needNewCode=0'
-          '&uin=0&g_tk_new_20200303=5381&g_tk=5381&cid=205360838&userid=0'
-          '&reqfrom=1&reqtype=0&hostUin=0&loginUin=0';
-
-      final resp = await http.get(Uri.parse(url), headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Cookie': raw,
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      }).timeout(const Duration(seconds: 30));
-
-      final res = jsonDecode(utf8.decode(resp.bodyBytes)) as Map?;
-      if (!_isOkCode(res?['code'])) return null;
-      final creator = (res?['data'] as Map?)?['creator'] as Map?;
-      final nick = (creator?['nick'] ?? '').toString().trim();
-      if (nick.isEmpty) return null;
-      final account = (map['uin'] ?? map['wxuin'] ?? '').toString();
-      return (
-        nickname: nick,
-        uin: account,
-        // 微信登录的 ck 带 wxunionid，QQ 登录带 psrf_qqunionid
-        isWechat: wxUnion.isNotEmpty,
-        isVip: await _queryVip(account, ck: raw),
-      );
-    } catch (e) {
-      fileLogger.warn('QQMusic', 'ck 校验请求失败: $e');
-      return null;
+    if (wxUnion.isEmpty && qqUnion.isEmpty) return _ckFail(CkOutcome.rejected);
+    if ((map['qqmusic_key'] ?? map['qm_keyst'] ?? '').isEmpty) {
+      return _ckFail(CkOutcome.rejected);
     }
+
+    Object? lastErr;
+    for (var attempt = 0; attempt < _kCkAttempts; attempt++) {
+      try {
+        final res = await _fetchProfile(raw);
+        if (!_isOkCode(res?['code'])) return _ckFail(CkOutcome.rejected);
+        final creator = (res?['data'] as Map?)?['creator'] as Map?;
+        final nick = (creator?['nick'] ?? '').toString().trim();
+        if (nick.isEmpty) return _ckFail(CkOutcome.rejected);
+
+        final account = (map['uin'] ?? map['wxuin'] ?? '').toString();
+        return (
+          outcome: CkOutcome.ok,
+          nickname: nick,
+          uin: account,
+          // 微信登录的 ck 带 wxunionid，QQ 登录带 psrf_qqunionid
+          isWechat: wxUnion.isNotEmpty,
+          isVip: await _queryVip(account, ck: raw),
+        );
+      } catch (e) {
+        lastErr = e;
+        fileLogger.warn('QQMusic', 'ck 校验第 ${attempt + 1} 次没通: $e');
+        if (attempt < _kCkAttempts - 1) {
+          await Future<void>.delayed(Duration(milliseconds: 300 * (attempt + 1)));
+        }
+      }
+    }
+    fileLogger.warn('QQMusic', 'ck 校验未能完成，结论未知: $lastErr');
+    return _ckFail(CkOutcome.unreachable);
   }
 
-  Future<bool> validateCookie() async => await fetchUserInfo() != null;
+  /// 账号主页接口。单独拎出来是为了让测试能把它指到一个没人监听的端口上，
+  /// 复现「连不上」那条路（正常路径下没人会改它）。
+  static String profileEndpoint =
+      'https://c.y.qq.com/rsc/fcgi-bin/fcg_get_profile_homepage.fcg';
+
+  /// 单次账号主页请求。[fetchUserInfo] 负责重试，这里只管发一次。
+  Future<Map?> _fetchProfile(String raw) async {
+    final url = '$profileEndpoint'
+        '?_=${DateTime.now().millisecondsSinceEpoch}&cv=4747474&ct=24&format=json'
+        '&inCharset=utf-8&outCharset=utf-8&notice=0&platform=yqq.json&needNewCode=0'
+        '&uin=0&g_tk_new_20200303=5381&g_tk=5381&cid=205360838&userid=0'
+        '&reqfrom=1&reqtype=0&hostUin=0&loginUin=0';
+
+    final resp = await http.get(Uri.parse(url), headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Cookie': raw,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    }).timeout(_kCkTimeout);
+    return jsonDecode(utf8.decode(resp.bodyBytes)) as Map?;
+  }
+
+  /// 只有 [CkOutcome.ok] 才算「这份 ck 能用」。
+  Future<bool> validateCookie() async =>
+      (await fetchUserInfo()).outcome == CkOutcome.ok;
+
+  CkResult _ckFail(CkOutcome outcome) => (
+        outcome: outcome,
+        nickname: '',
+        uin: '',
+        isWechat: false,
+        isVip: false,
+      );
 
   /// 查绿钻（含豪华绿钻）。
   ///

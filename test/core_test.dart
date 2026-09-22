@@ -103,6 +103,44 @@ void main() {
     });
   });
 
+  group('QQ ck 校验结论', () {
+    // 结构上就不合法的 ck 应当在**发请求之前**被判成 rejected。
+    // 这一条是给「重启后误报失效」留的护栏：那时如果把「发不出去」和
+    // 「服务端不认」混成一件事，用户每次开机都会看到一条假的失效提示。
+    test('空 ck → rejected（不是 unreachable）', () async {
+      final r = await QQMusicService.instance.fetchUserInfo(ck: '');
+      expect(r.outcome, CkOutcome.rejected);
+      expect(r.nickname, isEmpty);
+    });
+
+    test('缺 unionid → rejected', () async {
+      final r = await QQMusicService.instance
+          .fetchUserInfo(ck: 'uin=1; qqmusic_key=abc');
+      expect(r.outcome, CkOutcome.rejected);
+    });
+
+    test('缺 musickey → rejected', () async {
+      final r = await QQMusicService.instance
+          .fetchUserInfo(ck: 'psrf_qqunionid=DEADBEEF; uin=1');
+      expect(r.outcome, CkOutcome.rejected);
+    });
+
+    test('连不上 → unreachable，而不是 rejected', () async {
+      // 指到一个没人监听的端口：连接立刻被拒。结构合法的 ck 走到这一步时
+      // 结论必须是「未知」—— 上层才不会拿一次网络抖动去标失效。
+      final saved = QQMusicService.profileEndpoint;
+      QQMusicService.profileEndpoint = 'http://127.0.0.1:1/nope';
+      try {
+        final r = await QQMusicService.instance.fetchUserInfo(
+            ck: 'uin=1; qqmusic_key=abc; psrf_qqunionid=DEADBEEF');
+        expect(r.outcome, CkOutcome.unreachable);
+        expect(r.nickname, isEmpty);
+      } finally {
+        QQMusicService.profileEndpoint = saved;
+      }
+    });
+  });
+
   group('QRC 解密密钥', () {
     test('密钥为 24 字节 ASCII（与 Node 版 Buffer.from(...,"ascii") 一致）',
         () {
