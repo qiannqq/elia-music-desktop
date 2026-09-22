@@ -5,6 +5,7 @@
 #include "flutter/generated_plugin_registrant.h"
 #include "lyric_island.h"
 #include "smtc_bridge.h"
+#include "system_bridge.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -29,6 +30,7 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   RegisterSmtcBridge(flutter_controller_->engine()->messenger(), GetHandle());
   RegisterLyricIsland(flutter_controller_->engine()->messenger(), GetHandle());
+  RegisterSystemBridge(flutter_controller_->engine()->messenger());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {

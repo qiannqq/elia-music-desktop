@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
+import '../../core/app_paths.dart';
 import '../../services/api_client.dart';
+import '../../services/audio_cache.dart';
 import '../../services/bilibili_service.dart';
+import '../../services/cache_manager.dart';
 import '../../services/lyric_island_service.dart';
 import '../../services/netease_service.dart';
 import '../../services/qqmusic_service.dart';
@@ -52,6 +55,70 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _qqVerifying = false;
   bool _neVerifying = false;
   bool _biliVerifying = false;
+
+  /// 缓存占用。null = 还没统计出来。
+  CacheUsage? _usage;
+  bool _cacheBusy = false;
+
+  /// 拖动上限滑块时的临时值。松手前不写盘，免得拖一次存几十遍。
+  double? _limitDraft;
+
+  double get _limitGb => _limitDraft ?? AudioDiskCache.limitMb / 1024;
+
+  Future<void> _applyLimit(double gb) async {
+    final value = gb.round();
+    AudioDiskCache.setLimitGb(value);
+    // 调小了就当场生效，否则用户看不到任何变化
+    final removed = AudioDiskCache.enforceLimit();
+    if (mounted) setState(() => _limitDraft = null);
+    await _refreshCache();
+    if (value <= 0) {
+      toast.show(
+        removed > 0 ? '缓存已停用，清掉 $removed 首' : '缓存已停用',
+        type: ToastType.info,
+      );
+    } else if (removed > 0) {
+      toast.show('已按上限清掉 $removed 首最久没听过的', type: ToastType.info);
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshCache();
+  }
+
+  Future<void> _refreshCache() async {
+    final u = await CacheManager.measure();
+    if (mounted) setState(() => _usage = u);
+  }
+
+  /// [kind]：'audio' / 'lyric' / 'all'
+  Future<void> _clearCache(String kind) async {
+    if (_cacheBusy) return;
+    final label = switch (kind) {
+      'audio' => '音频缓存',
+      'lyric' => '歌词与其他',
+      _ => '全部缓存',
+    };
+    final ok = await showConfirmDialog(context, '确定清空$label吗？下次播放会重新取一遍。');
+    if (!ok || !mounted) return;
+    setState(() => _cacheBusy = true);
+    try {
+      final freed = switch (kind) {
+        'audio' => CacheManager.clearAudio(),
+        'lyric' => CacheManager.clearLyrics(),
+        _ => CacheManager.clearAll(),
+      };
+      await _refreshCache();
+      toast.show('已清理 $label，释放 ${CacheManager.formatBytes(freed)}',
+          type: ToastType.success);
+    } catch (e) {
+      toast.show('清理失败：$e', type: ToastType.error);
+    } finally {
+      if (mounted) setState(() => _cacheBusy = false);
+    }
+  }
 
   /// 保存目录会随「选择目录」而变，每次构建对齐一次。
   ///
@@ -519,9 +586,153 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ],
           ),
+          const SizedBox(height: 16),
+
+          // ---------------- 缓存 ----------------
+          _Section(
+            title: '缓存',
+            desc: '播放时留在本机的音频和歌词，清掉之后下次播放会重新取一遍。'
+                '歌单、Cookie 和设置不在这里面，不会被清掉。',
+            children: _buildCache(c),
+          ),
         ],
       ),
     ));
+  }
+
+  List<Widget> _buildCache(AppColors c) {
+    final u = _usage;
+    if (u == null) {
+      return [
+        Text(
+          '正在统计…',
+          style: TextStyle(fontSize: 13, color: c.textTertiary),
+        ),
+      ];
+    }
+
+    final drive = AppPaths.dataDir.length >= 2
+        ? AppPaths.dataDir.substring(0, 2).toUpperCase()
+        : '';
+    final diskShare = u.diskShare;
+
+    return [
+      _CacheRow(
+        c: c,
+        label: '总占用',
+        bytes: u.totalBytes,
+        trailing: diskShare == null
+            ? ''
+            : '占 $drive ${(diskShare * 100).toStringAsFixed(2)}%',
+        emphasize: true,
+      ),
+      const SizedBox(height: 10),
+      _CacheBar(c: c, value: u.audioShare),
+      const SizedBox(height: 12),
+      _CacheRow(
+        c: c,
+        label: '音频',
+        bytes: u.audioBytes,
+        trailing: '占缓存 ${(u.audioShare * 100).round()}%',
+        action: AppButton(
+          label: '清理',
+          small: true,
+          onPressed: _cacheBusy ? null : () => _clearCache('audio'),
+        ),
+      ),
+      const SizedBox(height: 8),
+      _CacheRow(
+        c: c,
+        label: '歌词与其他',
+        bytes: u.lyricBytes,
+        trailing: '占缓存 ${(u.lyricShare * 100).round()}%',
+        action: AppButton(
+          label: '清理',
+          small: true,
+          onPressed: _cacheBusy ? null : () => _clearCache('lyric'),
+        ),
+      ),
+      const SizedBox(height: 18),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          _FieldLabel('缓存上限', c),
+          const SizedBox(width: 8),
+          Text(
+            '超出上限就按「最久没听过」的顺序删；拖到 0 则不启用缓存',
+            style: TextStyle(fontSize: 12, color: c.textTertiary),
+          ),
+        ],
+      ),
+      Row(
+        children: [
+          SizedBox(
+            width: 200,
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 4,
+                activeTrackColor: c.accent,
+                inactiveTrackColor: c.progressBg,
+                thumbColor: c.accent,
+                overlayColor: c.accentLight,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+              ),
+              child: Slider(
+                value: _limitGb
+                    .clamp(
+                      AudioDiskCache.minLimitGb.toDouble(),
+                      AudioDiskCache.maxLimitGb.toDouble(),
+                    )
+                    .toDouble(),
+                min: AudioDiskCache.minLimitGb.toDouble(),
+                max: AudioDiskCache.maxLimitGb.toDouble(),
+                divisions:
+                    AudioDiskCache.maxLimitGb - AudioDiskCache.minLimitGb,
+                onChanged: _cacheBusy
+                    ? null
+                    : (v) => setState(() => _limitDraft = v),
+                onChangeEnd: _cacheBusy ? null : _applyLimit,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 64,
+            child: Text(
+              _limitGb.round() <= 0 ? '不启用' : '${_limitGb.round()} GB',
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                fontSize: 13,
+                color: c.textSecondary,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 16),
+      Row(
+        children: [
+          AppButton(
+            label: '清理全部缓存',
+            small: true,
+            icon: AppIcons.trash,
+            onPressed: (_cacheBusy || u.totalBytes <= 0)
+                ? null
+                : () => _clearCache('all'),
+          ),
+          const SizedBox(width: 10),
+          AppButton(
+            label: '重新统计',
+            small: true,
+            variant: AppButtonVariant.ghost,
+            onPressed: _cacheBusy ? null : _refreshCache,
+          ),
+        ],
+      ),
+    ];
   }
 
   Future<void> _verifyQq() async {
@@ -848,6 +1059,109 @@ class _ThemeOption extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 缓存统计的一行：名称 + 体积 + 说明 + 可选的操作按钮。
+class _CacheRow extends StatelessWidget {
+  const _CacheRow({
+    required this.c,
+    required this.label,
+    required this.bytes,
+    this.trailing = '',
+    this.action,
+    this.emphasize = false,
+  });
+
+  final AppColors c;
+  final String label;
+  final int bytes;
+  final String trailing;
+  final Widget? action;
+
+  /// 总占用那一行：字重和颜色都提一档
+  final bool emphasize;
+
+  @override
+  Widget build(BuildContext context) {
+    final weight = emphasize ? FontWeight.w600 : FontWeight.w500;
+    final color = emphasize ? c.text : c.textSecondary;
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: TextStyle(fontSize: 13, fontWeight: weight, color: color),
+          ),
+        ),
+        Text(
+          CacheManager.formatBytes(bytes),
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: weight,
+            color: color,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+        const SizedBox(width: 12),
+        // 固定宽度右对齐：三行的百分比才会竖着对齐成一列
+        SizedBox(
+          width: 104,
+          child: Text(
+            trailing,
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              fontSize: 12,
+              color: c.textTertiary,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ),
+        if (action != null) ...[
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 58,
+            child: Align(alignment: Alignment.centerRight, child: action),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// 音频与歌词的比例条。只做展示，不响应鼠标。
+class _CacheBar extends StatelessWidget {
+  const _CacheBar({required this.c, required this.value});
+
+  final AppColors c;
+
+  /// 音频占总缓存的比例（0~1）
+  final double value;
+
+  @override
+  Widget build(BuildContext context) {
+    final v = value.clamp(0.0, 1.0);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(3),
+      child: SizedBox(
+        height: 6,
+        child: Stack(
+          children: [
+            Positioned.fill(child: ColoredBox(color: c.progressBg)),
+            Positioned.fill(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: FractionallySizedBox(
+                  widthFactor: v,
+                  heightFactor: 1,
+                  child: ColoredBox(color: c.accent),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

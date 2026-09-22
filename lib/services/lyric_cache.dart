@@ -206,4 +206,51 @@ class LyricCache {
       if (f.existsSync()) f.deleteSync();
     } catch (_) {}
   }
+
+  // ------------------------------------------------------------ 占用与清理
+
+  /// 歌词缓存目录
+  static Directory get dir => Directory(p.join(AppPaths.dataDir, 'lyrics'));
+
+  /// 磁盘上占用的字节数
+  static int sizeOnDisk() {
+    var total = 0;
+    try {
+      if (dir.existsSync()) {
+        for (final f in dir.listSync().whereType<File>()) {
+          try {
+            total += f.lengthSync();
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+    return total;
+  }
+
+  /// 清空全部歌词缓存（内存 + 磁盘），返回释放的字节数。
+  ///
+  /// **内存那份也要清**：只删文件的话，内存里还留着整首歌词，
+  /// 表现为「清了缓存但歌词照样立刻出来」。
+  static int clearAll() {
+    _cache.clear();
+    var freed = 0;
+    try {
+      if (dir.existsSync()) {
+        for (final f in dir.listSync().whereType<File>()) {
+          try {
+            final n = f.lengthSync();
+            f.deleteSync();
+            freed += n;
+          } catch (_) {}
+        }
+      }
+    } catch (e) {
+      fileLogger.warn('Lyric', '清理缓存失败: $e');
+    }
+    if (freed > 0) {
+      fileLogger.info(
+          'Lyric', '清空歌词缓存，释放 ${(freed / 1024).toStringAsFixed(0)}KB');
+    }
+    return freed;
+  }
 }

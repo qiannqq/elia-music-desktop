@@ -11,6 +11,7 @@ add_executable(${BINARY_NAME} WIN32
   "lyric_island.cpp"
   "main.cpp"
   "smtc_bridge.h"
+  "system_bridge.cpp"
   "utils.cpp"
   "win32_window.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
