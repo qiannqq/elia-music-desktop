@@ -12,6 +12,7 @@ import 'services/api_client.dart';
 import 'services/http_server.dart';
 import 'services/audio_cache.dart';
 import 'services/player_controller.dart';
+import 'services/lyric_island_service.dart';
 import 'services/smtc_service.dart';
 import 'state/app_state.dart';
 import 'state/theme_controller.dart';
@@ -58,6 +59,9 @@ Future<void> main() async {
 
   // 系统媒体控件：播放栏之外的第二个出口（媒体面板 / 锁屏 / 硬件媒体键）
   await smtc.init();
+
+  // 桌面顶部的歌词胶囊。默认关，只有设置里打开过才会显示。
+  await lyricIsland.init();
 
   // 按策略清理音频缓存：不在歌单里的留 24h、在歌单里但 30 天没听的删掉
   AudioDiskCache.prune(playlistMids: app.songs.map((s) => s.mid).toSet());

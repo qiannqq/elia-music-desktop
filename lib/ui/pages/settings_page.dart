@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/app_theme.dart';
 import '../../services/api_client.dart';
 import '../../services/bilibili_service.dart';
+import '../../services/lyric_island_service.dart';
 import '../../services/netease_service.dart';
 import '../../services/qqmusic_service.dart';
 import '../../state/app_state.dart';
@@ -408,6 +409,37 @@ class _SettingsPageState extends State<SettingsPage> {
                     ],
                   ),
                 ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // ---------------- 桌面歌词 ----------------
+          _Section(
+            title: '桌面歌词',
+            desc: '播放时停在屏幕顶部正中。当前这句会逐字亮起来，有翻译就写在下面。'
+                '暂停、换歌，或者鼠标移上去时，会先收起来。默认关闭。',
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '开启',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: c.textSecondary,
+                      ),
+                    ),
+                  ),
+                  AppToggle(
+                    value: lyricIsland.enabled,
+                    onChanged: (v) {
+                      lyricIsland.setEnabled(v);
+                      setState(() {});
+                    },
+                  ),
+                ],
               ),
             ],
           ),

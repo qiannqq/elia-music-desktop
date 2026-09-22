@@ -3,6 +3,7 @@
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "lyric_island.h"
 #include "smtc_bridge.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
@@ -27,6 +28,7 @@ bool FlutterWindow::OnCreate() {
   }
   RegisterPlugins(flutter_controller_->engine());
   RegisterSmtcBridge(flutter_controller_->engine()->messenger(), GetHandle());
+  RegisterLyricIsland(flutter_controller_->engine()->messenger(), GetHandle());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -42,6 +44,8 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  // 通道挂在引擎的 messenger 上，要先拆掉再销毁引擎。
+  LyricIslandShutdown();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -67,6 +71,14 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
+    case WM_WINDOWPOSCHANGED: {
+      // 主窗口换屏幕时，胶囊还停在原来那块的顶部正中。
+      const auto* pos = reinterpret_cast<const WINDOWPOS*>(lparam);
+      if (pos != nullptr && (pos->flags & SWP_NOMOVE) == 0) {
+        LyricIslandOnHostMoved();
+      }
+      break;
+    }
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
