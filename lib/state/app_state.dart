@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import '../core/file_logger.dart';
 import '../core/local_store.dart';
 import '../core/lyric.dart';
+import '../core/perf_probe.dart';
 import '../models/song.dart';
 import '../services/api_client.dart';
 import '../services/bilibili_service.dart';
@@ -319,6 +320,8 @@ class AppState extends ChangeNotifier {
     final to = _pageOrder.indexOf(target);
     pageDirection = to >= from ? 1 : -1;
     page = target;
+    // 探针开着时给这一段起个名，方便把帧耗时对上具体操作
+    PerfProbe.mark('切页→$target');
     notifyListeners();
 
     if (target == 'playlist') {

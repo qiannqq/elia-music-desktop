@@ -8,6 +8,7 @@ import 'package:window_manager/window_manager.dart';
 import 'core/app_paths.dart';
 import 'core/file_logger.dart';
 import 'core/local_store.dart';
+import 'core/perf_probe.dart';
 import 'services/api_client.dart';
 import 'services/http_server.dart';
 import 'services/audio_cache.dart';
@@ -30,6 +31,10 @@ Future<void> main() async {
   debugPrint('[App] logsDir  = ${AppPaths.logsDir}');
 
   _setupErrorLogging();
+
+  // 帧耗时探针。默认关（kPerfEnabled=false），要测性能时用
+  // --dart-define=ELIA_PERF=true 构建即可，不必改代码。
+  PerfProbe.start();
 
   // ---- 单实例：用**独占文件锁**，不用端口 ----
   // 早期版本靠「固定端口 17071 绑定失败」判定单实例，结果与原版 Electron
