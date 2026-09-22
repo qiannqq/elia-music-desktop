@@ -29,6 +29,20 @@ class PlaylistPage extends StatefulWidget {
   State<PlaylistPage> createState() => _PlaylistPageState();
 }
 
+/// 量一段文字画出来有多宽（单行）。
+///
+/// 就地编辑的下划线、歌单内搜索的线都靠它：线的长度得跟着内容走，
+/// 而且要**有最小长度**，超出去才继续长。
+double _measureTextWidth(String text, TextStyle style, double maxWidth) {
+  final painter = TextPainter(
+    // 空串量出来是 0，给个空格免得线完全不见（此时光标还闪在开头）
+    text: TextSpan(text: text.isEmpty ? ' ' : text, style: style),
+    textDirection: TextDirection.ltr,
+    maxLines: 1,
+  )..layout();
+  return painter.width.clamp(0.0, maxWidth);
+}
+
 class _PlaylistPageState extends State<PlaylistPage> {
   /// 当前鼠标悬停的歌曲 mid —— **单一数据源**。
   ///
@@ -40,6 +54,104 @@ class _PlaylistPageState extends State<PlaylistPage> {
   /// （含整张 ListView 与所有可见行）。快速滚动时鼠标不断划过新行，
   /// 等于每划过一行就重建一次列表。改成每行自己订阅，只有真正变了的那行重建。
   final ValueNotifier<String?> _hoveredMid = ValueNotifier<String?>(null);
+
+  // ------------------------------------------------------------ 歌单内搜索
+
+  bool _searching = false;
+  String _query = '';
+  final TextEditingController _searchCtrl = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
+
+  /// 下划线的长度。收起动画要靠它：宽度跟着输入一起归零的话，线会在动画
+  /// **开始之前**就没了 —— 表现成「展开有动画、收起没动画」。
+  double _lastSearchWidth = 0;
+
+  /// 线的最小长度。空着的时候也得看得见，不然不知道点没点上。
+  static const double _searchMinWidth = 140;
+
+  /// 按 [_query] 过滤后的歌单。关键词为空就是全部。
+  List<Song> get _visibleSongs {
+    final q = _query.toLowerCase();
+    if (q.isEmpty) return widget.state.songs;
+    return widget.state.songs
+        .where((s) =>
+            s.name.toLowerCase().contains(q) ||
+            s.artist.toLowerCase().contains(q))
+        .toList();
+  }
+
+  void _toggleSearch() {
+    final next = !_searching;
+    setState(() => _searching = next);
+    if (next) {
+      _searchFocus.requestFocus();
+      return;
+    }
+    // 收起时连输入内容一起清掉：只收线、留着上次的过滤条件，
+    // 会让人以为「列表怎么少了几首」。
+    _searchCtrl.clear();
+    _searchFocus.unfocus();
+    setState(() => _query = '');
+  }
+
+  /// 没有搜索按钮 —— 回车即搜。
+  void _submitSearch(String value) {
+    setState(() => _query = value.trim());
+  }
+
+  /// 放大镜右边那条线：宽度跟着输入内容走（有最小长度），展开/收起带动画。
+  Widget _buildSearchLine(AppColors c) {
+    final style = TextStyle(fontSize: 13, color: c.text);
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0, end: _searching ? 1 : 0),
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutCubic,
+      builder: (ctx, t, _) {
+        // 量不到就沿用上一次的宽度：收起时文字已经清空了，直接量会得到 0，
+        // 线会「啪」地消失，而不是收回去。
+        final measured = _measureTextWidth(_searchCtrl.text, style, 320);
+        final want = measured < _searchMinWidth ? _searchMinWidth : measured;
+        if (_searching) _lastSearchWidth = want;
+        final width = (_lastSearchWidth == 0 ? want : _lastSearchWidth) * t;
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: SizedBox(
+            width: width,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                IgnorePointer(
+                  ignoring: !_searching,
+                  child: Opacity(
+                    opacity: t.clamp(0.0, 1.0),
+                    child: TextField(
+                      controller: _searchCtrl,
+                      focusNode: _searchFocus,
+                      style: style,
+                      cursorColor: c.accent,
+                      cursorWidth: 1.5,
+                      onSubmitted: _submitSearch,
+                      decoration: InputDecoration(
+                        isCollapsed: true,
+                        border: InputBorder.none,
+                        hintText: '在歌单里搜索',
+                        hintStyle:
+                            TextStyle(fontSize: 13, color: c.textTertiary),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                // 线本身：跟主题色一致
+                Container(height: 1.5, color: c.accent),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 
   /// 挂在 `prototypeItem` 上，用来量真实行高。
   /// 「定位到正在播放」要按行高算目标位置，手写公式字体一缩放就偏。
@@ -68,8 +180,20 @@ class _PlaylistPageState extends State<PlaylistPage> {
   }
 
   @override
+  @override
+  void initState() {
+    super.initState();
+    // 线长跟着输入走 —— 打字时要重建（只在展开态，别的时候不监听）
+    _searchCtrl.addListener(() {
+      if (_searching && mounted) setState(() {});
+    });
+  }
+
+  @override
   void dispose() {
     _hoveredMid.dispose();
+    _searchCtrl.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -78,6 +202,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
     final c = context.c;
     final state = widget.state;
     final songs = state.songs;
+    final visible = _visibleSongs;
 
     return Column(
       children: [
@@ -90,7 +215,22 @@ class _PlaylistPageState extends State<PlaylistPage> {
                 '歌单',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: c.text),
               ),
-              const Spacer(),
+              const SizedBox(width: 10),
+              // 放大镜：点一下从它右侧划出一条线，就地搜歌单；再点一下连输入
+              // 内容一起收起。展开/收起都有动画。
+              AppIconButton(
+                icon: AppIcons.search,
+                size: 28,
+                iconSize: 15,
+                baseColor: _searching ? c.accent : c.textTertiary,
+                hoverColor: c.accent,
+                hoverBg: Colors.transparent,
+                tooltip: _searching ? '收起搜索' : '在歌单里搜索',
+                onTap: _toggleSearch,
+              ),
+              // 用 Expanded 把这块空间**先占住**：线在这个空间里长，
+              // 右边的按钮不会被推着走。
+              Expanded(child: _buildSearchLine(c)),
               // 定位到正在播放。只在有播放栏（有当前歌曲）时出现 ——
               // 没在放歌的时候它没有意义。
               if (player.currentSong != null) ...[
@@ -143,14 +283,22 @@ class _PlaylistPageState extends State<PlaylistPage> {
                     hint: '搜索或在搜索页面粘贴歌单链接来添加歌曲',
                   ),
                 )
-              : SmoothWheelScroll(
+              : visible.isEmpty
+                  ? const SingleChildScrollView(
+                      child: EmptyState(
+                        icon: AppIcons.search,
+                        title: '没有匹配的歌曲',
+                        hint: '换个关键词试试',
+                      ),
+                    )
+                  : SmoothWheelScroll(
                   controller: widget.scrollController,
                   child: Scrollbar(
                   controller: widget.scrollController,
                   child: ListView.builder(
                     controller: widget.scrollController,
                     padding: const EdgeInsets.symmetric(horizontal: 32),
-                    itemCount: songs.length,
+                    itemCount: visible.length,
                     // 必须让列表知道行高。
                     //
                     // 没有它时，`RenderSliverList` 无从由偏移反推行号，
@@ -169,17 +317,17 @@ class _PlaylistPageState extends State<PlaylistPage> {
                     ),
                     itemBuilder: (ctx, i) {
                       // 在这里就把 mid 取出来捕获进闭包。
-                      // 若闭包里写 songs[i].mid，`i` 是回调触发时才求值的 ——
+                      // 若闭包里写 visible[i].mid，`i` 是回调触发时才求值的 ——
                       // 列表一变（增删/拖拽/换序）就会取到别的歌，
                       // 导致「上一行的高亮清不掉、两行同时高亮」。
-                      final mid = songs[i].mid;
+                      final mid = visible[i].mid;
                       return _PlaylistItem(
                         // 稳定 key（按 mid）：
                         // 「添加到歌单顶部」会让歌曲换位置，若按索引复用 State，
                         // 展开中的「+」二级菜单状态会跳到别的卡片上、
                         // 收起动画被打断 —— 表现为「二级菜单突兀消失」。
                         key: ValueKey(mid),
-                        song: songs[i],
+                        song: visible[i],
                         state: state,
                         onOpenLyric: widget.onOpenLyric,
                         hoveredMid: _hoveredMid,
@@ -378,16 +526,6 @@ class _PlaylistItemState extends State<_PlaylistItem> {
 
   /// 量出这段文字渲染出来有多宽 —— 下划线要正好画到名字末尾。
   /// 名字比可用宽度还长时按可用宽度截断（跟 Text 的省略号表现对齐）。
-  double _measureNameWidth(String text, TextStyle style, double maxWidth) {
-    final painter = TextPainter(
-      // 空串量出来是 0，给个空格免得线完全不见（此时光标还闪在开头）
-      text: TextSpan(text: text.isEmpty ? ' ' : text, style: style),
-      textDirection: TextDirection.ltr,
-      maxLines: 1,
-    )..layout();
-    return painter.width.clamp(0.0, maxWidth);
-  }
-
   @override
   Widget build(BuildContext context) {
     final c = context.c;
@@ -487,7 +625,7 @@ class _PlaylistItemState extends State<_PlaylistItem> {
                             // 那一行需要量宽度，别的时候不测。
                             // 收起时沿用记住的那次宽度，让动画从「满」缩到 0。
                             final measured = _editingName
-                                ? _measureNameWidth(_nameCtrl.text, nameStyle,
+                                ? _measureTextWidth(_nameCtrl.text, nameStyle,
                                         cons.maxWidth)
                                 : null;
                             if (measured != null) _lastLineWidth = measured;
