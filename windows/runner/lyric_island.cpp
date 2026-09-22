@@ -73,6 +73,29 @@ bool g_gdi = false;
 
 bool g_enabled = false;
 bool g_timer = false;
+UINT g_timer_ms = 0;
+
+/// 复用的离屏位图与内存 DC。
+///
+/// 每帧 CreateDIBSection + CreateCompatibleDC 会不停分配/释放 100KB 级的
+/// 位图和 GDI 对象；而这个重绘跑在平台线程上（和 Flutter 的 UI 同一条），
+/// 滚动时两边会明显打架。
+HDC g_mem_dc = nullptr;
+HBITMAP g_dib = nullptr;
+void* g_dib_bits = nullptr;
+int g_dib_w = 0;
+int g_dib_h = 0;
+
+/// 缓存的胶囊底：阴影 + 底色 + 描边。
+///
+/// 这三样每帧重画（尤其两条抗锯齿的胶囊路径）是这个重绘的主要开销，
+/// 而它们只在尺寸变化时才需要重画 —— 之后每帧贴一次图就行。
+std::unique_ptr<Bitmap> g_bg;
+int g_bg_w = 0;
+int g_bg_h = 0;
+
+/// 上一帧的时间戳，用来算 dt
+ULONGLONG g_last_step = 0;
 bool g_playing = false;
 bool g_have_live = false;
 bool g_measured = false;
@@ -125,6 +148,14 @@ bool g_have_prev = false;
 float g_slide = 1.f;
 int64_t g_prev_ms = 0;
 
+/// 换行后**第一次绘制**的时刻，位移从它开始算。0 表示这一轮还没开始画。
+///
+/// 不能拿「换行那一刻」当起点：换行是由 Dart 推过来的，落在两次定时器之间，
+/// 而上一次 Step 可能已经是 50ms 前（静止档）。照实算的话第一帧就吃掉
+/// 四分之一段位移 —— 新句不是从胶囊下面升上来，而是**直接在半路出现**，
+/// 剩下的路再慢慢走完，看起来就是「僵硬的半截动画」。
+ULONGLONG g_slide_start = 0;
+
 std::string g_cover_song;
 std::unique_ptr<Bitmap> g_cover;
 
@@ -142,6 +173,33 @@ float SlideEase(float t) {
   if (t > 1.f) t = 1.f;
   const float u = 1.f - t;
   return 1.f - u * u * u;
+}
+
+/// 滚动带两端的淡入 / 淡出窗口（占整段进度的比例）。
+///
+/// 位移本身已经保证整块进出画面，这里的淡化只是把贴着胶囊上下沿的那一两
+/// 像素抹平 —— 胶囊高度取整、文字边缘又有抗锯齿，正好停在边界上时可能留
+/// 一条极淡的残影。窗口必须很短：长了就变成「淡掉」，而不是「滚出去」。
+constexpr float kSlideFade = 0.12f;
+
+/// 上一句滚到末尾时的收尾淡化。easeOutCubic 到 0.88 已经走完 99.9% 的位移，
+/// 所以这段淡化发生时它其实早就出画了，只是把最后那一两像素收干净。
+float SlideFadeOut(float t) {
+  const float u = std::clamp((1.f - t) / kSlideFade, 0.f, 1.f);
+  return 1.f - (1.f - u) * (1.f - u);
+}
+
+/// 下一句入场时的起始淡化，与 [SlideFadeOut] 对称。
+float SlideFadeIn(float t) {
+  const float u = std::clamp(t / kSlideFade, 0.f, 1.f);
+  return u * u;
+}
+
+/// 指数逼近：[dt] 秒内吃掉剩余距离的 `1 - e^(-rate*dt)`。
+///
+/// 这样写的好处是**与帧率无关** —— 漏帧只会少画几帧，不会让动画变慢或变调。
+float Approach(float cur, float target, float rate, float dt) {
+  return cur + (target - cur) * (1.f - expf(-rate * dt));
 }
 
 BYTE Alpha(int base, float a) {
@@ -201,7 +259,15 @@ struct Screen {
   int dpi = 96;
 };
 
-Screen HostScreen() {
+/// 缓存的显示器信息。
+///
+/// 每帧查一次要调 `MonitorFromWindow` + `GetMonitorInfo` + `GetDpiForMonitor`，
+/// 在 60fps 下是纯浪费 —— 只有主窗口挪到别的屏幕时才会变，
+/// 那时会走 `LyricIslandOnHostMoved` 把它作废。
+Screen g_screen;
+bool g_screen_valid = false;
+
+Screen QueryScreen() {
   Screen s;
   s.rc.right = GetSystemMetrics(SM_CXSCREEN);
   s.rc.bottom = GetSystemMetrics(SM_CYSCREEN);
@@ -221,6 +287,14 @@ Screen HostScreen() {
     s.dpi = static_cast<int>(dpi_x);
   }
   return s;
+}
+
+const Screen& CachedScreen() {
+  if (!g_screen_valid) {
+    g_screen = QueryScreen();
+    g_screen_valid = true;
+  }
+  return g_screen;
 }
 
 void AddCapsule(GraphicsPath* path, const RectF& rc) {
@@ -381,7 +455,7 @@ Box LayoutOf(const Line& line, bool cover, float max_w) {
 }
 
 void RecomputeTarget() {
-  const Screen screen = HostScreen();
+  const Screen& screen = CachedScreen();
   g_dpi = screen.dpi;
   const float max_w = static_cast<float>(screen.rc.right - screen.rc.left - Dp(64));
   const bool cover = ShowCover();
@@ -395,7 +469,7 @@ void RecomputeTarget() {
 }
 
 void EnsureMeasure() {
-  const Screen screen = HostScreen();
+  const Screen& screen = CachedScreen();
   if (screen.dpi != g_dpi) g_measured = false;
   if (g_measured) return;
   g_dpi = screen.dpi;
@@ -493,12 +567,43 @@ void FadeBits(void* bits, int count, float a) {
   }
 }
 
+/// 画一次胶囊底（阴影 + 底色 + 描边）并缓存。
+///
+/// 只在尺寸变化时重建，之后每帧贴一次图 —— 两条抗锯齿胶囊路径的填充
+/// 是这个重绘里最贵的部分，而它们每帧长得一模一样。
+std::unique_ptr<Bitmap> BuildBackground(int win_w, int win_h, const RectF& pill) {
+  auto bmp = std::make_unique<Bitmap>(win_w, win_h, PixelFormat32bppPARGB);
+  if (bmp->GetLastStatus() != Ok) return nullptr;
+  Graphics g(bmp.get());
+  g.SetSmoothingMode(SmoothingModeAntiAlias);
+  g.SetPixelOffsetMode(PixelOffsetModeHalf);
+  g.SetCompositingMode(CompositingModeSourceOver);
+  g.Clear(Color(0, 0, 0, 0));
+
+  RectF shadow = pill;
+  shadow.Y += static_cast<REAL>(Dp(3));
+  shadow.Inflate(static_cast<REAL>(Dp(2)), static_cast<REAL>(Dp(1)));
+  GraphicsPath shadow_path;
+  AddCapsule(&shadow_path, shadow);
+  SolidBrush shadow_brush(Color(72, 0, 0, 0));
+  g.FillPath(&shadow_brush, &shadow_path);
+
+  GraphicsPath path;
+  AddCapsule(&path, pill);
+  SolidBrush fill(Color(242, 28, 28, 30));
+  g.FillPath(&fill, &path);
+  Pen edge(Color(48, 255, 255, 255), 1.f);
+  edge.SetAlignment(PenAlignmentInset);
+  g.DrawPath(&edge, &path);
+  return bmp;
+}
+
 void Paint() {
   if (!g_hwnd || g_presence <= 0.01f) return;
   if (g_live.line.text.empty()) return;
 
   EnsureMeasure();
-  const Screen screen = HostScreen();
+  const Screen& screen = CachedScreen();
   g_dpi = screen.dpi;
 
   const int margin = Dp(20);
@@ -530,25 +635,47 @@ void Paint() {
   const float content = std::clamp((k - 0.35f) / 0.65f, 0.f, 1.f);
 
   HDC screen_dc = GetDC(nullptr);
-  HDC mem = CreateCompatibleDC(screen_dc);
-  BITMAPINFO bmi{};
-  bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-  bmi.bmiHeader.biWidth = win_w;
-  bmi.bmiHeader.biHeight = -win_h;
-  bmi.bmiHeader.biPlanes = 1;
-  bmi.bmiHeader.biBitCount = 32;
-  bmi.bmiHeader.biCompression = BI_RGB;
-  void* bits = nullptr;
-  HBITMAP dib = CreateDIBSection(screen_dc, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
-  if (!dib || !bits) {
-    DeleteDC(mem);
+  // 尺寸变了才重建离屏位图。每帧新建/释放一个 100KB 级的 DIB 加一个内存 DC，
+  // 在 60fps 下就是每秒好几 MB 的无谓分配。
+  if (g_dib && (g_dib_w != win_w || g_dib_h != win_h)) {
+    DeleteObject(g_dib);
+    g_dib = nullptr;
+    g_dib_bits = nullptr;
+  }
+  if (!g_dib) {
+    if (g_mem_dc) {
+      DeleteDC(g_mem_dc);
+      g_mem_dc = nullptr;
+    }
+    g_mem_dc = CreateCompatibleDC(screen_dc);
+    BITMAPINFO bmi{};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = win_w;
+    bmi.bmiHeader.biHeight = -win_h;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+    g_dib = CreateDIBSection(screen_dc, &bmi, DIB_RGB_COLORS, &g_dib_bits, nullptr, 0);
+    g_dib_w = win_w;
+    g_dib_h = win_h;
+  }
+  if (!g_dib || !g_dib_bits || !g_mem_dc) {
     ReleaseDC(nullptr, screen_dc);
     return;
   }
-  HGDIOBJ old = SelectObject(mem, dib);
+  HGDIOBJ old = SelectObject(g_mem_dc, g_dib);
+
+  const RectF pill(static_cast<REAL>(margin), static_cast<REAL>(margin),
+                   static_cast<REAL>(pill_w), static_cast<REAL>(pill_h));
+  if (!g_bg || g_bg_w != win_w || g_bg_h != win_h) {
+    g_bg = BuildBackground(win_w, win_h, pill);
+    g_bg_w = win_w;
+    g_bg_h = win_h;
+  }
 
   {
-    Bitmap bmp(win_w, win_h, win_w * 4, PixelFormat32bppPARGB, static_cast<BYTE*>(bits));
+    Bitmap bmp(win_w, win_h, win_w * 4, PixelFormat32bppPARGB,
+               static_cast<BYTE*>(g_dib_bits));
     Graphics g(&bmp);
     g.SetSmoothingMode(SmoothingModeAntiAlias);
     g.SetPixelOffsetMode(PixelOffsetModeHalf);
@@ -558,24 +685,12 @@ void Paint() {
     g.SetPageUnit(UnitPixel);
     g.Clear(Color(0, 0, 0, 0));
 
-    const RectF pill(static_cast<REAL>(margin), static_cast<REAL>(margin),
-                     static_cast<REAL>(pill_w), static_cast<REAL>(pill_h));
+    // 底图（阴影 / 底色 / 描边）是缓存的，这里只贴一次
+    if (g_bg) g.DrawImage(g_bg.get(), 0, 0);
 
-    RectF shadow = pill;
-    shadow.Y += static_cast<REAL>(Dp(3));
-    shadow.Inflate(static_cast<REAL>(Dp(2)), static_cast<REAL>(Dp(1)));
-    GraphicsPath shadow_path;
-    AddCapsule(&shadow_path, shadow);
-    SolidBrush shadow_brush(Color(72, 0, 0, 0));
-    g.FillPath(&shadow_brush, &shadow_path);
-
+    // 路径还要留着做裁剪：收起时文字不能溢出胶囊
     GraphicsPath path;
     AddCapsule(&path, pill);
-    SolidBrush fill(Color(242, 28, 28, 30));
-    g.FillPath(&fill, &path);
-    Pen edge(Color(48, 255, 255, 255), 1.f);
-    edge.SetAlignment(PenAlignmentInset);
-    g.DrawPath(&edge, &path);
 
     const GraphicsState content_state = g.Save();
     g.SetClip(&path);
@@ -593,16 +708,22 @@ void Paint() {
     if (family.GetLastStatus() == Ok) {
       Font lyric(&family, static_cast<REAL>(Dp(20)), FontStyleRegular, UnitPixel);
       Font trans(&family, static_cast<REAL>(Dp(12)), FontStyleRegular, UnitPixel);
-      // 换行时旧句往上走、新句从下面进来。平移量取「刚好走完一整块」——
-      // 少了会在胶囊边上留半行残影，多了则是白白多等一截。
-      const float block = BlockHeight(g_live.line);
-      const float inner = std::max(8.f, pill.Height - pad_y * 2.f);
-      const float travel = (block + inner) / 2.f;
+      // 换行时旧句往上走、新句从下面进来。两句按**同一段位移**走 ——
+      // 这样它才是一条刚性的滚动带，而不是各走各的两次平移。
+      //
+      // 位移量必须按**胶囊**算，不能按内边距后的文字栏算：文字栏比胶囊上下
+      // 各矮 pad_y，按它算的话旧句走到终点时块底还有 pad_y 高的一截留在胶囊里
+      // —— 表现为「快滚完时留个小尾巴，然后硬消失」。
+      // 两句取同一个值（高的那句为准），滚动带才不会被拉长。
+      const float block = std::max(g_have_prev ? BlockHeight(g_prev) : 0.f,
+                                   BlockHeight(g_live.line));
+      const float travel = (pill.Height + block) / 2.f;
       if (g_have_prev && g_slide < 1.f) {
         const float slide = SlideEase(g_slide);
-        DrawLine(g, lyric, trans, g_prev, column, content, g_prev_ms, -travel * slide);
-        DrawLine(g, lyric, trans, g_live.line, column, content, Playhead(),
-                 travel * (1.f - slide));
+        DrawLine(g, lyric, trans, g_prev, column, content * SlideFadeOut(g_slide),
+                 g_prev_ms, -travel * slide);
+        DrawLine(g, lyric, trans, g_live.line, column,
+                 content * SlideFadeIn(g_slide), Playhead(), travel * (1.f - slide));
       } else {
         DrawLine(g, lyric, trans, g_live.line, column, content, Playhead(), 0.f);
       }
@@ -640,17 +761,17 @@ void Paint() {
     g.Restore(content_state);
   }
 
-  FadeBits(bits, win_w * win_h, content);
+  FadeBits(g_dib_bits, win_w * win_h, content);
 
   POINT dst{x, y};
   SIZE size{win_w, win_h};
   POINT src{0, 0};
   BLENDFUNCTION blend{AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
-  UpdateLayeredWindow(g_hwnd, screen_dc, &dst, &size, mem, &src, 0, &blend, ULW_ALPHA);
+  // 顺序不能反：取消选中之后这块位图就没内容可取了。
+  UpdateLayeredWindow(g_hwnd, screen_dc, &dst, &size, g_mem_dc, &src, 0, &blend,
+                      ULW_ALPHA);
 
-  SelectObject(mem, old);
-  DeleteObject(dib);
-  DeleteDC(mem);
+  SelectObject(g_mem_dc, old);
   ReleaseDC(nullptr, screen_dc);
 
   if (!IsWindowVisible(g_hwnd)) {
@@ -663,6 +784,9 @@ void Paint() {
 void StopTimer() {
   if (g_timer && g_hwnd) KillTimer(g_hwnd, kAnimTimer);
   g_timer = false;
+  g_timer_ms = 0;
+  // 停表期间的时间不算进 dt —— 否则重新开始时第一帧会「一下跳完」
+  g_last_step = 0;
 }
 
 bool WantShow() {
@@ -670,20 +794,55 @@ bool WantShow() {
   return !g_live.line.text.empty();
 }
 
-bool NeedTimer() {
-  if (!g_enabled || !g_hwnd) return false;
-  if (g_hover || g_swapping) return true;
-  if (g_presence > 0.01f || WantShow()) return true;
-  if (std::fabs(g_w - g_target_w) > 0.8f || std::fabs(g_h - g_target_h) > 0.8f) {
-    return true;
+/// 这一句还有字在渐变里吗。
+///
+/// 全部唱完之后就没必要再按帧刷了 —— 静态画面重绘一百遍还是同一张，
+/// 纯属白烧平台线程（Flutter 的滚动也在那条线上）。
+bool LineStillAnimating() {
+  if (!g_playing) return false;
+  const Line& line = g_live.line;
+  if (!line.sweep || line.words.empty()) return false;
+  const int64_t now = Playhead();
+  for (const Word& w : line.words) {
+    const int64_t dur = w.d < 120 ? 120 : w.d;
+    if (now < w.t + dur) return true;
   }
   return false;
 }
 
-void StartTimer() {
-  if (g_timer || !g_hwnd) return;
-  SetTimer(g_hwnd, kAnimTimer, 16, nullptr);
+/// 结构性动画（进出场 / 伸缩 / 换行平移）还在跑吗。
+bool StructuralAnimating() {
+  if (g_swapping) return true;
+  // 悬浮时胶囊已经收没了，剩下的只是等光标离开，慢档够用
+  if (g_hover) return g_presence > 0.01f;
+  const float target = WantShow() ? 1.f : 0.f;
+  if (std::fabs(g_presence - target) > 0.012f) return true;
+  if (std::fabs(g_w - g_target_w) > 0.8f || std::fabs(g_h - g_target_h) > 0.8f) {
+    return true;
+  }
+  if (g_have_prev && g_slide < 1.f) return true;
+  return false;
+}
+
+/// 还有任何东西在动吗 —— 决定这一轮用 16ms 还是 50ms。
+///
+/// 逐字变色也算「在动」：它必须保持 60fps，不能为了省开销降帧。
+bool Animating() { return StructuralAnimating() || LineStillAnimating(); }
+
+/// 胶囊还在屏幕上（含正在进出场）—— 这时要继续轮询光标做悬浮检测。
+bool OnScreen() { return g_presence > 0.01f; }
+
+/// [ms] 是这一轮要的间隔：在动就 16ms，只是轮询光标就 50ms。
+///
+/// 空闲时还按 16ms 满帧刷是不行的 —— 这个重绘跑在平台线程上，
+/// 会和 Flutter 的滚动抢同一条线程。
+void StartTimer(UINT ms = 16) {
+  if (!g_hwnd) return;
+  if (g_timer && g_timer_ms == ms) return;
+  if (g_timer) KillTimer(g_hwnd, kAnimTimer);
+  SetTimer(g_hwnd, kAnimTimer, ms, nullptr);
   g_timer = true;
+  g_timer_ms = ms;
 }
 
 void UpdateHover() {
@@ -719,8 +878,18 @@ void Step() {
   UpdateHover();
   if (g_swapping && g_has_queue && g_presence < 0.03f) CommitQueue();
 
+  // 按真实经过的时间推进。这个重绘跑在平台线程上，Flutter 一滚动就会漏帧；
+  // 固定步长下漏帧 = 动画变慢且一顿一顿，按 dt 算则只是少画几帧。
+  const ULONGLONG now_tick = GetTickCount64();
+  float dt = g_last_step == 0 ? 1.f / 60.f
+                              : static_cast<float>(now_tick - g_last_step) / 1000.f;
+  g_last_step = now_tick;
+  if (dt > 0.1f) dt = 0.1f;  // 卡了很久（窗口被挡住之类）不要一下跳完
+
   if (g_have_prev && g_slide < 1.f) {
-    g_slide += kSlideStep;
+    if (g_slide_start == 0) g_slide_start = now_tick;
+    g_slide = static_cast<float>(now_tick - g_slide_start) /
+              (1000.f * kSlideSeconds);
     if (g_slide >= 1.f) {
       g_slide = 1.f;
       g_have_prev = false;
@@ -729,27 +898,41 @@ void Step() {
 
   EnsureMeasure();
   const float target = WantShow() ? 1.f : 0.f;
-  const float pd = target - g_presence;
-  if (std::fabs(pd) < 0.012f) {
+  if (std::fabs(target - g_presence) < 0.012f) {
     g_presence = target;
   } else {
-    g_presence += pd * 0.17f;
+    g_presence = Approach(g_presence, target, kPresenceRate, dt);
   }
 
-  const float wd = g_target_w - g_w;
-  if (std::fabs(wd) < 0.8f) g_w = g_target_w;
-  else g_w += wd * 0.24f;
-  const float hd = g_target_h - g_h;
-  if (std::fabs(hd) < 0.8f) g_h = g_target_h;
-  else g_h += hd * 0.24f;
+  if (std::fabs(g_target_w - g_w) < 0.8f) {
+    g_w = g_target_w;
+  } else {
+    g_w = Approach(g_w, g_target_w, kSizeRate, dt);
+  }
+  if (std::fabs(g_target_h - g_h) < 0.8f) {
+    g_h = g_target_h;
+  } else {
+    g_h = Approach(g_h, g_target_h, kSizeRate, dt);
+  }
 
-  if (g_presence > 0.01f) {
+  if (OnScreen()) {
     Paint();
   } else if (g_hwnd && IsWindowVisible(g_hwnd)) {
     ShowWindow(g_hwnd, SW_HIDE);
   }
 
-  if (!NeedTimer()) StopTimer();
+  // 还在动就 16ms，完全静止才降到 50ms（只轮询光标）。彻底收干净了就停表。
+  //
+  // 这里**不要**再按「结构性动画 / 逐字变色」分档降帧 —— 那是拿观感换性能。
+  // 真正的开销在别处解决（底图缓存 + 静止停表），逐字高亮必须保持 60fps。
+  //
+  // 注意 g_hover 也要算进来：悬浮时胶囊已经收没了，OnScreen() 和 WantShow()
+  // 都是假，一旦这里停表就再没人去查光标走没走，胶囊会永远回不来。
+  if (OnScreen() || WantShow() || g_hover) {
+    StartTimer(Animating() ? 16 : 50);
+  } else {
+    StopTimer();
+  }
 }
 
 void EnsureWindow() {
@@ -828,6 +1011,11 @@ void ApplyLine(const Snapshot& next) {
     g_prev_ms = Playhead();
     g_have_prev = true;
     g_slide = 0.f;
+    // 位移从**下一次绘制**开始算，不从这里算 —— 见 g_slide_start。
+    g_slide_start = 0;
+    // 胶囊尺寸也在这一帧开始变，dt 从零起算：否则上一次 Step 可能是
+    // 50ms 前（静止档），宽度会一步跳过去而不是撑开。
+    g_last_step = 0;
   }
   g_live.song = next.song;
   g_live.line = next.line;
@@ -895,6 +1083,9 @@ void SetEnabled(bool on) {
   g_enabled = on;
   if (!on) {
     g_hover = false;
+    // 让退场动画跑起来。调用方也会 StartTimer，这里再保证一次 ——
+    // 少了它胶囊会停在半路，一直挂在桌面上不消失。
+    if (g_hwnd) StartTimer();
     return;
   }
   if (!g_gdi) return;
@@ -914,17 +1105,6 @@ void HandleCall(const flutter::MethodCall<EncodableValue>& call,
   if (method == "update") {
     OnUpdate(args);
     if (g_hwnd) StartTimer();
-    result->Success();
-    return;
-  }
-  if (method == "accent") {
-    // 逐字高亮色。先钳到 0~255 再存 —— 通道那头算错了也不该画出一个越界的颜色。
-    g_hot_r = static_cast<BYTE>(std::clamp<int64_t>(GetInt(args, "r"), 0, 255));
-    g_hot_g = static_cast<BYTE>(std::clamp<int64_t>(GetInt(args, "g"), 0, 255));
-    g_hot_b = static_cast<BYTE>(std::clamp<int64_t>(GetInt(args, "b"), 0, 255));
-    // 静态画面重绘一百遍还是同一张，所以颜色变了得主动重画一次 ——
-    // 光靠定时器的话，一句唱完停在那儿时换了色是看不到变化的。
-    if (g_hwnd && g_presence > 0.01f) Paint();
     result->Success();
     return;
   }
@@ -969,6 +1149,8 @@ void RegisterLyricIsland(flutter::BinaryMessenger* messenger, HWND host) {
 }
 
 void LyricIslandOnHostMoved() {
+  // 主窗口可能换了屏幕 —— 显示器信息要重新查
+  g_screen_valid = false;
   if (!g_enabled || !g_hwnd || !IsWindowVisible(g_hwnd)) return;
   g_measured = false;
   Paint();
@@ -977,10 +1159,26 @@ void LyricIslandOnHostMoved() {
 void LyricIslandShutdown() {
   StopTimer();
   g_cover.reset();
+  g_bg.reset();
+  g_bg_w = 0;
+  g_bg_h = 0;
+  g_screen_valid = false;
   if (g_hwnd) {
     DestroyWindow(g_hwnd);
     g_hwnd = nullptr;
   }
+  // 复用的离屏位图与内存 DC 也要还回去（Paint 每次都会把它取消选中）
+  if (g_dib) {
+    DeleteObject(g_dib);
+    g_dib = nullptr;
+    g_dib_bits = nullptr;
+  }
+  if (g_mem_dc) {
+    DeleteDC(g_mem_dc);
+    g_mem_dc = nullptr;
+  }
+  g_dib_w = 0;
+  g_dib_h = 0;
   g_channel.reset();
   if (g_gdi) {
     GdiplusShutdown(g_gdi_token);

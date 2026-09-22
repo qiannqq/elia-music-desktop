@@ -6,6 +6,7 @@ LyricIslandFrame frame({
   bool playing = true,
   bool loading = false,
   bool hasSong = true,
+  bool paused = false,
   String title = '歌名',
   String artist = '歌手',
   List<LyricLine> lines = const [],
@@ -16,6 +17,7 @@ LyricIslandFrame frame({
     playing: playing,
     loading: loading,
     hasSong: hasSong,
+    lyricPaused: paused,
     title: title,
     artist: artist,
     lines: lines,
@@ -70,5 +72,19 @@ void main() {
 
   test('歌手和歌名一样时不重复', () {
     expect(frame(title: '同名', artist: '同名').text, '同名');
+  });
+
+  test('暂停、或最后一句唱完后，跟播放栏一样改显示歌名', () {
+    final f = frame(
+      paused: true,
+      lines: const [LyricLine(1, '最后一句')],
+      index: 0,
+      trans: {1: '翻译'},
+    );
+    expect(f.visible, isTrue);
+    expect(f.text, '歌名 · 歌手');
+    // 歌名态不该带着最后一句的翻译
+    expect(f.trans, isEmpty);
+    expect(f.lineIndex, -1);
   });
 }
