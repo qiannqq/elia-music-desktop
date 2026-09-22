@@ -3,9 +3,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
+import '../../models/song.dart';
+import '../../services/player_controller.dart';
+import '../../services/shell_service.dart';
 import '../../state/app_state.dart';
 import '../icons.dart';
 import 'common.dart';
+import 'context_menu.dart';
 import 'dialogs.dart';
 
 // ================================================================ 下载按钮
@@ -168,9 +172,25 @@ class _AddButtonState extends State<AddButton> {
   bool _expanded = false;
 
   @override
+  void initState() {
+    super.initState();
+    widget.state.addListener(_onState);
+  }
+
+  @override
   void dispose() {
+    widget.state.removeListener(_onState);
     _removeEntry();
     super.dispose();
+  }
+
+  /// 别处把这个菜单的状态清掉时（例如在行上按右键），跟着收起。
+  ///
+  /// `_entry == null` 时直接返回：收起动画播完后状态也会被清一次，
+  /// 那一刻 entry 已经移除，再 _close() 是空转。
+  void _onState() {
+    if (!_expanded || _entry == null) return;
+    if (widget.state.openAddMenuMid != widget.mid) _close();
   }
 
   void _removeEntry() {
@@ -227,6 +247,9 @@ class _AddButtonState extends State<AddButton> {
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
               onTap: _close,
+              // 右键也要关：二级菜单展开着的时候，在别处按右键
+              // 应该把它收起来，而不是留着它又去响应别的目标。
+              onSecondaryTap: _close,
             ),
           ),
           Positioned(
@@ -515,4 +538,126 @@ class _PopupItemState extends State<_PopupItem> {
       ),
     );
   }
+}
+
+// ================================================================ 右键菜单条目
+
+/// 构造歌曲右键菜单的条目 —— 歌单页、搜索页与播放列表面板共用。
+///
+/// [inPlaylist] 决定要不要带上「从歌单中移除 / 置顶 / 置底」，
+/// [inQueue] 是播放列表面板里那一份：把上面那组换成「从播放队列中移除」——
+/// 队列里的歌**不一定在歌单里**，置顶置底更是歌单的事。
+/// [onEditName] 为 null 时不显示「编辑歌曲名」：改名要就地展开输入框，
+/// 只有歌单行和搜索行有那套东西。
+List<AppMenuItem> buildSongMenuItems({
+  required BuildContext context,
+  required AppState state,
+  required Song song,
+  required ValueChanged<String> onOpenLyric,
+  VoidCallback? onEditName,
+  bool inPlaylist = false,
+  bool inQueue = false,
+}) {
+  final downloaded = state.downloadedPaths[song.mid];
+  final hasFile = downloaded != null && downloaded.isNotEmpty;
+
+  return [
+    AppMenuItem(
+      label: '播放',
+      icon: AppIcons.play,
+      onTap: () => state.playSong(song.mid),
+    ),
+    // 插到「正在播的那首」后面。已经在队列里的话会先把它从原位置摘掉 ——
+    // 不摘会出现同一首歌占两处。正在播的那首本身不给点：它已经在播了。
+    AppMenuItem(
+      label: '插入到下一首',
+      icon: AppIcons.playOrder,
+      enabled: song.mid != player.currentSong?.mid,
+      onTap: () => state.insertNext(song),
+    ),
+    // 已经下载过的，这一项变成「打开所在文件夹」——
+    // 再点一次「下载」没有意义。
+    hasFile
+        ? AppMenuItem(
+            label: '打开所在文件夹',
+            icon: AppIcons.folder,
+            onTap: () => state.openFileFolder(song.mid),
+          )
+        : AppMenuItem(
+            label: '下载',
+            icon: AppIcons.download,
+            onTap: () => downloadSongFromMenu(context, state, song.mid),
+          ),
+    AppMenuItem(
+      label: '歌词',
+      icon: AppIcons.lyricDoc,
+      onTap: () => onOpenLyric(song.mid),
+    ),
+    if (onEditName != null)
+      AppMenuItem(
+        label: '编辑歌曲名',
+        icon: AppIcons.edit,
+        onTap: onEditName,
+      ),
+    if (inQueue)
+      AppMenuItem(
+        label: '从播放队列中移除',
+        icon: AppIcons.trash,
+        danger: true,
+        dividerBefore: true,
+        onTap: () => state.removeFromQueue(song),
+      )
+    else if (inPlaylist) ...[
+      AppMenuItem(
+        label: '从歌单中移除',
+        icon: AppIcons.trash,
+        danger: true,
+        dividerBefore: true,
+        onTap: () => state.removeFromList(song.mid),
+      ),
+      AppMenuItem(
+        label: '置顶',
+        icon: AppIcons.arrowUpToLine,
+        onTap: () => state.moveToTop(song.mid),
+      ),
+      AppMenuItem(
+        label: '置底',
+        icon: AppIcons.arrowDownToLine,
+        onTap: () => state.moveToBottom(song.mid),
+      ),
+    ],
+    // B站音源直接开原视频；别的音源去 B站搜 ——
+    // 想找这一版在 B站有没有投稿，只能搜出来看。
+    song.isBilibili
+        ? AppMenuItem(
+            label: '通过浏览器打开原视频',
+            icon: AppIcons.externalLink,
+            dividerBefore: true,
+            onTap: () =>
+                ShellService.openUrl(ShellService.bilibiliVideoUrl(song)),
+          )
+        : AppMenuItem(
+            label: '通过B站搜索该歌曲',
+            icon: AppIcons.search,
+            dividerBefore: true,
+            onTap: () =>
+                ShellService.openUrl(ShellService.bilibiliSearchUrl(song)),
+          ),
+  ];
+}
+
+/// 菜单里的「下载」—— 与下载按钮走同一条路，只是这里不显示环形进度，
+/// 进度由按钮那边呈现（状态是共用的）。
+Future<void> downloadSongFromMenu(
+  BuildContext context,
+  AppState state,
+  String mid,
+) async {
+  await state.downloadSong(
+    mid,
+    askSaveLocation: (filename) async {
+      if (!context.mounted) return null;
+      return showSaveDialog(context, state, filename);
+    },
+  );
 }

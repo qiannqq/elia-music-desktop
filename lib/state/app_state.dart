@@ -109,12 +109,19 @@ class AppState extends ChangeNotifier {
   final Map<String, double> downloadProgress = {};
   final Map<String, DownloadStatus> downloadStatuses = {};
 
-  // ------------------------------------------------------------ 随机 / 历史
+  // ------------------------------------------------------------ 播放队列
 
-  List<String> shufflePlaylist = [];
-  int shuffleIndex = -1;
-  List<String> playHistory = [];
-  int historyIndex = -1;
+  /// 播放队列 —— 播放栏**只**按它走，没有第二个隐藏池。
+  ///
+  /// 顺序类模式下它就是歌单的顺序；随机模式下是洗好的顺序（以前是藏着的，
+  /// 现在由播放栏的「播放列表」面板摊开给用户看）。
+  ///
+  /// 存 [Song] 而不是 mid：队列里可能有**不在歌单里**的歌 —— 右键
+  /// 「插入到下一首」从搜索页插进来的那种，按 mid 在歌单里查不到。
+  List<Song> playQueue = [];
+
+  /// [playQueue] 里正在播放那首的下标。-1 = 还没开始播。
+  int queueIndex = -1;
 
   // ------------------------------------------------------------ 歌词弹窗
 
@@ -137,8 +144,6 @@ class AppState extends ChangeNotifier {
     _inited = true;
 
     _loadSongs();
-    _loadShuffleState();
-    _loadPlayHistory();
 
     searchSource = LocalStore.getOr('search_source', 'qq');
     highQuality = LocalStore.get('qqmusic_high_quality') != 'false';
@@ -267,41 +272,6 @@ class AppState extends ChangeNotifier {
 
   void _saveSongs() {
     LocalStore.writeJson('qqmusic_songs', songs.map((e) => e.toStoreJson()).toList());
-  }
-
-  void _saveShuffleState() {
-    LocalStore.writeJson('shuffle_playlist', shufflePlaylist);
-    LocalStore.set('shuffle_index', '$shuffleIndex');
-  }
-
-  void _loadShuffleState() {
-    try {
-      final pl = LocalStore.readJson<List<dynamic>>('shuffle_playlist', const [])
-          .map((e) => e.toString())
-          .toList();
-      final idx = int.tryParse(LocalStore.getOr('shuffle_index', '-1')) ?? -1;
-      if (pl.isNotEmpty && idx >= 0 && idx < pl.length) {
-        shufflePlaylist = pl;
-        shuffleIndex = idx;
-      }
-    } catch (_) {}
-  }
-
-  void _savePlayHistory() {
-    LocalStore.writeJson('play_history', playHistory);
-    LocalStore.set('history_index', '$historyIndex');
-  }
-
-  void _loadPlayHistory() {
-    try {
-      playHistory = LocalStore.readJson<List<dynamic>>('play_history', const [])
-          .map((e) => e.toString())
-          .toList();
-      historyIndex = int.tryParse(LocalStore.getOr('history_index', '-1')) ?? -1;
-    } catch (_) {
-      playHistory = [];
-      historyIndex = -1;
-    }
   }
 
   void _saveDownloadedPaths() {
@@ -438,132 +408,156 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ============================================================ 随机 / 历史
+  // ============================================================ 播放队列
 
-  void _pushHistory(String mid) {
-    if (historyIndex >= 0) {
-      playHistory = playHistory.sublist(0, math.min(historyIndex + 1, playHistory.length));
-    }
-    playHistory.remove(mid);
-    playHistory.add(mid);
-    if (playHistory.length > 200) playHistory.removeAt(0);
-    historyIndex = -1;
-    _savePlayHistory();
+  /// 队列空的时候按当前模式建一次。
+  ///
+  /// 「播放列表」面板打开时也调它 —— 启动后还没播过东西时队列是空的，
+  /// 直接摊开一个空列表很奇怪。
+  void ensureQueue() {
+    if (playQueue.isNotEmpty || songs.isEmpty) return;
+    _rebuildQueue();
   }
 
-  void _buildShufflePlaylist([String? startMid]) {
-    final mids = songs.map((s) => s.mid).toList();
-    for (var i = mids.length - 1; i > 0; i--) {
+  /// 按当前模式重建队列，[keep] 是重建后要当作「当前这首」的歌
+  /// （不传就沿用播放器里正在播的那首）。
+  ///
+  /// * 随机：重洗一遍；
+  /// * **倒序：把歌单整个反过来** —— 播放栏严格按队列内容走，所以「倒序」必须
+  ///   落在队列本身，而不是只体现在游标方向上；
+  /// * 其余：就是歌单顺序。
+  void _rebuildQueue({Song? keep}) {
+    final cur = keep ?? player.currentSong;
+    final list = player.playMode == PlayMode.reverse
+        ? songs.reversed.toList()
+        : [...songs];
+    if (player.playMode == PlayMode.shuffle) _shuffle(list);
+    // 正在播的那首如果不在歌单里（从搜索页插进来的），得把它留在队列里 ——
+    // 重建时丢掉的话，面板上会出现「正在播的歌不在列表里」。
+    var idx = cur == null ? -1 : list.indexWhere((s) => s.mid == cur.mid);
+    if (cur != null && idx < 0) {
+      list.insert(0, cur);
+      idx = 0;
+    }
+    playQueue = list;
+    queueIndex = idx;
+  }
+
+  /// 原地洗牌
+  static void _shuffle(List<Song> list) {
+    for (var i = list.length - 1; i > 0; i--) {
       final j = math.Random().nextInt(i + 1);
-      final tmp = mids[i];
-      mids[i] = mids[j];
-      mids[j] = tmp;
+      final tmp = list[i];
+      list[i] = list[j];
+      list[j] = tmp;
     }
-    if (startMid != null && mids.length > 1 && mids[0] == startMid) {
-      final tmp = mids[0];
-      mids[0] = mids[1];
-      mids[1] = tmp;
-    }
-    shufflePlaylist = mids;
-    shuffleIndex = 0;
-    playHistory = [];
-    historyIndex = -1;
-    _saveShuffleState();
-    _savePlayHistory();
   }
 
-  Song? _getNextShuffleSong() {
-    if (songs.isEmpty) return null;
-    if (historyIndex >= 0 && historyIndex < playHistory.length - 1) {
-      historyIndex++;
-      _savePlayHistory();
-      final mid = playHistory[historyIndex];
-      return songs.where((s) => s.mid == mid).firstOrNull;
+  /// 把 [song] 插到「正在播的那首」后面。
+  ///
+  /// 已经在队列里的话先把它从原位置摘掉 —— 不摘会出现同一首歌占两处，
+  /// 而「插入到下一首」要的就是它紧接着播。
+  void insertNext(Song song) {
+    if (song.mid.isEmpty) return;
+    var at = queueIndex;
+    if (at < 0 || at >= playQueue.length) {
+      // 还没开始播：插到队首，下一次播放就是它
+      playQueue.insert(0, song);
+      notifyListeners();
+      return;
     }
-    if (shufflePlaylist.isEmpty || shufflePlaylist.length != songs.length) {
-      _buildShufflePlaylist(player.currentSong?.mid);
+    final existing = playQueue.indexWhere((s) => s.mid == song.mid);
+    if (existing >= 0) {
+      playQueue.removeAt(existing);
+      // 摘掉的位置在当前位置之前，当前位置要跟着左移一格
+      if (existing < at) at--;
     }
-    shuffleIndex++;
-    if (shuffleIndex >= shufflePlaylist.length) {
-      _buildShufflePlaylist(player.currentSong?.mid);
-    }
-    _saveShuffleState();
-    final mid = shufflePlaylist[shuffleIndex];
-    final song = songs.where((s) => s.mid == mid).firstOrNull;
-    if (song == null) {
-      _buildShufflePlaylist(player.currentSong?.mid);
-      return songs.where((s) => s.mid == shufflePlaylist[0]).firstOrNull;
-    }
-    return song;
+    playQueue.insert(at + 1, song);
+    queueIndex = at;
+    notifyListeners();
   }
 
-  Song? _reshuffleAndPlayFromEnd() {
-    _buildShufflePlaylist(player.currentSong?.mid);
-    if (shufflePlaylist.isEmpty) return null;
-    shuffleIndex = shufflePlaylist.length - 1;
-    playHistory = [...shufflePlaylist];
-    historyIndex = shufflePlaylist.length - 1;
-    _saveShuffleState();
-    _savePlayHistory();
-    return songs.where((s) => s.mid == shufflePlaylist[shuffleIndex]).firstOrNull;
+  /// 队列里的「下一首」（并把游标推进一格）。走到队尾时的行为由播放模式决定。
+  ///
+  /// 倒序模式走的是**队列本身**（队列已经是反过来的），所以这里不需要分方向。
+  ///
+  /// 是纯逻辑：不碰播放器、不发网络请求。所以测试可以直接调它 ——
+  /// 走 [handleEndedAction] 会真的去取播放地址。
+  Song? nextInQueue() {
+    if (playQueue.isEmpty) return null;
+    if (queueIndex + 1 < playQueue.length) {
+      queueIndex++;
+      return playQueue[queueIndex];
+    }
+    switch (player.playMode) {
+      case PlayMode.sequential:
+      case PlayMode.reverse:
+        // 顺序 / 倒序：播完就停，不绕回去 —— 这正是它们与循环的区别
+        return null;
+      case PlayMode.shuffle:
+        // 随机：整池放完重洗一遍接着放
+        _rebuildQueue();
+        if (playQueue.isEmpty) return null;
+        queueIndex = 0;
+        return playQueue[0];
+      case PlayMode.repeatAll:
+      case PlayMode.repeatOne:
+        queueIndex = 0;
+        return playQueue[0];
+    }
   }
 
-  Song? _getPrevShuffleSong() {
-    if (songs.isEmpty) return null;
-    if (playHistory.isEmpty) return _reshuffleAndPlayFromEnd();
-    if (historyIndex == -1) {
-      if (playHistory.length < 2) return _reshufflePlayFromEndSafe();
-      historyIndex = playHistory.length - 2;
-    } else if (historyIndex > 0) {
-      historyIndex--;
+  /// 队列里的「上一首」（游标退一格）。队首时顺序/倒序不动，其余模式绕到队尾。
+  ///
+  /// 随机模式下顺带把「当前这首**之后**」的那一段重洗 —— 上一首的语义是
+  /// 「这首不对，换一批」，不重洗的话紧接着点下一首又会回到刚才那首。
+  /// 当前之前那一段（已经听过的）保留，否则往回翻就没有意义了。
+  ///
+  /// 例：队列 `[A,B,C,D,E]` 正在放 C，点上一首 → 放 B，队列变成 `[A,B,E,C,D]`。
+  Song? prevInQueue() {
+    if (playQueue.isEmpty) return null;
+    if (queueIndex > 0) {
+      queueIndex--;
+    } else if (!player.playMode.stopsAtEnd) {
+      queueIndex = playQueue.length - 1;
     } else {
-      return _reshufflePlayFromEndSafe();
+      return null;
     }
-    _savePlayHistory();
-    final mid = playHistory[historyIndex];
-    return songs.where((s) => s.mid == mid).firstOrNull;
+    if (player.playMode == PlayMode.shuffle) {
+      final tail = playQueue.sublist(queueIndex + 1);
+      _shuffle(tail);
+      playQueue = [...playQueue.sublist(0, queueIndex + 1), ...tail];
+    }
+    return playQueue[queueIndex];
   }
 
-  Song? _reshufflePlayFromEndSafe() => _reshuffleAndPlayFromEnd();
+  /// 把这首歌从播放队列里摘掉（面板右键菜单用）。
+  ///
+  /// 摘的是**正在播**的那首时游标跟着挪一格，否则下一首会跳过一首。
+  void removeFromQueue(Song song) {
+    final at = playQueue.indexWhere((s) => s.mid == song.mid);
+    if (at < 0) return;
+    playQueue.removeAt(at);
+    if (at < queueIndex) {
+      queueIndex--;
+    } else if (at == queueIndex) {
+      queueIndex = queueIndex < playQueue.length ? queueIndex : playQueue.length - 1;
+    }
+    notifyListeners();
+  }
 
   /// 播放结束 / 上一首 / 下一首 的统一调度（等价原 `Player.setOnEnded`）
   void handleEndedAction(String action) {
-    final current = player.currentSong;
-    if (current == null) return;
-
-    Song? next;
-    if (player.playMode == PlayMode.shuffle) {
-      if (action == 'next' || action == 'random') {
-        next = _getNextShuffleSong();
-      } else if (action == 'prev') {
-        next = _getPrevShuffleSong();
-      }
-    } else {
-      final idx = songs.indexWhere((s) => s.mid == current.mid);
-      if (idx < 0) return;
-      if (action == 'next') {
-        if (idx + 1 < songs.length) {
-          next = songs[idx + 1];
-        } else if (player.playMode == PlayMode.repeatAll) {
-          next = songs.first;
-        }
-      } else if (action == 'prev') {
-        if (idx - 1 >= 0) {
-          next = songs[idx - 1];
-        } else if (player.playMode == PlayMode.repeatAll) {
-          next = songs.last;
-        }
-      }
-    }
-    if (next != null) playSong(next.mid, manual: false);
+    ensureQueue();
+    final next = action == 'prev' ? prevInQueue() : nextInQueue();
+    if (next != null) playResolved(next, manual: false);
   }
 
+  /// 播放模式变了 —— 队列立刻按新模式重建，面板跟着刷新。
   void onModeChanged(PlayMode mode) {
-    if (mode == PlayMode.shuffle) {
-      _buildShufflePlaylist(player.currentSong?.mid);
-    }
+    _rebuildQueue();
+    notifyListeners();
   }
-
   // ============================================================ 播放
 
   /// 播放请求代次：切歌之后，旧请求的结果必须丢弃。
@@ -578,9 +572,39 @@ class AppState extends ChangeNotifier {
       toast.show('歌曲不存在', type: ToastType.error);
       return;
     }
-    if (player.playMode == PlayMode.shuffle) {
-      if (manual) _buildShufflePlaylist(mid);
-      _pushHistory(mid);
+    await playResolved(song, manual: manual);
+  }
+
+  /// 播放一首已经拿到手的歌。
+  ///
+  /// 队列里的歌**不一定在歌单里**（右键「插入到下一首」从搜索页插进来的那种），
+  /// 那种按 mid 查不到 —— 所以队列直接拿着 [Song] 调这里，而不是绕回去调
+  /// [playSong]。
+  ///
+  /// [manual] = 用户主动点的（点歌、双击）。只有手动点歌才动队列位置：
+  /// 自动续播时位置已经由 [nextInQueue] / [prevInQueue] 挪好了。
+  Future<void> playResolved(Song song, {bool manual = true}) async {
+    if (manual) {
+      final idx = playQueue.indexWhere((s) => s.mid == song.mid);
+      if (idx >= 0) {
+        // 队列里已经有它：跳过去就行，不要重建 ——
+        // 重建会把「插入到下一首」插进来的东西冲掉。
+        queueIndex = idx;
+      } else {
+        // 不在队列里：先按模式把歌单的最新顺序带进来，再把这首放进去。
+        final at = queueIndex;
+        _rebuildQueue();
+        final inList = playQueue.indexWhere((s) => s.mid == song.mid);
+        if (inList >= 0) {
+          queueIndex = inList;
+        } else {
+          // 歌单里也没有（搜索页直接播的）：插到原当前位置后面再跳过去，
+          // 这样它播完能顺着往下走，而不是从歌单头重来。
+          final pos = (at < 0 || at >= playQueue.length) ? 0 : at + 1;
+          playQueue.insert(pos, song);
+          queueIndex = pos;
+        }
+      }
     }
     // 先展开播放栏并进入加载态，再去取播放地址（对齐 Electron 的交互）
     final gen = ++_playGeneration;
@@ -595,8 +619,8 @@ class AppState extends ChangeNotifier {
       // 文件也放不出来，表现就是「缓存没生效」。
       //
       // `play()` 本来就会先查缓存，这里只是把那一次查询提前，好把这段白等省掉。
-      final cached = AudioDiskCache.find(mid) != null;
-      final url = cached ? '' : await ApiClient.getSongUrl(mid, true, song);
+      final cached = AudioDiskCache.find(song.mid) != null;
+      final url = cached ? '' : await ApiClient.getSongUrl(song.mid, true, song);
       // 取地址期间用户已经切到别的歌了 —— 这个结果作废，
       // 既不能拿去播放（会把新歌顶掉），也不该弹错误提示
       if (gen != _playGeneration) return;

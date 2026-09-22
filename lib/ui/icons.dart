@@ -57,6 +57,47 @@ class AppIcons {
       '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>';
   static const edit =
       '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>';
+
+  // 右键菜单：置顶 / 置底 / 外部链接
+  static const arrowUpToLine =
+      '<path d="M5 3h14"/><path d="m18 13-6-6-6 6"/><path d="M12 7v14"/>';
+  static const arrowDownToLine =
+      '<path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/>';
+  static const externalLink =
+      '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>';
+
+  // 设置页分栏：CK 设置 / 主题色
+  static const key =
+      '<circle cx="7.5" cy="15.5" r="4.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>';
+  static const palette =
+      '<circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/>'
+      '<circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/>'
+      '<path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.93 0 1.65-.75 1.65-1.69 '
+      '0-.44-.18-.84-.44-1.13-.29-.29-.44-.65-.44-1.12a1.64 1.64 0 0 1 1.67-1.67h2'
+      'c3.05 0 5.56-2.5 5.56-5.55C22 6.01 17.46 2 12 2z"/>';
+
+  /// 播放列表（队列）：三行 + 播放三角
+  static const queue =
+      '<path d="M3 6h10"/><path d="M3 12h10"/><path d="M3 18h6"/>'
+      '<path d="m15 9 5 3-5 3z"/>';
+
+  /// 顺序播放：两个**平行**的箭头一起向右。
+  /// 不要用「三行 + 箭头」那种画法 —— 和 [queue] 长得太像，分不出来。
+  /// 箭头要够长（几乎占满画布宽度），短了在菜单里跟循环那几个摆一起很怪。
+  static const playOrder =
+      '<path d="M2 7h19"/><path d="m18 4 3 3-3 3"/>'
+      '<path d="M2 17h19"/><path d="m18 14 3 3-3 3"/>';
+
+  /// 倒序播放：两个平行的箭头一起向左
+  static const playOrderReverse =
+      '<path d="M22 7H3"/><path d="m6 4-3 3 3 3"/>'
+      '<path d="M22 17H3"/><path d="m6 14-3 3 3 3"/>';
+
+  /// 瞄准：定位到正在播放的那一首
+  static const target =
+      '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/>'
+      '<path d="M12 1.5v3.5"/><path d="M12 19v3.5"/>'
+      '<path d="M1.5 12H5"/><path d="M19 12h3.5"/>';
   static const volume =
       '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>';
 

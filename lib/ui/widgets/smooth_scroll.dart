@@ -98,6 +98,34 @@ class SmoothScrollController extends ScrollController {
   }
 }
 
+/// 把第 [index] 行滚进视野 —— 带滚动动画，不是直接跳过去。
+///
+/// [rowHeight] 要从**真实的一行**量出来（`prototypeItem` 上挂个 GlobalKey，
+/// 布局后读 `currentContext.size.height`），不要手写公式：
+/// 字体、文字缩放一变公式就不准了。
+///
+/// 走 [SmoothScrollController.scrollTo]，与滚轮共用同一条连续曲线 ——
+/// 所以看起来是「滑过去」，而不是 `animateTo` 那种从 0 加速再减速的位移。
+void scrollListToRow(
+  ScrollController controller,
+  int index,
+  double rowHeight,
+) {
+  if (index < 0 || rowHeight <= 0 || !controller.hasClients) return;
+  final pos = controller.position;
+  final target =
+      (index * rowHeight).clamp(pos.minScrollExtent, pos.maxScrollExtent);
+  if (controller is SmoothScrollController) {
+    controller.scrollTo(target);
+  } else {
+    controller.animateTo(
+      target,
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+    );
+  }
+}
+
 /// 滚动物理：**禁用内置的滚轮滚动**。
 ///
 /// 滚轮改由 [SmoothScrollController] 自己接管；

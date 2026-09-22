@@ -12,22 +12,32 @@ import 'api_client.dart';
 import 'audio_cache.dart';
 import 'lyric_cache.dart';
 
-enum PlayMode { repeatAll, repeatOne, shuffle }
+enum PlayMode { sequential, reverse, repeatAll, repeatOne, shuffle }
 
 extension PlayModeX on PlayMode {
   String get id => switch (this) {
+        PlayMode.sequential => 'sequential',
+        PlayMode.reverse => 'reverse',
         PlayMode.repeatAll => 'repeat-all',
         PlayMode.repeatOne => 'repeat-one',
         PlayMode.shuffle => 'shuffle',
       };
 
   String get label => switch (this) {
+        PlayMode.sequential => '顺序播放',
+        PlayMode.reverse => '倒序播放',
         PlayMode.repeatAll => '列表循环',
         PlayMode.repeatOne => '单曲循环',
         PlayMode.shuffle => '随机播放',
       };
 
+  /// 走到队尾就停 —— 顺序与倒序是这一对，区别于各种循环
+  bool get stopsAtEnd =>
+      this == PlayMode.sequential || this == PlayMode.reverse;
+
   static PlayMode fromId(String? id) => switch (id) {
+        'sequential' => PlayMode.sequential,
+        'reverse' => PlayMode.reverse,
         'repeat-one' => PlayMode.repeatOne,
         'shuffle' => PlayMode.shuffle,
         _ => PlayMode.repeatAll,
@@ -386,12 +396,85 @@ class PlayerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void cycleMode() {
-    final modes = PlayMode.values;
-    final idx = modes.indexOf(playMode);
-    playMode = modes[(idx + 1) % modes.length];
+  /// 直接指定播放模式（播放栏的二级菜单用）。
+  ///
+  /// 以前是「点一次换下一个」的循环切换：想从「列表循环」切到「随机」得连点
+  /// 两次、中间还经过「单曲循环」—— 用户没法直接选自己要的那个。
+  void setMode(PlayMode mode) {
+    if (playMode == mode) return;
+    playMode = mode;
     LocalStore.set('qqmusic_play_mode', playMode.id);
     onModeChange?.call(playMode);
+    notifyListeners();
+  }
+
+  // ------------------------------------------------------------ 播放态记忆
+
+  static const _kLastMid = 'last_play_mid';
+  static const _kLastPosition = 'last_play_position';
+  static const _kLastDuration = 'last_play_duration';
+
+  /// 把「正在听的是哪首、听到哪」落盘。
+  ///
+  /// 只写内存，真正的落盘由 `LocalStore` 的防抖 / 退出前的 `flush()` 负责
+  /// （见 `main.dart` 的 `_forceExit`）。
+  void savePlaybackState() {
+    final song = currentSong;
+    if (song == null) {
+      _clearPlaybackState();
+      return;
+    }
+    LocalStore.set(_kLastMid, song.mid);
+    LocalStore.set(_kLastPosition, '${position.inMilliseconds}');
+    LocalStore.set(_kLastDuration, '${duration.inMilliseconds}');
+  }
+
+  void _clearPlaybackState() {
+    LocalStore.remove(_kLastMid);
+    LocalStore.remove(_kLastPosition);
+    LocalStore.remove(_kLastDuration);
+  }
+
+  /// 恢复上次关闭时的播放态：把歌与进度放回播放栏，**不自动播放**。
+  ///
+  /// 只写状态、不碰音频源（`_sourceLoaded` 保持 false），所以启动时既没有
+  /// 网络请求也没有声音；用户点播放时才真正取地址，并跳到记住的位置
+  /// （见 [togglePlay] 与 [_seekToPending]）。
+  ///
+  /// [lookup] 由调用方传 `AppState.findSong` —— 服务层不反向依赖状态层。
+  void restoreLastPlayback(Song? Function(String mid) lookup) {
+    final mid = LocalStore.get(_kLastMid) ?? '';
+    if (mid.isEmpty) return;
+    final song = lookup(mid);
+    // 歌已经被移出歌单了：这份记忆没有意义，顺手清掉
+    if (song == null) {
+      _clearPlaybackState();
+      return;
+    }
+
+    final posMs = int.tryParse(LocalStore.get(_kLastPosition) ?? '') ?? 0;
+    final durMs = int.tryParse(LocalStore.get(_kLastDuration) ?? '') ?? 0;
+
+    currentSong = song;
+    duration = Duration(milliseconds: durMs);
+    // 位置比时长还大说明这份记录对不上了（换了歌、时长没记准），从头开始
+    final valid = durMs > 0 && posMs > 0 && posMs < durMs;
+    position = Duration(milliseconds: valid ? posMs : 0);
+    positionNotifier.value = position;
+    isLoading = false;
+    isPlaying = false;
+    _sourceLoaded = false;
+    _preparing = false;
+    // 与「暂停」一致：歌词区显示歌名，而不是停在某一句歌词上
+    lyricPaused = true;
+    lyricLines = const [];
+    activeLyricIndex = -1;
+
+    fileLogger.info(
+      'Player',
+      '恢复上次播放态 mid=$mid 位置=${position.inMilliseconds}ms '
+      '时长=${duration.inMilliseconds}ms',
+    );
     notifyListeners();
   }
 
@@ -407,7 +490,9 @@ class PlayerController extends ChangeNotifier {
     position = Duration.zero;
     positionNotifier.value = Duration.zero;
     notifyListeners();
-    onEnded?.call(playMode == PlayMode.shuffle ? 'random' : 'next');
+    // 交给上层按播放队列决定下一首 —— 队尾怎么处理（停 / 绕回 / 重洗）
+    // 是队列的事，播放器不该知道
+    onEnded?.call('next');
   }
 
   void showError(String msg) {
@@ -462,6 +547,17 @@ class PlayerController extends ChangeNotifier {
   bool _updateActiveLyric() {
     if (lyricLines.isEmpty) return false;
     final ct = position.inMilliseconds / 1000.0;
+
+    // 快路径：位置事件每秒几十次，绝大多数时候还停在**同一句**里。
+    // 每次都从头扫一遍是 O(n)（长歌一两百句），纯属白费。
+    final cur = activeLyricIndex;
+    if (cur >= 0 &&
+        cur < lyricLines.length &&
+        lyricLines[cur].time <= ct &&
+        (cur + 1 >= lyricLines.length || lyricLines[cur + 1].time > ct)) {
+      return false;
+    }
+
     var idx = -1;
     for (var i = 0; i < lyricLines.length; i++) {
       if (lyricLines[i].time <= ct) {

@@ -16,6 +16,7 @@ import 'sidebar.dart';
 import 'titlebar.dart';
 import 'toast_overlay.dart';
 import 'widgets/modal.dart';
+import 'widgets/queue_panel.dart';
 import 'widgets/smooth_scroll.dart';
 import 'widgets/keyboard_scroll.dart';
 
@@ -41,6 +42,10 @@ class _AppShellState extends State<AppShell>
       SmoothScrollController(vsync: this);
   late final SmoothScrollController _aboutScroll =
       SmoothScrollController(vsync: this);
+  /// 播放列表面板的滚动条。归 shell 持有是因为面板开着时那几个翻页键要作用
+  /// 在它身上 —— 键处理挂在 shell 的根 Focus 上，得够得着这条控制器。
+  late final SmoothScrollController _queueScroll =
+      SmoothScrollController(vsync: this);
 
   // 输入框控制器与滚动控制器同理，必须由 shell 持有：
   // 页面是按 `switch (state.page)` 构建的，切走就 dispose，
@@ -57,6 +62,21 @@ class _AppShellState extends State<AppShell>
   int _lastLyricRequest = 0;
   int _zoomWheelAccum = 0;
   String _lastPage = 'search';
+
+  /// 「播放列表」面板是否展开。面板由 shell 托管：它要盖在页面之上、
+  /// 播放栏之下 —— 放进页面里会被 `ClipRect` 裁掉。
+  bool _queueOpen = false;
+
+  /// 点播放栏那个按钮：开着就收回，收起就展开。
+  void _toggleQueue() {
+    if (_queueOpen) {
+      setState(() => _queueOpen = false);
+      return;
+    }
+    // 启动后还没播过东西时队列是空的，先按当前模式建一次
+    state.ensureQueue();
+    setState(() => _queueOpen = true);
+  }
 
   @override
   void initState() {
@@ -124,6 +144,7 @@ class _AppShellState extends State<AppShell>
     _playlistScroll.dispose();
     _settingsScroll.dispose();
     _aboutScroll.dispose();
+    _queueScroll.dispose();
     _rootFocus.dispose();
     _searchInput.dispose();
     _qqCookie.dispose();
@@ -159,11 +180,18 @@ class _AppShellState extends State<AppShell>
   // 所以这里显式补回来，顺便沿用滚轮那套缓动。
   void _scrollBy(double delta) {
     // 只累加目标，动画由控制器那条连续曲线负责 —— 连发时曲线不会被打断
-    _controllerFor(state.page).scrollBy(delta);
+    _activeScroll().scrollBy(delta);
   }
 
+  /// 翻页键 / 首尾键当前该作用在哪条滚动上。
+  ///
+  /// 面板开着的时候一律作用于队列 —— 面板是盖在页面之上的，
+  /// 这时候还去滚背后的歌单页，用户看到的是「键没反应」。
+  SmoothScrollController _activeScroll() =>
+      _queueOpen ? _queueScroll : _controllerFor(state.page);
+
   void _scrollToEdge({required bool top}) {
-    final ctrl = _controllerFor(state.page);
+    final ctrl = _activeScroll();
     if (!ctrl.hasClients) return;
     ctrl.scrollTo(
         top ? ctrl.position.minScrollExtent : ctrl.position.maxScrollExtent);
@@ -171,7 +199,7 @@ class _AppShellState extends State<AppShell>
 
   /// 一屏的高度（翻页键走这么多）
   double _pageStep() {
-    final ctrl = _controllerFor(state.page);
+    final ctrl = _activeScroll();
     if (!ctrl.hasClients) return 400;
     return ctrl.position.viewportDimension * 0.9;
   }
@@ -337,8 +365,21 @@ class _AppShellState extends State<AppShell>
                                               state: state,
                                               scrollController: _searchScroll,
                                               inputController: _searchInput,
+                                              onOpenLyric:
+                                                  state.requestLyricDialog,
                                             ),
                                         },
+                                      ),
+                                      // 播放列表面板：盖在页面之上，从右侧滑出。
+                                      // 放在 ClipRect 里面 —— 滑出的过程正好被
+                                      // 页面区裁掉，看起来才是「从边上推出来」。
+                                      QueuePanel(
+                                        state: state,
+                                        open: _queueOpen,
+                                        onClose: () =>
+                                            setState(() => _queueOpen = false),
+                                        onOpenLyric: state.requestLyricDialog,
+                                        scrollController: _queueScroll,
                                       ),
                                     ],
                                   ),
@@ -353,7 +394,10 @@ class _AppShellState extends State<AppShell>
                               left: 0,
                               right: 0,
                               bottom: 0,
-                              child: PlayerBar(state: state),
+                              child: PlayerBar(
+                                state: state,
+                                onOpenQueue: _toggleQueue,
+                              ),
                             ),
                         ],
                       ),

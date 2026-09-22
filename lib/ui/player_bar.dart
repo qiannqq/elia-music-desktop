@@ -13,17 +13,30 @@ import '../services/player_controller.dart';
 import '../state/app_state.dart';
 import 'icons.dart';
 import 'widgets/common.dart';
+import 'widgets/context_menu.dart';
 
 const double kPlayerBarHeight = 72;
 const double kLyricLineHeight = 24;
+
+/// 播放模式的图标（`AppIcons` 的路径数据）—— 按钮与菜单共用一份
+String _modeIcon(PlayMode mode) => switch (mode) {
+      PlayMode.sequential => AppIcons.playOrder,
+      PlayMode.reverse => AppIcons.playOrderReverse,
+      PlayMode.repeatAll => AppIcons.repeatAll,
+      PlayMode.repeatOne => AppIcons.repeatOne,
+      PlayMode.shuffle => AppIcons.shuffle,
+    };
 
 
 
 /// 底部播放器栏 —— 对应 `.player-bar`
 class PlayerBar extends StatefulWidget {
-  const PlayerBar({super.key, required this.state});
+  const PlayerBar({super.key, required this.state, this.onOpenQueue});
 
   final AppState state;
+
+  /// 点「播放列表」时调 —— 面板由 shell 托管（它要盖在页面之上、播放栏之下）。
+  final VoidCallback? onOpenQueue;
 
   @override
   State<PlayerBar> createState() => _PlayerBarState();
@@ -36,6 +49,9 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
   );
 
   bool _draggingProgress = false;
+
+  /// 播放模式按钮的锚点 —— 菜单要贴着它往上弹
+  final GlobalKey _modeKey = GlobalKey();
 
   /// 拖动进度条前的播放状态 —— 松手后据此决定要不要恢复播放
   bool _wasPlayingBeforeSeek = false;
@@ -410,6 +426,33 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
     if (song != null) widget.state.requestLyricDialog(song.mid);
   }
 
+  /// 播放模式：展开二级菜单让用户直接选，而不是一个一个轮着切。
+  ///
+  /// 菜单**向上**长，锚点取播放栏的顶边而不是按钮本身 —— 贴着按钮算的话，
+  /// 菜单底边会压住进度条那一行。
+  void _showModeMenu() {
+    final bar = context.findRenderObject() as RenderBox?;
+    final button = _modeKey.currentContext?.findRenderObject() as RenderBox?;
+    if (bar == null || button == null) return;
+    showAppContextMenu(
+      context: context,
+      position: Offset(
+        button.localToGlobal(Offset.zero).dx,
+        bar.localToGlobal(Offset.zero).dy,
+      ),
+      above: true,
+      items: [
+        for (final mode in PlayMode.values)
+          AppMenuItem(
+            label: mode.label,
+            icon: _modeIcon(mode),
+            checked: mode == player.playMode,
+            onTap: () => player.setMode(mode),
+          ),
+      ],
+    );
+  }
+
   // ------------------------------------------------------------ 中间：控制 + 进度
 
   Widget _buildCenter(BuildContext context) {
@@ -428,17 +471,14 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
             const SizedBox(width: 80), // 配重，抵消音量多出的宽度
             _ctrlSlot(
               AppIconButton(
-                icon: switch (player.playMode) {
-                  PlayMode.repeatAll => AppIcons.repeatAll,
-                  PlayMode.repeatOne => AppIcons.repeatOne,
-                  PlayMode.shuffle => AppIcons.shuffle,
-                },
+                key: _modeKey,
+                icon: _modeIcon(player.playMode),
                 size: 28,
                 iconSize: 16,
                 baseColor: c.textTertiary,
                 hoverColor: c.accent,
                 hoverBg: Colors.transparent,
-                onTap: player.cycleMode,
+                onTap: _showModeMenu,
                 tooltip: player.playMode.label,
               ),
             ),
@@ -602,6 +642,16 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
+        AppIconButton(
+          icon: AppIcons.queue,
+          size: 28,
+          iconSize: 16,
+          baseColor: c.textTertiary,
+          hoverColor: c.accent,
+          hoverBg: Colors.transparent,
+          onTap: () => widget.onOpenQueue?.call(),
+          tooltip: '播放列表',
+        ),
         AppIconButton(
           icon: AppIcons.lyricDoc,
           size: 28,
