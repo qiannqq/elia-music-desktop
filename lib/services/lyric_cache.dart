@@ -234,6 +234,7 @@ class LyricCache {
   static int clearAll() {
     _cache.clear();
     var freed = 0;
+    var count = 0;
     try {
       if (dir.existsSync()) {
         for (final f in dir.listSync().whereType<File>()) {
@@ -241,15 +242,16 @@ class LyricCache {
             final n = f.lengthSync();
             f.deleteSync();
             freed += n;
+            count++;
           } catch (_) {}
         }
       }
     } catch (e) {
-      fileLogger.warn('Lyric', '清理缓存失败: $e');
+      fileLogger.warn('Lyric', '清空歌词缓存失败: $e');
     }
-    if (freed > 0) {
-      fileLogger.info(
-          'Lyric', '清空歌词缓存，释放 ${(freed / 1024).toStringAsFixed(0)}KB');
+    if (count > 0) {
+      fileLogger.info('Lyric',
+          '清空歌词缓存：$count 个文件，释放 ${(freed / 1024).toStringAsFixed(0)}KB');
     }
     return freed;
   }

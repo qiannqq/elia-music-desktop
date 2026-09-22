@@ -221,7 +221,8 @@ class AudioDiskCache {
       };
       _writeIndex(index);
       fileLogger.info('AudioCache',
-          '$mid 已缓存 ${(res.bodyBytes.length / 1024 / 1024).toStringAsFixed(1)}MB');
+          '$mid 已缓存 ${(res.bodyBytes.length / 1024 / 1024).toStringAsFixed(1)}MB'
+          ' → ${p.basename(target.path)}');
       // 刚存进来的这首也要算进上限里，不然一直播就会一直涨到下次启动
       enforceLimit();
     } catch (e) {
@@ -319,6 +320,7 @@ class AudioDiskCache {
     final limit = limitBytes;
     var total = sizeOnDisk();
     if (total <= limit) return 0;
+    final before = total;
 
     final index = _readIndex();
     final files = dir
@@ -356,8 +358,12 @@ class AudioDiskCache {
 
     if (removed > 0) {
       _writeIndex(index);
-      fileLogger.info('AudioCache',
-          '超出 ${(limit / 1024 / 1024 / 1024).toStringAsFixed(1)}GB 上限，删了 $removed 个最久没听过的');
+      fileLogger.info(
+          'AudioCache',
+          '超出上限 ${(limit / 1024 / 1024).toStringAsFixed(0)}MB'
+          '（${(before / 1024 / 1024).toStringAsFixed(1)}MB → '
+          '${(total / 1024 / 1024).toStringAsFixed(1)}MB），'
+          '按最久未播放删除 $removed 个');
     }
     return removed;
   }
@@ -383,20 +389,22 @@ class AudioDiskCache {
   /// 不能因为一个文件让整轮清理停下。
   static int clearAll() {
     var freed = 0;
+    var count = 0;
     try {
       for (final f in dir.listSync().whereType<File>()) {
         try {
           final n = f.lengthSync();
           f.deleteSync();
           freed += n;
+          count++;
         } catch (_) {}
       }
     } catch (e) {
-      fileLogger.warn('AudioCache', '清理失败: $e');
+      fileLogger.warn('AudioCache', '清空缓存失败: $e');
     }
-    if (freed > 0) {
-      fileLogger.info(
-          'AudioCache', '清空缓存，释放 ${(freed / 1024 / 1024).toStringAsFixed(1)}MB');
+    if (count > 0) {
+      fileLogger.info('AudioCache',
+          '清空缓存：$count 个文件，释放 ${(freed / 1024 / 1024).toStringAsFixed(1)}MB');
     }
     return freed;
   }

@@ -68,12 +68,12 @@ class CacheManager {
         if (f is num) free = f.toInt();
       }
     } catch (e) {
-      fileLogger.warn('Cache', '磁盘容量取不到: $e');
+      fileLogger.warn('Cache', '磁盘容量取不到（不影响清理）path=${AppPaths.dataDir} : $e');
     }
 
     return CacheUsage(
       audioBytes: audio,
-      lyricBytes: lyric,
+      otherBytes: other,
       diskTotalBytes: total,
       diskFreeBytes: free,
     );
