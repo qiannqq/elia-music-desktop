@@ -1,6 +1,7 @@
 #include "system_bridge.h"
 
 #include <windows.h>
+#include <shellapi.h>
 
 #include <memory>
 #include <string>
@@ -26,22 +27,40 @@ std::wstring Utf8ToWide(const std::string& s) {
   return w;
 }
 
+std::wstring GetWide(const EncodableMap* args, const char* key) {
+  if (!args) return std::wstring();
+  const auto it = args->find(EncodableValue(key));
+  if (it == args->end()) return std::wstring();
+  const auto* s = std::get_if<std::string>(&it->second);
+  return s ? Utf8ToWide(*s) : std::wstring();
+}
+
 void HandleCall(const flutter::MethodCall<EncodableValue>& call,
                 std::unique_ptr<flutter::MethodResult<EncodableValue>> result) {
-  if (call.method_name() != "diskInfo") {
+  const auto& method = call.method_name();
+  const auto* args = std::get_if<EncodableMap>(call.arguments());
+
+  if (method == "openUrl") {
+    const std::wstring url = GetWide(args, "url");
+    if (url.empty()) {
+      result->Success(EncodableValue(false));
+      return;
+    }
+    // 交给系统按默认程序打开，别自己拼命令行 ——
+    // URL 里带 `&` 和空格，套进 cmd 会被拆成好几段。
+    const HINSTANCE opened = ShellExecuteW(nullptr, L"open", url.c_str(), nullptr,
+                                          nullptr, SW_SHOWNORMAL);
+    // ShellExecuteW 的返回值大于 32 才算成功（小于等于 32 是错误码）
+    result->Success(EncodableValue(reinterpret_cast<INT_PTR>(opened) > 32));
+    return;
+  }
+
+  if (method != "diskInfo") {
     result->NotImplemented();
     return;
   }
 
-  std::wstring path;
-  if (const auto* args = std::get_if<EncodableMap>(call.arguments())) {
-    const auto it = args->find(EncodableValue("path"));
-    if (it != args->end()) {
-      if (const auto* s = std::get_if<std::string>(&it->second)) {
-        path = Utf8ToWide(*s);
-      }
-    }
-  }
+  const std::wstring path = GetWide(args, "path");
 
   // 不给路径就不猜 —— GetDiskFreeSpaceExW 不接受空指针，猜错还会问到别的卷上。
   if (path.empty()) {
