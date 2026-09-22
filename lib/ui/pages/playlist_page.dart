@@ -91,6 +91,21 @@ class _PlaylistPageState extends State<PlaylistPage> {
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: c.text),
               ),
               const Spacer(),
+              // 定位到正在播放。只在有播放栏（有当前歌曲）时出现 ——
+              // 没在放歌的时候它没有意义。
+              if (player.currentSong != null) ...[
+                AppIconButton(
+                  icon: AppIcons.target,
+                  size: 28,
+                  iconSize: 15,
+                  baseColor: c.textTertiary,
+                  hoverColor: c.accent,
+                  hoverBg: Colors.transparent,
+                  tooltip: '定位到正在播放',
+                  onTap: _scrollToNowPlaying,
+                ),
+                const SizedBox(width: 12),
+              ],
               if (songs.isNotEmpty) ...[
                 AppButton(
                   label: '全选',
