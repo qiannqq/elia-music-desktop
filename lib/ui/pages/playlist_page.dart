@@ -140,7 +140,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
                   child: EmptyState(
                     icon: AppIcons.playlist,
                     title: '暂无歌曲',
-                    hint: '搜索或粘贴歌单链接来添加歌曲',
+                    hint: '搜索或在搜索页面粘贴歌单链接来添加歌曲',
                   ),
                 )
               : SmoothWheelScroll(
