@@ -325,6 +325,35 @@ class _PlaylistItemState extends State<_PlaylistItem> {
 
   void _cancelEditName() => setState(() => _editingName = false);
 
+  /// 右键菜单。
+  ///
+  /// 条目按用途分组：播放 / 取用 / 编辑，然后才是会改动歌单的那几项。
+  /// 具体条目在 [buildSongMenuItems] 里，与搜索页共用。
+  void _showMenu(Offset position) {
+    final state = widget.state;
+    final song = widget.song;
+
+    // 二级菜单（行尾那个「+」）开着的时候，右键只负责把它关掉。
+    // 不这么做的话，右键会在它上面再叠一个菜单，两个弹层同时挂着。
+    if (state.openAddMenuMid != null) {
+      state.setOpenAddMenu(null);
+      return;
+    }
+
+    showAppContextMenu(
+      context: context,
+      position: position,
+      items: buildSongMenuItems(
+        context: context,
+        state: state,
+        song: song,
+        onOpenLyric: widget.onOpenLyric,
+        onEditName: _startEditName,
+        inPlaylist: true,
+      ),
+    );
+  }
+
   /// 量出这段文字渲染出来有多宽 —— 下划线要正好画到名字末尾。
   /// 名字比可用宽度还长时按可用宽度截断（跟 Text 的省略号表现对齐）。
   double _measureNameWidth(String text, TextStyle style, double maxWidth) {
@@ -345,9 +374,13 @@ class _PlaylistItemState extends State<_PlaylistItem> {
     final checked = state.selectedMids.contains(song.mid);
     final isPlaying = player.currentSong?.mid == song.mid;
 
-    return MouseRegion(
-      onEnter: (_) => widget.onHover(true),
-      onExit: (_) => widget.onHover(false),
+    return _HoverRow(
+      onHover: _setHover,
+      // 改名输入框展开时这两样都要让位：双击是「选中一个词」，
+      // 右键是 Flutter 自带的文本菜单 —— 抢过来会变成播放 / 弹我们的菜单。
+      onSecondary: _editingName ? null : _showMenu,
+      // 双击整行开始播放（与卡片列表一致的直觉操作）
+      onDoubleClick: _editingName ? null : () => state.playSong(song.mid),
       // 这里**不能用 AnimatedContainer**：
       // 鼠标从 A 划到 B 时，A 的颜色要 120ms 才淡出、B 同时淡入 ——
       // 这 120ms 里两行都是高亮态，看起来就是「两首歌同时选中」。
@@ -587,6 +620,41 @@ class _PlaylistItemState extends State<_PlaylistItem> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 歌单条目外面那一层：悬浮高亮 + 右键菜单 + 双击播放。
+///
+/// 单独拎出来是为了不改变里面那棵树的缩进 —— 直接在外面套一层
+/// GestureDetector 会把整块 Container 往里推两级，diff 全是缩进。
+class _HoverRow extends StatelessWidget {
+  const _HoverRow({
+    required this.onHover,
+    required this.onSecondary,
+    required this.onDoubleClick,
+    required this.child,
+  });
+
+  final ValueChanged<bool> onHover;
+
+  /// 右键按下的位置（全局坐标），用来定位菜单。为 null 时整行不响应右键。
+  final ValueChanged<Offset>? onSecondary;
+
+  /// 为 null 时整行不响应双击
+  final VoidCallback? onDoubleClick;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => onHover(true),
+      onExit: (_) => onHover(false),
+      child: ClickRegion(
+        onSecondaryClick: onSecondary,
+        onDoubleClick: onDoubleClick,
+        child: child,
       ),
     );
   }
