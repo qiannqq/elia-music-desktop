@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
@@ -26,6 +27,81 @@ class _HoverBuilderState extends State<HoverBuilder> {
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: widget.builder(context, _hovered),
+    );
+  }
+}
+
+/// 行 / 卡片上的鼠标点击区域：右键（按下即触发）与双击左键。
+///
+/// **不要换成 `GestureDetector.onDoubleTap`**：双击识别器在第一次抬手后会
+/// `hold` 住手势竞技场（见 SDK `multitap.dart` 的 `_registerFirstTap`），
+/// 在等第二次点击的那 300ms 里，同一区域里**子控件的 onTap 全被压住** ——
+/// 表现为「点播放 / 下载要顿一下才响应」。整行本来就没有单击行为，
+/// 不必和子控件争手势，所以直接读裸指针事件自己数。
+class ClickRegion extends StatefulWidget {
+  const ClickRegion({
+    super.key,
+    required this.child,
+    this.onDoubleClick,
+    this.onSecondaryClick,
+  });
+
+  final Widget child;
+
+  /// 双击左键
+  final VoidCallback? onDoubleClick;
+
+  /// 按下右键，参数是全局坐标（用来定位菜单）
+  final ValueChanged<Offset>? onSecondaryClick;
+
+  @override
+  State<ClickRegion> createState() => _ClickRegionState();
+}
+
+class _ClickRegionState extends State<ClickRegion> {
+  /// 两次点击的最大间隔。Windows 默认的双击间隔是 500ms，
+  /// 这里收紧一点：既跟手，也不至于把两次独立的点击连成一次双击。
+  static const Duration _interval = Duration(milliseconds: 400);
+
+  /// 两次点击的位置容差 —— 差得远就当不是同一处（拖过、或换了地方点）
+  static const double _slop = 8;
+
+  Duration? _lastDown;
+  Offset? _lastPos;
+
+  void _onDown(PointerDownEvent e) {
+    // 右键按下即报，与系统菜单一致，不等抬手
+    if (e.buttons == kSecondaryButton) {
+      _lastDown = null;
+      _lastPos = null;
+      widget.onSecondaryClick?.call(e.position);
+      return;
+    }
+    if (e.buttons != kPrimaryButton) return;
+
+    final last = _lastDown;
+    final pos = _lastPos;
+    _lastDown = e.timeStamp;
+    _lastPos = e.position;
+    if (last == null || pos == null) return;
+    if (e.timeStamp - last > _interval) return;
+    if ((e.position - pos).distance > _slop) return;
+    // 用完就清：连点三下不该被算成两次双击
+    _lastDown = null;
+    _lastPos = null;
+    widget.onDoubleClick?.call();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final active =
+        widget.onDoubleClick != null || widget.onSecondaryClick != null;
+    return Listener(
+      // opaque：整块区域的空白处也要收得到事件；子控件仍然先被命中，
+      // 各自的按钮不受影响（Listener 不参与手势竞技场，也不会抢滚动）。
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: active ? _onDown : null,
+      child: widget.child,
     );
   }
 }
