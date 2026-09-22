@@ -57,6 +57,10 @@ Future<void> main() async {
   await app.init();
   await player.init();
 
+  // 播放态记忆：把上次关闭时听的那首与进度放回播放栏，但**不自动播放**。
+  // 歌单要先加载好（app.init 已 await），否则查不到这首歌。
+  player.restoreLastPlayback(app.findSong);
+
   // 系统媒体控件：播放栏之外的第二个出口（媒体面板 / 锁屏 / 硬件媒体键）
   await smtc.init();
 
@@ -101,6 +105,9 @@ class _AppLifecycle with WindowListener {
   @override
   void onWindowClose() {
     fileLogger.info('App', 'window close requested, shutting down');
+    // 先记住「听到哪了」再退出：_forceExit 里会同步 flush 到磁盘。
+    // 这一步必须在这里做 —— 退出前不做，下次打开就没有位置可恢复。
+    player.savePlaybackState();
     _forceExit(0);
   }
 }

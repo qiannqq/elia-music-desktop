@@ -52,6 +52,22 @@ class PlayerController extends ChangeNotifier {
   bool _preparing = false;
   PlayMode playMode = PlayMode.repeatAll;
 
+  /// 当前这首歌有没有**真的**加载进底层播放器。
+  ///
+  /// 两种情况为 false：
+  ///  * 重启后恢复的「播放态记忆」—— 只把歌挂到播放栏上，没碰音频源；
+  ///  * 上一次取播放地址失败。
+  /// 这两种状态下，底层播放器里留着的还是**上一首**的源，
+  /// 直接 `resume()` 会把它放出来。
+  bool _sourceLoaded = false;
+
+  /// 加载成功后要跳到的位置（记忆态恢复、或失败重试后接着放）
+  Duration? _pendingSeek;
+
+  /// 当前歌没有可播的源、需要重新取地址时回调。
+  /// 由状态层注入（`AppState.playSong`）—— 服务层不反向依赖状态层。
+  void Function(Song song)? onReloadRequested;
+
   Duration position = Duration.zero;
   Duration duration = Duration.zero;
   double volume = 0.8;
@@ -150,6 +166,7 @@ class PlayerController extends ChangeNotifier {
   void prepare(Song song) {
     currentSong = song;
     currentUrl = '';
+    _sourceLoaded = false;
     position = Duration.zero;
     positionNotifier.value = Duration.zero;
     duration = Duration.zero;
@@ -174,6 +191,8 @@ class PlayerController extends ChangeNotifier {
   void cancelLoading() {
     isLoading = false;
     _preparing = false;
+    // 源没加载成：这时点播放不能 resume（那会放出上一首），要重新取地址
+    _sourceLoaded = false;
     notifyListeners();
   }
 
@@ -216,12 +235,33 @@ class PlayerController extends ChangeNotifier {
         unawaited(AudioDiskCache.warm(song.mid, url));
       }
       _preparing = false; // 新歌已开始，后续事件都属于它
+      _sourceLoaded = true;
       isLoading = false;
+      // 记忆态恢复 / 失败重试：源就绪之后再跳回原来的位置
+      await _seekToPending();
+      savePlaybackState();
       fileLogger.info('Player', 'playing mid=${song.mid} name=${song.name}');
       notifyListeners();
     } catch (e) {
       debugPrint('[Player] play failed: $e');
       await _retryWithLowerQuality();
+    }
+  }
+
+  /// 跳到 [_pendingSeek] 记下的位置（有的话）。
+  ///
+  /// seek 失败不该被当成「这首歌放不了」—— 位置不准总比整首放不出来好，
+  /// 所以单独吞掉异常，不让它冒到 [play] 的 catch 里触发降码率重试。
+  Future<void> _seekToPending() async {
+    final target = _pendingSeek;
+    _pendingSeek = null;
+    if (target == null || target <= Duration.zero) return;
+    position = target;
+    positionNotifier.value = target;
+    try {
+      await _player.seek(target);
+    } catch (e) {
+      fileLogger.warn('Player', '跳到 ${target.inMilliseconds}ms 失败: $e');
     }
   }
 
@@ -231,6 +271,8 @@ class PlayerController extends ChangeNotifier {
       showError('音频加载失败');
       isLoading = false;
       isPlaying = false;
+      _preparing = false;
+      _sourceLoaded = false;
       notifyListeners();
       return;
     }
@@ -240,18 +282,35 @@ class PlayerController extends ChangeNotifier {
       if (url.isEmpty) throw Exception('empty url');
       currentUrl = url;
       await _player.play(UrlSource(ApiClient.getProxyAudioUrl(url)));
+      _preparing = false;
+      _sourceLoaded = true;
       isLoading = false;
+      await _seekToPending();
+      savePlaybackState();
       notifyListeners();
     } catch (e) {
       showError('音频加载失败');
       isLoading = false;
       isPlaying = false;
+      // 加载失败也要把「准备中」收掉，否则位置事件会被一直丢弃
+      _preparing = false;
+      _sourceLoaded = false;
       notifyListeners();
     }
   }
 
   Future<void> togglePlay() async {
-    if (currentSong == null) return;
+    final song = currentSong;
+    if (song == null) return;
+    // 没有可播的源：重启后的记忆态、或上一次取地址失败。
+    // 这两种情况下底层播放器里是**上一首**的源，resume() 会把它放出来 ——
+    // 表现为「音频拉取失败后点播放，放的是上一首」。
+    // 改为重新取一次地址，加载完成后自动跳到记住的位置。
+    if (!_sourceLoaded) {
+      _pendingSeek = position > Duration.zero ? position : null;
+      onReloadRequested?.call(song);
+      return;
+    }
     try {
       if (isPlaying) {
         await _player.pause();
@@ -268,12 +327,14 @@ class PlayerController extends ChangeNotifier {
     if (!isPlaying) return;
     try {
       await _player.pause();
+      savePlaybackState();
     } catch (_) {}
   }
 
   /// 恢复播放（拖完进度条后还原拖动前的状态）
   Future<void> resume() async {
-    if (isPlaying || currentSong == null) return;
+    // 没有源就没什么可恢复的（见 togglePlay 的说明）
+    if (!_sourceLoaded || isPlaying || currentSong == null) return;
     try {
       await _player.resume();
     } catch (_) {}
@@ -287,12 +348,16 @@ class PlayerController extends ChangeNotifier {
     currentUrl = null;
     isPlaying = false;
     isLoading = false;
+    _sourceLoaded = false;
+    _pendingSeek = null;
     position = Duration.zero;
     positionNotifier.value = Duration.zero;
     duration = Duration.zero;
     lyricLines = const [];
     activeLyricIndex = -1;
     lyricPaused = true;
+    // 用户主动关掉播放栏 = 不想再记着这首歌，记忆一起清掉
+    _clearPlaybackState();
     notifyListeners();
   }
 
@@ -300,7 +365,18 @@ class PlayerController extends ChangeNotifier {
   Future<void> seekPercent(double percent) async {
     if (!percent.isFinite || percent < 0 || percent > 1) return;
     if (duration.inMilliseconds <= 0) return;
-    await _player.seek(Duration(milliseconds: (percent * duration.inMilliseconds).round()));
+    final target =
+        Duration(milliseconds: (percent * duration.inMilliseconds).round());
+    // 源还没加载（记忆态 / 上次取地址失败）：往底层的旧源上 seek 是白费，
+    // 只把位置记下来，等真正加载时再跳（见 _seekToPending）。
+    if (!_sourceLoaded) {
+      _pendingSeek = target;
+      position = target;
+      positionNotifier.value = target;
+      notifyListeners();
+      return;
+    }
+    await _player.seek(target);
   }
 
   Future<void> setVolume(double v) async {
