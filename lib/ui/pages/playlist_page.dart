@@ -367,6 +367,15 @@ class _PlaylistItemState extends State<_PlaylistItem> {
                 ]
               : null,
         ),
+        // 边框画在内容**之上**（foregroundDecoration），不能放进 decoration：
+        // 放进去它会占掉上下各 1.5px 的内高，正在播的那一行内容就溢出 3px
+        // （原型行不是播放态、没有边框，所以量行高时看不出来）。
+        foregroundDecoration: isPlaying
+            ? BoxDecoration(
+                border: Border.all(color: c.accent, width: 1.5),
+                borderRadius: BorderRadius.circular(c.radius),
+              )
+            : null,
         child: Row(
           children: [
             AppCheckbox(
