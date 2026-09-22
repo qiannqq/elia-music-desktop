@@ -11,6 +11,7 @@
 
 import pathlib
 import subprocess
+import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
@@ -37,6 +38,10 @@ def dart_string(value: str) -> str:
 
 
 def main() -> None:
+    # 同理，Windows 上 stdout 也按 locale（cp1252）编码，
+    # 最后那行 print 里的中文提交标题会 UnicodeEncodeError。
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
     sha = git("rev-parse", "--short", "HEAD") or "unknown"
     title = git("log", "-1", "--format=%s") or "(未知提交)"
     date = git("log", "-1", "--format=%cd", "--date=format:%Y-%m-%d %H:%M")
