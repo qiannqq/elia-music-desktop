@@ -410,7 +410,12 @@ class AppState extends ChangeNotifier {
   }
 
   void invertSelect() {
-    final inverted = songs.where((s) => !selectedMids.contains(s.mid)).map((s) => s.mid);
+    // **必须先 toList()**：`where` 是惰性的，直接 addAll 会在 clear() 之后才
+    // 求值 —— 那时集合已经空了，每首都判成「没选中」，反选变成全选。
+    final inverted = songs
+        .where((s) => !selectedMids.contains(s.mid))
+        .map((s) => s.mid)
+        .toList();
     selectedMids
       ..clear()
       ..addAll(inverted);
