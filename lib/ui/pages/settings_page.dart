@@ -901,7 +901,11 @@ class _SettingsPageState extends State<SettingsPage> {
             isWechat: info.isWechat,
             isVip: info.isVip,
           );
-          toast.show('验证通过：${info.nickname}', type: ToastType.success);
+          // 凭据换了：之前缓存的音频可能只是匿名状态下拿到的试听片段，
+          // 作废一代，下次播放重新取完整版。
+          AudioDiskCache.bumpEpoch();
+          toast.show('验证通过：${info.nickname}（旧缓存已作废）',
+              type: ToastType.success);
         case CkOutcome.rejected:
           widget.state.markQqCookieInvalid();
           toast.show('Cookie 无效或已失效，未保存', type: ToastType.error);
@@ -931,6 +935,8 @@ class _SettingsPageState extends State<SettingsPage> {
       final normalized = NeteaseMusicService.normalizeCookie(v);
       widget.state.setNeteaseCookie(normalized);
       if (mounted) _neteaseCookie.text = normalized;
+      // 见 _verifyQq：凭据一变，之前那份试听片段就不能再命中
+      AudioDiskCache.bumpEpoch();
       final info = await neteaseMusicService.getUserInfo();
       if (info != null) {
         widget.state.applyNeUserInfo(
@@ -972,7 +978,10 @@ class _SettingsPageState extends State<SettingsPage> {
         nickname: info.nickname,
         isVip: info.isVip,
       );
-      toast.show('验证通过：${info.nickname}', type: ToastType.success);
+      // 见 _verifyQq：B站换 ck 也会影响能取到哪一档音频
+      AudioDiskCache.bumpEpoch();
+      toast.show('验证通过：${info.nickname}（旧缓存已作废）',
+          type: ToastType.success);
     } catch (e) {
       widget.state.biliCookieStatus = 'invalid';
       toast.show('$e', type: ToastType.error);

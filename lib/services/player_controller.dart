@@ -98,6 +98,10 @@ class PlayerController extends ChangeNotifier {
   /// 播放结束 / 上一首 / 下一首 回调，action ∈ {next, prev, random}
   void Function(String action)? onEnded;
 
+  /// 播到的时长明显短于这首歌本身 —— 上游给的是试听片段。
+  /// 由上层决定怎么办（删缓存、提示用户）。
+  void Function(Song song)? onShortAudio;
+
   /// 播放模式切换回调
   void Function(PlayMode mode)? onModeChange;
 
@@ -143,6 +147,7 @@ class PlayerController extends ChangeNotifier {
       // 旧歌已被 stop()，不会再发时长事件，无需屏蔽。
       duration = d;
       notifyListeners();
+      _checkShortAudio(d);
     });
 
     _player.onPlayerStateChanged.listen((s) {
@@ -476,6 +481,23 @@ class PlayerController extends ChangeNotifier {
       '时长=${duration.inMilliseconds}ms',
     );
     notifyListeners();
+  }
+
+  /// 已经上报过试听片段的歌，别重复提示
+  String? _shortAudioMid;
+
+  /// 试听片段的判据：**这首歌本身不短，但只拿到一小段**。
+  ///
+  /// 只看「播到的很短」会误伤真正的小段子，所以要求歌曲元数据里的时长
+  /// 至少 1.5 分钟。30 秒 / 60 秒是网易云试听的常见长度。
+  void _checkShortAudio(Duration d) {
+    final song = currentSong;
+    if (song == null || song.duration < 90000) return;
+    final ms = d.inMilliseconds;
+    if (ms <= 0 || ms > 65000) return;
+    if (_shortAudioMid == song.mid) return;
+    _shortAudioMid = song.mid;
+    onShortAudio?.call(song);
   }
 
   void _handleEnded() {

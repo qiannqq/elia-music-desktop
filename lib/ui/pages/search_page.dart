@@ -51,6 +51,28 @@ class _SearchPageState extends State<SearchPage> {
     widget.state.handleSearch(_input.text);
   }
 
+  /// 「全部添加」的歌单选择。
+  ///
+  /// 复用右键菜单那一套：每个歌单一项，已经在里面的不动（见
+  /// [AppState.addAllToPlaylist]）。
+  void _showAddAllMenu(BuildContext ctx) {
+    final box = ctx.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+    final at = box.localToGlobal(Offset(0, box.size.height));
+    showAppContextMenu(
+      context: ctx,
+      position: at,
+      items: [
+        for (final p in widget.state.playlists)
+          AppMenuItem(
+            label: p.name,
+            icon: AppIcons.playlist,
+            onTap: () => widget.state.addAllToPlaylist(p.id),
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
@@ -292,11 +314,14 @@ class _SearchPageState extends State<SearchPage> {
           ),
         ),
         const SizedBox(width: 12),
-        AppButton(
-          label: '全部添加',
-          small: true,
-          variant: AppButtonVariant.accent,
-          onPressed: state.addAllResults,
+        // 「全部添加」要先问加到哪个歌单 —— 多歌单之后没有「默认那一个」可言
+        Builder(
+          builder: (ctx) => AppButton(
+            label: '全部添加',
+            small: true,
+            variant: AppButtonVariant.accent,
+            onPressed: () => _showAddAllMenu(ctx),
+          ),
         ),
         const SizedBox(width: 8),
         AppButton(

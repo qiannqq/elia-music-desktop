@@ -10,6 +10,7 @@ import '../core/file_logger.dart';
 import '../core/local_store.dart';
 import '../core/lyric.dart';
 import '../core/perf_probe.dart';
+import '../models/playlist.dart';
 import '../models/song.dart';
 import '../services/api_client.dart';
 import '../services/audio_cache.dart';
@@ -35,7 +36,15 @@ class AppState extends ChangeNotifier {
 
   // ------------------------------------------------------------ 搜索
 
-  List<Song> searchResults = [];
+  /// 上游搜出来的歌。**mid 为空的直接丢掉**（见 [Song.hasMid]）。
+  ///
+  /// 搜索页是这些歌唯一的入口（右键加歌单、全部添加都从这里取），
+  /// 在这一层滤掉，等于「不显示也不添加」。
+  List<Song> get searchResults => _searchResults;
+  set searchResults(List<Song> v) =>
+      _searchResults = v.where((s) => s.hasMid).toList();
+
+  List<Song> _searchResults = [];
   String searchKeyword = '';
   int currentPage = 1;
   int searchTotal = 0;
@@ -60,7 +69,101 @@ class AppState extends ChangeNotifier {
 
   // ------------------------------------------------------------ 歌单
 
-  List<Song> songs = [];
+  // ------------------------------------------------------------ 歌单
+
+  /// 所有歌单。永远至少有一个 —— 删到最后一个会被拦住。
+  List<Playlist> playlists = [];
+
+  /// 当前歌单的 id
+  String currentPlaylistId = '';
+
+  static const String kDefaultPlaylistName = '默认歌单';
+
+  Playlist get currentPlaylist {
+    for (final p in playlists) {
+      if (p.id == currentPlaylistId) return p;
+    }
+    // id 对不上（歌单被删了、存档读坏了）：兜回第一个，必要时现造一个
+    if (playlists.isEmpty) {
+      playlists.add(Playlist(id: _newPlaylistId(), name: kDefaultPlaylistName));
+    }
+    currentPlaylistId = playlists.first.id;
+    return playlists.first;
+  }
+
+  /// 当前歌单的歌。
+  ///
+  /// **整个应用都通过它读写当前歌单** —— 多歌单之后这里仍然是一个
+  /// `List<Song>`，所以原来那些 `songs.add / removeWhere / ...` 一处都不用改。
+  List<Song> get songs => currentPlaylist.songs;
+  set songs(List<Song> v) => currentPlaylist.songs = v;
+
+  /// 所有歌单里的 mid。缓存淘汰要用它 —— 只看当前歌单的话，
+  /// 切到另一个歌单时前一个歌单的歌会被判成「已经不在歌单里」而清掉缓存。
+  Set<String> get allPlaylistMids =>
+      {for (final p in playlists) ...p.songs.map((s) => s.mid)};
+
+  String _newPlaylistId() {
+    var id = 'pl-${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}';
+    while (playlists.any((p) => p.id == id)) {
+      id = '${id}x';
+    }
+    return id;
+  }
+
+  Playlist createPlaylist([String name = '新歌单']) {
+    final p = Playlist(id: _newPlaylistId(), name: name);
+    playlists.add(p);
+    _savePlaylists();
+    notifyListeners();
+    return p;
+  }
+
+  /// 切歌单。选中态要跟着清 —— 选中的是「这个歌单里的哪几首」，
+  /// 留着上一份会张冠李戴。
+  void switchPlaylist(String id) {
+    if (currentPlaylistId == id) return;
+    if (!playlists.any((p) => p.id == id)) return;
+    currentPlaylistId = id;
+    selectedMids.clear();
+    LocalStore.set('qqmusic_current_playlist', id);
+    notifyListeners();
+  }
+
+  void renamePlaylist(String id, String name) {
+    final next = name.trim();
+    if (next.isEmpty) return;
+    final i = playlists.indexWhere((p) => p.id == id);
+    if (i < 0 || playlists[i].name == next) return;
+    playlists[i].name = next;
+    _savePlaylists();
+    notifyListeners();
+  }
+
+  /// 删歌单。**最后一个不给删** —— 应用总得有一个能放歌的地方。
+  bool deletePlaylist(String id) {
+    if (playlists.length <= 1) return false;
+    final i = playlists.indexWhere((p) => p.id == id);
+    if (i < 0) return false;
+    playlists.removeAt(i);
+    if (currentPlaylistId == id) {
+      currentPlaylistId = playlists.first.id;
+      selectedMids.clear();
+      LocalStore.set('qqmusic_current_playlist', currentPlaylistId);
+    }
+    _savePlaylists();
+    notifyListeners();
+    return true;
+  }
+
+  /// 侧边栏的歌单子列表是否展开。切到歌单页会自动展开 ——
+  /// 进了歌单页却看不到有哪些歌单，会以为只有一个。
+  bool playlistsExpanded = false;
+
+  void togglePlaylistsExpanded() {
+    playlistsExpanded = !playlistsExpanded;
+    notifyListeners();
+  }
   final Set<String> selectedMids = {};
 
   // ------------------------------------------------------------ 设置
@@ -143,7 +246,7 @@ class AppState extends ChangeNotifier {
     if (_inited) return;
     _inited = true;
 
-    _loadSongs();
+    _loadPlaylists();
 
     searchSource = LocalStore.getOr('search_source', 'qq');
     highQuality = LocalStore.get('qqmusic_high_quality') != 'false';
@@ -254,25 +357,63 @@ class AppState extends ChangeNotifier {
 
   // ============================================================ 持久化
 
-  void _loadSongs() {
+  /// 读歌单。
+  ///
+  /// 老版本只有一份歌单（`qqmusic_songs`）—— 读不到新结构时把它搬进
+  /// 「默认歌单」，升级之后看到的还是原来那些歌，不会因为改结构丢东西。
+  void _loadPlaylists() {
     try {
-      final raw = LocalStore.get('qqmusic_songs');
-      if (raw == null || raw.isEmpty) return;
-      final list = jsonDecode(raw);
-      if (list is List) {
-        songs = list
-            .whereType<Map>()
-            .map((e) => Song.fromStoreJson(e.cast<String, dynamic>()))
-            .toList();
+      final raw = LocalStore.get('qqmusic_playlists');
+      if (raw != null && raw.isNotEmpty) {
+        final list = jsonDecode(raw);
+        if (list is List) {
+          playlists =
+              list.map(Playlist.fromStoreJson).whereType<Playlist>().toList();
+        }
       }
     } catch (_) {
-      songs = [];
+      playlists = [];
+    }
+    if (playlists.isEmpty) {
+      playlists = [
+        Playlist(
+          id: _newPlaylistId(),
+          name: kDefaultPlaylistName,
+          songs: _legacySongs(),
+        ),
+      ];
+    }
+    final saved = LocalStore.get('qqmusic_current_playlist') ?? '';
+    currentPlaylistId =
+        playlists.any((p) => p.id == saved) ? saved : playlists.first.id;
+  }
+
+  /// 老结构里的那一份歌单
+  List<Song> _legacySongs() {
+    try {
+      final raw = LocalStore.get('qqmusic_songs');
+      if (raw == null || raw.isEmpty) return [];
+      final list = jsonDecode(raw);
+      if (list is! List) return [];
+      return list
+          .whereType<Map>()
+          .map((e) => Song.fromStoreJson(e.cast<String, dynamic>()))
+          .where((s) => s.hasMid)
+          .toList();
+    } catch (_) {
+      return [];
     }
   }
 
-  void _saveSongs() {
-    LocalStore.writeJson('qqmusic_songs', songs.map((e) => e.toStoreJson()).toList());
+  void _savePlaylists() {
+    LocalStore.writeJson(
+      'qqmusic_playlists',
+      playlists.map((p) => p.toStoreJson()).toList(),
+    );
   }
+
+  /// 歌单内容变了。现在整份歌单结构一起落盘，调用方不用关心。
+  void _saveSongs() => _savePlaylists();
 
   void _saveDownloadedPaths() {
     LocalStore.writeJson('qqmusic_downloaded_paths', downloadedPaths);
@@ -291,6 +432,9 @@ class AppState extends ChangeNotifier {
     final to = _pageOrder.indexOf(target);
     pageDirection = to >= from ? 1 : -1;
     page = target;
+    // 切页时歌单子列表跟着收/展：进了别的页面还挂着那一排歌单，
+    // 侧边栏会一直占着高度；回到歌单页则自动展开（不然看不到有哪些歌单）。
+    playlistsExpanded = target == 'playlist';
     // 探针开着时给这一段起个名，方便把帧耗时对上具体操作
     PerfProbe.mark('切页→$target');
     notifyListeners();
@@ -305,6 +449,7 @@ class AppState extends ChangeNotifier {
   bool isAdded(String mid) => songs.any((s) => s.mid == mid);
 
   bool addToList(Song song) {
+    if (!song.hasMid) return false;
     if (isAdded(song.mid)) return false;
     songs.add(song);
     _saveSongs();
@@ -313,8 +458,72 @@ class AppState extends ChangeNotifier {
   }
 
   void addToTop(Song song) {
+    if (!song.hasMid) return;
     if (isAdded(song.mid)) return;
     songs.insert(0, song);
+    _saveSongs();
+    notifyListeners();
+  }
+
+  /// 某个歌单里有没有这首歌。菜单里要据此把对应项置灰。
+  bool playlistHasSong(String playlistId, String mid) {
+    final i = playlists.indexWhere((p) => p.id == playlistId);
+    if (i < 0) return false;
+    return playlists[i].songs.any((s) => s.mid == mid);
+  }
+
+  /// 加进**指定歌单**的顶部。搜索页让用户选歌单之后走这里。
+  void addToPlaylist(String playlistId, Song song) {
+    if (!song.hasMid) return;
+    final i = playlists.indexWhere((p) => p.id == playlistId);
+    if (i < 0) return;
+    if (playlists[i].songs.any((s) => s.mid == song.mid)) return;
+    playlists[i].songs.insert(0, song);
+    _savePlaylists();
+    notifyListeners();
+    toast.show('已加入「${playlists[i].name}」', type: ToastType.success);
+  }
+
+  /// 把当前搜索结果里**还没有的**加进指定歌单。
+  /// 已经在里面的不动 —— 重复添加会把顺序搞乱，也会出现两首一样的。
+  void addAllToPlaylist(String playlistId) {
+    final i = playlists.indexWhere((p) => p.id == playlistId);
+    if (i < 0) return;
+    final p = playlists[i];
+    final have = {for (final s in p.songs) s.mid};
+    final toAdd =
+        searchResults.where((s) => !have.contains(s.mid)).toList(growable: false);
+    if (toAdd.isEmpty) {
+      showInfo('「${p.name}」里已经有这些歌了');
+      return;
+    }
+    p.songs.insertAll(0, toAdd);
+    _savePlaylists();
+    notifyListeners();
+    showSuccess('已加入 ${toAdd.length} 首到「${p.name}」');
+  }
+
+  /// 整个歌单倒序。顺序变了要落盘，不然重启就复原。
+  void reversePlaylist() {
+    if (songs.length < 2) return;
+    songs = songs.reversed.toList();
+    _saveSongs();
+    notifyListeners();
+    showSuccess('已倒序「${currentPlaylist.name}」');
+  }
+
+  /// 拖动排序：把第 [from] 首插到第 [to] 首的位置上。
+  ///
+  /// 两个下标都是**当前歌单**的下标 —— 歌单页只在没过滤时开放拖动
+  /// （搜索过滤后的下标跟歌单下标不是一回事，直接搬会挪错位置）。
+  /// 落点由框架算好：`ReorderableListView` 传过来的 to 已经扣掉了
+  /// 「被拖走的那一格」，这里不用再 `if (to > from) to--`。
+  void moveSong(int from, int to) {
+    if (from == to) return;
+    if (from < 0 || from >= songs.length) return;
+    if (to < 0 || to >= songs.length) return;
+    final song = songs.removeAt(from);
+    songs.insert(to, song);
     _saveSongs();
     notifyListeners();
   }
@@ -375,9 +584,19 @@ class AppState extends ChangeNotifier {
   /// 歌名是可以就地改的，改的是歌单里那一份，搜索结果里还是旧的。
   /// 先命中搜索结果的话，改名后去播放这首歌，播放栏拿到的就是改名前的名字
   ///（要等播放中再改一次才显示新的）。
+  /// 按 mid 找歌：**先搜所有歌单**（当前歌单优先），再搜搜索结果。
+  ///
+  /// 不能只搜当前歌单：恢复上次播放态、以及队列里那些歌都可能来自别的歌单，
+  /// 只认当前歌单会「找不到」，被当成已经删除。
   Song? findSong(String mid) {
     for (final s in songs) {
       if (s.mid == mid) return s;
+    }
+    for (final p in playlists) {
+      if (p.id == currentPlaylistId) continue;
+      for (final s in p.songs) {
+        if (s.mid == mid) return s;
+      }
     }
     for (final s in searchResults) {
       if (s.mid == mid) return s;
@@ -480,7 +699,7 @@ class AppState extends ChangeNotifier {
   /// 已经在队列里的话先把它从原位置摘掉 —— 不摘会出现同一首歌占两处，
   /// 而「插入到下一首」要的就是它紧接着播。
   void insertNext(Song song) {
-    if (song.mid.isEmpty) return;
+    if (!song.hasMid) return;
     var at = queueIndex;
     if (at < 0 || at >= playQueue.length) {
       // 还没开始播：插到队首，下一次播放就是它
@@ -573,6 +792,16 @@ class AppState extends ChangeNotifier {
     ensureQueue();
     final next = action == 'prev' ? prevInQueue() : nextInQueue();
     if (next != null) playResolved(next, manual: false);
+  }
+
+  /// 上游只给了试听片段（会员曲目没权限时是 30 秒）。
+  ///
+  /// 必须把那份缓存删掉：不删的话它会一直被命中，用户后来配好了会员
+  /// 也还是听到那 30 秒 —— 表现成「有黑胶也只能听 30 秒」。
+  void onShortAudio(Song song) {
+    AudioDiskCache.drop(song.mid);
+    AudioDiskCache.markTrial(song.mid);
+    showInfo('《${song.name}》只能试听一小段，可能需要会员');
   }
 
   /// 播放模式变了 —— 队列立刻按新模式重建，面板跟着刷新。

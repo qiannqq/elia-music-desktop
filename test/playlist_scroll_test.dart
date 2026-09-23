@@ -32,14 +32,16 @@ void main() {
     await tester.pump();
 
     expect(
-      tester.widget<ListView>(find.byType(ListView)).prototypeItem,
+      tester
+          .widget<ReorderableListView>(find.byType(ReorderableListView))
+          .prototypeItem,
       isNotNull,
       reason: '没有行高，jumpTo 只能从第 0 行一路量到目标位置',
     );
 
     // 原型量出来的高度必须就是真实行的高度，否则滚动条长度与总长度都会偏。
     final rowH = tester.getSize(find.byKey(const ValueKey('mid0'))).height;
-    final viewportH = tester.getSize(find.byType(ListView)).height;
+    final viewportH = tester.getSize(find.byType(ReorderableListView)).height;
     expect(
       controller.position.maxScrollExtent,
       closeTo(376 * rowH - viewportH, 2),

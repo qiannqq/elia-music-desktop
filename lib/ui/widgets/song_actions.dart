@@ -440,29 +440,23 @@ class _PopupState extends State<_Popup> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _PopupItem(
-                      label: '添加到歌单顶部',
-                      onTap: () {
-                        requestClose();
-                        if (song == null) return;
-                        if (state.isAdded(song.mid)) {
-                          state.showInfo('已存在: ${song.name}');
-                          return;
-                        }
-                        state.addToTop(song);
-                        state.showSuccess('已置顶: ${song.name}');
-                      },
-                    ),
-                    _PopupItem(
-                      label: '添加到歌单底部',
-                      onTap: () {
-                        requestClose();
-                        if (song == null) return;
-                        if (state.addToList(song)) {
-                          state.showSuccess('已添加: ${song.name}');
-                        }
-                      },
-                    ),
+                    // 每个歌单一项。已经有这首歌的那个置灰 ——
+                    // 否则会重复加进去，出现两首一样的。
+                    //
+                    // 注意这里判断的是**各个歌单自己**有没有，不是「当前歌单」：
+                    // 用户在这儿选的就是要加到哪个歌单。
+                    for (final p in state.playlists)
+                      _PopupItem(
+                        label: p.name,
+                        enabled: song == null
+                            ? false
+                            : !state.playlistHasSong(p.id, song.mid),
+                        onTap: () {
+                          requestClose();
+                          if (song == null) return;
+                          state.addToPlaylist(p.id, song);
+                        },
+                      ),
                   ],
                 ),
               ),
@@ -499,9 +493,16 @@ class _PopupState extends State<_Popup> {
 }
 
 class _PopupItem extends StatefulWidget {
-  const _PopupItem({required this.label, required this.onTap});
+  const _PopupItem({
+    required this.label,
+    required this.onTap,
+    this.enabled = true,
+  });
   final String label;
   final VoidCallback onTap;
+
+  /// 禁用项置灰、不响应悬停与点击（某个歌单已经有这首歌时用它）
+  final bool enabled;
 
   @override
   State<_PopupItem> createState() => _PopupItemState();
@@ -513,17 +514,22 @@ class _PopupItemState extends State<_PopupItem> {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final on = widget.enabled;
     return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
+      cursor: on ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      onEnter: (_) {
+        if (on) setState(() => _hovered = true);
+      },
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
-        onTap: widget.onTap,
+        onTap: on ? widget.onTap : null,
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: _hovered ? c.accentLight : c.accentLight.withValues(alpha: 0),
+            color: (on && _hovered)
+                ? c.accentLight
+                : c.accentLight.withValues(alpha: 0),
             borderRadius: BorderRadius.circular(6),
           ),
           child: Text(
@@ -531,7 +537,8 @@ class _PopupItemState extends State<_PopupItem> {
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w500,
-              color: _hovered ? c.accent : c.text,
+              // 灰着就得一直是灰的，不能跟着悬停变色
+              color: on ? (_hovered ? c.accent : c.text) : c.textTertiary,
             ),
           ),
         ),

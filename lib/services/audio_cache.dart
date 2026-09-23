@@ -151,6 +151,26 @@ class AudioDiskCache {
     }
   }
 
+  // ------------------------------------------------------------ 凭据代次
+
+  /// 缓存条目的「凭据代次」。
+  ///
+  /// 同一首歌，匿名状态下上游只给试听片段（30/60 秒），配上会员 ck 之后才是
+  /// 完整的 —— 文件都在缓存里，光看 mid 分不出来。所以在索引里记下写它时的
+  /// 代次，**ck 一变就把代次推一格**，旧条目自动当未命中、重新取一次。
+  ///
+  /// 默认给 1 而不是 0：这一版之前的条目都没有这个字段（读出来是 0），
+  /// 它们可能正是「配好会员之前缓存的试听片段」—— 一律作废，别让它继续命中。
+  static const String _epochKey = 'audio_cache_epoch';
+
+  static int get epoch => int.tryParse(LocalStore.getOr(_epochKey, '1')) ?? 1;
+
+  /// 凭据变了（ck 保存 / 清除）。缓存文件不删 —— 重新取的时候会就地覆盖。
+  static void bumpEpoch() {
+    LocalStore.set(_epochKey, '${epoch + 1}');
+    fileLogger.info('AudioCache', '凭据变了，缓存代次 → ${epoch + 1}');
+  }
+
   /// 命中缓存则返回本地文件，否则返回 null
   static File? find(String mid) {
     if (mid.isEmpty) return null;
@@ -159,6 +179,9 @@ class AudioDiskCache {
         if (f is File && p.basenameWithoutExtension(f.path) == mid) {
           // 半成品（下载中断）不算命中
           if (f.lengthSync() <= 0) continue;
+          // 凭据变过之后，这一份可能只是试听片段 —— 当未命中。
+          // 文件先留着：重新取的时候会就地覆盖，不用多一次删除。
+          if ((_readIndex()[mid]?['epoch'] ?? 0) != epoch) continue;
           // 后缀和实际内容对不上（早期版本把 fMP4 存成了 .mp3）就当没命中，
           // 顺手删掉：这种文件本来就播不出来，留着只会让播放每次都回退到网络。
           if (p.extension(f.path).toLowerCase() != extensionForBytes(_head(f))) {
@@ -184,6 +207,44 @@ class AudioDiskCache {
     _writeIndex(index);
   }
 
+  /// 这次会话里被判成「试听片段」的 mid。
+  ///
+  /// **只放内存**：用户配好会员、重启之后就该重新试一次 ——
+  /// 持久化的话那份误判会跟着他走。
+  static final Set<String> _trials = {};
+
+  static void markTrial(String mid) => _trials.add(mid);
+  static bool isTrial(String mid) => _trials.contains(mid);
+
+  /// 按 mid 找缓存文件，**不看代次**。
+  ///
+  /// [find] 会按代次过滤掉过期的条目，而「删掉这份」要处理的恰恰是那些 ——
+  /// 所以这里单独走一遍目录。
+  static File? fileFor(String mid) {
+    if (mid.isEmpty) return null;
+    try {
+      for (final f in dir.listSync()) {
+        if (f is File &&
+            p.basenameWithoutExtension(f.path) == mid &&
+            f.lengthSync() > 0) {
+          return f;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// 删掉这首歌的缓存。试听片段留着只会一直被命中 ——
+  /// 表现成「明明有会员，这首也只能听 30 秒」。
+  static void drop(String mid) {
+    final f = fileFor(mid);
+    if (f == null) return;
+    try {
+      f.deleteSync();
+      fileLogger.info('AudioCache', '$mid 的缓存被判定成试听片段，已删除');
+    } catch (_) {}
+  }
+
   /// 后台把音频下载到缓存。
   ///
   /// 先写 `.part` 再改名：中途失败/被杀时不会留下一个「看起来命中、
@@ -192,6 +253,8 @@ class AudioDiskCache {
     if (mid.isEmpty || url.isEmpty) return;
     // 设为 0GB 就不存了。播放照旧，只是每次都走网络。
     if (!enabled) return;
+    // 这次会话里已经确认它上游只给试听片段 —— 再存一遍还是那 30 秒
+    if (isTrial(mid)) return;
     if (find(mid) != null) return;
     // 先落到固定的 `.part`，拿到内容之后再按真实容器定后缀改名 ——
     // 后缀只能等下载完才知道（URL 上的后缀不可信，见 extensionForBytes）。
@@ -218,6 +281,8 @@ class AudioDiskCache {
       index[mid] = {
         'cachedAt': DateTime.now().millisecondsSinceEpoch,
         'lastPlayedAt': DateTime.now().millisecondsSinceEpoch,
+        // 记下写它时的凭据代次，下次 ck 变了就知道这份该作废
+        'epoch': epoch,
       };
       _writeIndex(index);
       fileLogger.info('AudioCache',

@@ -37,6 +37,13 @@ class Song {
 
   bool get isBilibili => source == 'bilibili';
 
+  /// 上游有那种「用户自己上传的作品」—— 拿不到任何 id（mid 为空）。
+  ///
+  /// 这种歌没法取流、也没法去重（全应用认歌都靠 mid），装进歌单只会变成
+  /// 一排点不动的幽灵条目，还会跟别的空 mid 歌撞 key。所以一律不收：
+  /// 搜索结果里直接丢掉，各个「加进歌单」的入口也拦一道。
+  bool get hasMid => mid.trim().isNotEmpty;
+
   /// 持久化用（等价 `trimSong()`）
   Map<String, dynamic> toStoreJson() => {
         'mid': mid,

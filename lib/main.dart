@@ -72,8 +72,10 @@ Future<void> main() async {
   // 桌面顶部的歌词胶囊。默认关，只有设置里打开过才会显示。
   await lyricIsland.init();
 
-  // 按策略清理音频缓存：不在歌单里的留 24h、在歌单里但 30 天没听的删掉
-  AudioDiskCache.prune(playlistMids: app.songs.map((s) => s.mid).toSet());
+  // 按策略清理音频缓存：不在歌单里的留 24h、在歌单里但 30 天没听的删掉。
+  // 这里要拿**全部歌单**的 mid —— 只看当前歌单的话，切到另一个歌单之后
+  // 前一个歌单的歌会被判成「已经不在歌单里」，缓存被清掉。
+  AudioDiskCache.prune(playlistMids: app.allPlaylistMids);
 
   // ---- 窗口（无边框 + 自绘标题栏，等价 frame:false）----
   await windowManager.ensureInitialized();

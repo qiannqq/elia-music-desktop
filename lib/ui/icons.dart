@@ -30,7 +30,11 @@ class AppIcons {
       '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>';
 
   // 播放控制（fill 型）
-  static const play = '<polygon points="5 3 19 12 5 21 5 3"/>';
+  /// 播放三角。
+  ///
+  /// 形状在 24 画布里往右让了 1 格：三角形**视觉重心偏左**，按包围盒居中
+  /// 看着就是偏左的（这是光学居中，不是笔误）。
+  static const play = '<polygon points="6 3 20 12 6 21 6 3"/>';
   static const pause = '<rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>';
   static const prev =
       '<polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5" stroke-width="2"/>';
@@ -98,6 +102,9 @@ class AppIcons {
       '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2.5"/>'
       '<path d="M12 1.5v3.5"/><path d="M12 19v3.5"/>'
       '<path d="M1.5 12H5"/><path d="M19 12h3.5"/>';
+
+  /// 加号：新建歌单
+  static const plus = '<path d="M12 5v14"/><path d="M5 12h14"/>';
   static const volume =
       '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/>';
 
