@@ -89,3 +89,11 @@ target_link_libraries(${BINARY_NAME} PRIVATE audio_probe)
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
+
+# 两个静态库同样要等 flutter_assemble：ephemeral/cpp_client_wrapper
+# （flutter/binary_messenger.h 在里面）就是它解包出来的。
+# 少了这两行，MSBuild 会并行编译它们与 flutter_assemble —— 干净 checkout
+# （CI 每次都是）下会撞上 C1083 找不到 flutter/binary_messenger.h，
+# 而本地因为 ephemeral 早就存在，这个顺序问题永远复现不出来。
+add_dependencies(smtc_bridge flutter_assemble)
+add_dependencies(audio_probe flutter_assemble)
