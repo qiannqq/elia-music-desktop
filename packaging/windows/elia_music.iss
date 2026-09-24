@@ -4,7 +4,7 @@
 #define MyAppName "Elia Music"
 #define MyAppNameEn "Elia Music"
 #define MyAppVersion "1.1.0"
-#define MyAppVersionFull "1.1.0-alpha-001"
+#define MyAppVersionFull "1.1.0-alpha-002"
 #define MyAppPublisher "千奈千祁"
 #define MyAppURL "https://github.com/qiannqq/elia-music-desktop"
 #define MyAppExeName "elia_music.exe"

@@ -26,7 +26,7 @@ if not exist "%RELEASE_DIR%\elia_music.exe" (
     exit /b 1
 )
 
-:: 读取版本号（pubspec 里是 1.1.0-alpha-001+6，去掉 build number 部分）
+:: 读取版本号（pubspec 里是 1.1.0-alpha-002+6，去掉 build number 部分）
 for /f "tokens=2 delims=: " %%a in ('findstr /C:"version:" pubspec.yaml') do (
     set "VERSION_FULL=%%a"
     goto :got_version

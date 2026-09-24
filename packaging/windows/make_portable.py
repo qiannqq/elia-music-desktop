@@ -15,7 +15,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 RELEASE = os.path.join(ROOT, "build", "windows", "x64", "runner", "Release")
 DIST = os.path.join(ROOT, "dist")
 
-# 版本号取 pubspec.yaml，去掉 build number（1.1.0-alpha-001+6 -> 1.1.0-alpha-001）
+# 版本号取 pubspec.yaml，去掉 build number（1.1.0-alpha-002+6 -> 1.1.0-alpha-002）
 with open(os.path.join(ROOT, "pubspec.yaml"), encoding="utf-8") as f:
     version_full = re.search(r"^version:\s*(\S+)", f.read(), re.M).group(1)
 VERSION = version_full.split("+")[0]
