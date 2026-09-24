@@ -11,6 +11,7 @@ import '../models/song.dart';
 import 'api_client.dart';
 import 'audio_cache.dart';
 import 'lyric_cache.dart';
+import 'silence_probe.dart';
 
 enum PlayMode { sequential, reverse, repeatAll, repeatOne, shuffle }
 
@@ -74,6 +75,12 @@ class PlayerController extends ChangeNotifier {
   /// 加载成功后要跳到的位置（记忆态恢复、或失败重试后接着放）
   Duration? _pendingSeek;
 
+  // ------------------------------------------------------------ 首尾静音
+  //
+  // 时间轴**保持原始**：跳开头用 seek，到结尾当「放完了」。进度条、歌词、
+  // 播放位置记忆都还按原始时间走，不另造一套裁剪后的时长。
+  final SilenceSkip _silence = SilenceSkip();
+
   /// 当前歌没有可播的源、需要重新取地址时回调。
   /// 由状态层注入（`AppState.playSong`）—— 服务层不反向依赖状态层。
   void Function(Song song)? onReloadRequested;
@@ -136,6 +143,11 @@ class PlayerController extends ChangeNotifier {
       if (_disposed || _preparing) return;
       position = p;
       positionNotifier.value = p;
+      // 尾巴那段空白：到点就当这首唱完了，别让用户对着静音等几秒
+      if (_silence.reachedEnd(p)) {
+        _handleEnded();
+        return;
+      }
       // 只有「唱到下一句」这种低频变化才需要整棵树知道
       if (_updateActiveLyric()) notifyListeners();
     });
@@ -191,6 +203,8 @@ class PlayerController extends ChangeNotifier {
     isLoading = true;
     _retryCount = 0;
     _lastLyricTimer?.cancel();
+    // 换歌了：上一首的静音区间与「已经跳过」的状态都作废
+    _silence.reset();
 
     // 必须立刻停掉正在播放的旧歌：
     // 否则新歌加载期间旧歌会继续出声，而且它的位置事件会持续覆盖 position
@@ -254,6 +268,7 @@ class PlayerController extends ChangeNotifier {
       isLoading = false;
       // 记忆态恢复 / 失败重试：源就绪之后再跳回原来的位置
       await _seekToPending();
+      await _skipLeadingSilence();
       savePlaybackState();
       fileLogger.info('Player', 'playing mid=${song.mid} name=${song.name}');
       notifyListeners();
@@ -278,6 +293,44 @@ class PlayerController extends ChangeNotifier {
     } catch (e) {
       fileLogger.warn('Player', '跳到 ${target.inMilliseconds}ms 失败: $e');
     }
+  }
+
+  /// 应用一首歌的首尾静音探测结果（null = 没探出来 / 没有可跳的）。
+  ///
+  /// 结果一般比音频晚到（要解一次音频），所以这里可能是在歌已经放着的时候
+  /// 被调用 —— 那时开头那段可能还没放完，正好跳过去。
+  void applySilenceTrim(SilenceTrim? trim) {
+    _silence.apply(trim);
+    unawaited(_skipLeadingSilence());
+  }
+
+  /// 开头那段空白：一知道就跳过去。
+  ///
+  /// 只在「还停在空白里」的时候跳。用户自己拖回开头（[seekPercent]）时
+  /// 会先立起「已经处理过」的标记，想听那段就听，不会再被顶走。
+  Future<void> _skipLeadingSilence() async {
+    // 源还没加载（记忆态、上次取地址失败）：等真正播的时候 [play] 会再调一次
+    if (!_sourceLoaded) return;
+    final target = _silence.leadingTarget(position);
+    if (target == null) return;
+    position = target;
+    positionNotifier.value = target;
+    try {
+      await _player.seek(target);
+    } catch (e) {
+      fileLogger.warn('Player', '跳过开头无声失败: $e');
+    }
+  }
+
+  /// 单曲循环时从头发一遍：开头那段空白也要重新跳
+  Future<void> _restartFromStart() async {
+    try {
+      await _player.seek(Duration.zero);
+      await _player.resume();
+    } catch (_) {}
+    // 等跳回去了再复位，否则「放完了」那条判定会被上一轮的位置事件再触发一次
+    _silence.rewind();
+    await _skipLeadingSilence();
   }
 
   Future<void> _retryWithLowerQuality() async {
@@ -380,6 +433,8 @@ class PlayerController extends ChangeNotifier {
   Future<void> seekPercent(double percent) async {
     if (!percent.isFinite || percent < 0 || percent > 1) return;
     if (duration.inMilliseconds <= 0) return;
+    // 用户自己拖的：他要是拖回开头那段空白，就让他听，别再自动顶走
+    _silence.userSeeked();
     final target =
         Duration(milliseconds: (percent * duration.inMilliseconds).round());
     // 源还没加载（记忆态 / 上次取地址失败）：往底层的旧源上 seek 是白费，
@@ -502,8 +557,9 @@ class PlayerController extends ChangeNotifier {
 
   void _handleEnded() {
     if (playMode == PlayMode.repeatOne) {
-      _player.seek(Duration.zero);
-      _player.resume();
+      position = Duration.zero;
+      positionNotifier.value = Duration.zero;
+      unawaited(_restartFromStart());
       return;
     }
     _lastLyricTimer?.cancel();

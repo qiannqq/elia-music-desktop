@@ -19,6 +19,7 @@ import '../services/lyric_cache.dart';
 import '../services/netease_service.dart';
 import '../services/player_controller.dart';
 import '../services/qqmusic_service.dart';
+import '../services/silence_probe.dart';
 import 'toast.dart';
 
 enum DownloadStatus { idle, running, done, fail }
@@ -182,6 +183,10 @@ class AppState extends ChangeNotifier {
   List<String> recentDirs = [];
   double zoom = 110;
 
+  /// 跳过歌曲首尾的空白（压制时留下的那几秒）。
+  /// 探测要解一次音频，所以结果会存下来，一首歌只探一次。
+  bool skipSilence = true;
+
   /// 当前打开着「+」二级菜单的歌曲 mid（没有则为 null）。
   /// 搜索卡片靠它决定「弹出层打开期间也显示操作按钮」，
   /// 否则遮罩会让卡片失去 hover、按钮闪一下。
@@ -259,6 +264,7 @@ class AppState extends ChangeNotifier {
 
     searchSource = LocalStore.getOr('search_source', 'qq');
     highQuality = LocalStore.get('qqmusic_high_quality') != 'false';
+    skipSilence = LocalStore.get('skip_silence') != 'false';
     savePath = LocalStore.getOr('qqmusic_save_path', '');
     // 默认 110%：未设置过时用它；已设置过的仍读存下来的值
     zoom = (double.tryParse(LocalStore.getOr('qqmusic_zoom', '110')) ?? 110)
@@ -888,6 +894,8 @@ class AppState extends ChangeNotifier {
         await player.play(song, url);
         if (gen != _playGeneration) return;
         notifyListeners();
+        // 开播之后再探首尾静音：探测要解一次音频，挡在播放前面只会让开播变慢
+        unawaited(_probeSilence(song, url));
       } else {
         player.cancelLoading();
         toast.show('无法获取播放链接', type: ToastType.error);
@@ -897,6 +905,20 @@ class AppState extends ChangeNotifier {
       player.cancelLoading();
       toast.show('播放失败: $e', type: ToastType.error);
     }
+  }
+
+  /// 探一下这首歌首尾有没有空白，有就让播放器跳过去。
+  ///
+  /// 探测要解一次音频（本地文件几十毫秒、网络流几百毫秒），所以**不等它** ——
+  /// 结果回来时歌多半刚开播，正好把开头那段跳掉。结果会存下来，一首歌只探一次。
+  Future<void> _probeSilence(Song song, String url) async {
+    if (!skipSilence) return;
+    final gen = _playGeneration;
+    final trim = await SilenceProbe.probe(song.mid, url: url);
+    // 探测期间用户已经换歌了：这份结果不能安到新歌头上
+    if (gen != _playGeneration) return;
+    if (player.currentSong?.mid != song.mid) return;
+    player.applySilenceTrim(skipSilence ? trim : null);
   }
 
   // ============================================================ 搜索
@@ -1130,6 +1152,25 @@ class AppState extends ChangeNotifier {
     highQuality = v;
     LocalStore.set('qqmusic_high_quality', v.toString());
     notifyListeners();
+  }
+
+  /// 开关「跳过首尾无声」。
+  ///
+  /// 打开时把**当前这首**也接上（不然得等下次播放才生效），关掉则立刻
+  /// 把已应用的区间撤掉 —— 用户按了关闭，尾巴就不该再提前收。
+  void setSkipSilence(bool v) {
+    if (skipSilence == v) return;
+    skipSilence = v;
+    LocalStore.set('skip_silence', v.toString());
+    notifyListeners();
+
+    final song = player.currentSong;
+    if (song == null) return;
+    if (!v) {
+      player.applySilenceTrim(null);
+      return;
+    }
+    unawaited(_probeSilence(song, player.currentUrl ?? ''));
   }
 
   void setZoom(double v) {

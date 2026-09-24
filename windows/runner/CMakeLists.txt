@@ -7,6 +7,8 @@ project(runner LANGUAGES CXX)
 #
 # Any new source files that you add to the application should be added here.
 add_executable(${BINARY_NAME} WIN32
+  "audio_probe.h"
+  "audio_probe_bridge.h"
   "flutter_window.cpp"
   "lyric_island.cpp"
   "main.cpp"
@@ -68,6 +70,22 @@ target_include_directories(smtc_bridge PRIVATE
 # windowsapp.lib 是 WinRT 激活（RoActivateInstance 等）所需的导入库
 target_link_libraries(smtc_bridge PUBLIC windowsapp.lib)
 target_link_libraries(${BINARY_NAME} PRIVATE smtc_bridge)
+
+# ==== 首尾无声探测桥（Media Foundation）====
+#
+# 同样单独建静态库：MF 的头在 /W4 下警告一堆，混进主目标会被 /WX 卡死。
+add_library(audio_probe STATIC "audio_probe.cpp" "audio_probe_bridge.cpp")
+target_compile_features(audio_probe PUBLIC cxx_std_17)
+target_compile_options(audio_probe PRIVATE /W3 /EHsc /utf-8)
+target_include_directories(audio_probe PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${FLUTTER_MANAGED_DIR}/ephemeral/cpp_client_wrapper/include"
+)
+# mfuuid 提供 MF_* 那些 GUID，ole32 提供 PropVariantClear
+target_link_libraries(audio_probe PUBLIC
+  "mfplat.lib" "mfreadwrite.lib" "mfuuid.lib" "ole32.lib"
+)
+target_link_libraries(${BINARY_NAME} PRIVATE audio_probe)
 
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)

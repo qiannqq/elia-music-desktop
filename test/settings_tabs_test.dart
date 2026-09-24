@@ -71,6 +71,7 @@ void main() {
 
     // 默认落在播放设置
     expect(find.text('音质设置'), findsOneWidget);
+    expect(find.text('跳过首尾无声片段'), findsOneWidget);
     expect(find.text('胶囊歌词'), findsOneWidget);
     expect(find.text('QQ音乐 Cookie'), findsNothing, reason: '别的栏的内容串过来了');
 

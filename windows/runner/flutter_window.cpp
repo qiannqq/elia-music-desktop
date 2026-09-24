@@ -3,6 +3,7 @@
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "audio_probe_bridge.h"
 #include "lyric_island.h"
 #include "smtc_bridge.h"
 #include "system_bridge.h"
@@ -31,6 +32,7 @@ bool FlutterWindow::OnCreate() {
   RegisterSmtcBridge(flutter_controller_->engine()->messenger(), GetHandle());
   RegisterLyricIsland(flutter_controller_->engine()->messenger(), GetHandle());
   RegisterSystemBridge(flutter_controller_->engine()->messenger());
+  RegisterAudioProbe(flutter_controller_->engine()->messenger());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {

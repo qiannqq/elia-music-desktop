@@ -5,6 +5,7 @@ import '../core/file_logger.dart';
 import 'audio_cache.dart';
 import 'cover_cache.dart';
 import 'lyric_cache.dart';
+import 'silence_probe.dart';
 
 /// 缓存占用的一份快照。
 class CacheUsage {
@@ -81,7 +82,10 @@ class CacheManager {
   }
 
   /// 清音频缓存，返回释放的字节数
-  static int clearAudio() => AudioDiskCache.clearAll();
+  ///
+  /// 首尾静音的探测结果也一起清：那是从音频里算出来的，音频没了它就没意义。
+  static int clearAudio() =>
+      AudioDiskCache.clearAll() + SilenceProbe.clearCache();
 
   /// 清歌词与封面，返回释放的字节数
   static int clearOther() => LyricCache.clearAll() + CoverCache.clearAll();

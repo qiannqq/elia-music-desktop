@@ -207,6 +207,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final sections = switch (tab) {
       SettingsTab.playback => [
           _qualitySection(c, state),
+          _silenceSection(c, state),
           _lyricIslandSection(c, state),
         ],
       SettingsTab.ck => [
@@ -545,6 +546,34 @@ class _SettingsPageState extends State<SettingsPage> {
               ],
             ),
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _silenceSection(AppColors c, AppState state) {
+    return _Section(
+      title: '跳过首尾无声片段',
+      desc: '自动跳过歌曲开头与结尾的空白（压制时留下的那几秒）。'
+          '需要解一次音频来定位，所以每首歌第一次播放时可能晚半秒才生效。',
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                '开启',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: c.textSecondary,
+                ),
+              ),
+            ),
+            AppToggle(
+              value: state.skipSilence,
+              onChanged: state.setSkipSilence,
+            ),
+          ],
         ),
       ],
     );
