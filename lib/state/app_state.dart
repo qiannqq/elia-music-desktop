@@ -45,7 +45,16 @@ class AppState extends ChangeNotifier {
       _searchResults = v.where((s) => s.hasMid).toList();
 
   List<Song> _searchResults = [];
+
+  /// 上一次**搜过**的关键词（结果区标题、翻页缓存都用它）
   String searchKeyword = '';
+
+  /// 输入框里**当前**的内容。
+  ///
+  /// 输入框由 shell 持有，状态层拿不到那个控制器，所以在这里同步一份。
+  /// 换音源时要按它重搜，不能按 [searchKeyword] —— 后者是上一次搜过的词，
+  /// 用户改了输入框还没搜，两者就不一样了。
+  String searchInput = '';
   int currentPage = 1;
   int searchTotal = 0;
   bool isSearching = false;
@@ -901,6 +910,7 @@ class AppState extends ChangeNotifier {
 
   /// 输入框内容变化时判断搜索按钮是否切换为「链接样式」
   void onSearchInputChanged(String value) {
+    searchInput = value;
     final v = value.trim();
     final isLink = RegExp(r'playlist/(\d+)|song/(\w+)|[?&]id=\d+|^\d+$').hasMatch(v);
     final isNeteaseLink = v.contains('music.163.com');
@@ -1098,14 +1108,20 @@ class AppState extends ChangeNotifier {
     if (_pageCache.length > 40) _pageCache.clear();
   }
 
+  /// 换音源。当前有搜索内容就按**它**在新音源上重搜一遍。
+  ///
+  /// 重搜的关键词取 [searchInput]（输入框里现在的内容），不是 [searchKeyword]：
+  /// 用户常是先改关键词、再点另一个音源，用上一次搜过的词会搜出上一首歌的结果。
+  ///
+  /// 歌单页（粘贴链接进来的）不重搜 —— 输入框里还留着那串链接，重搜没有意义。
   void setSearchSource(String source) {
     if (isSearching) return;
     searchSource = source;
     LocalStore.set('search_source', source);
     notifyListeners();
-    if (searchKeyword.isNotEmpty && searchResults.isNotEmpty && !isPlaylistPage) {
-      handleSearch(searchKeyword);
-    }
+    final keyword = searchInput.trim();
+    if (keyword.isEmpty || isPlaylistPage) return;
+    handleSearch(keyword);
   }
 
   // ============================================================ 设置
