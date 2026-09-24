@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -84,20 +85,37 @@ class _PlaylistPageState extends State<PlaylistPage>
   double? _dropFromTop;
   double? _dropToTop;
 
-  /// 卡片的不透明度动画：拿起来 1 → 0.7，松手再放回 1（同一个控制器回退）
+  /// 卡片的不透明度动画：拿起来 1 → 0.7，松手再放回 1（同一个控制器回退）。
+  ///
+  /// 时长跟框架那条落点动画（`_proxyAnimation`，250ms）**对齐**：两边都从松手
+  /// 那一刻起跑，才会在同一帧结束。
   late final AnimationController _dragFade = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 240),
+    duration: const Duration(milliseconds: 250),
     value: 0,
   )
     ..addListener(_onDragFadeTick)
-    // 松手后动画回退到 0 —— 卡片撤掉。⚠️ 拿起时 `forward(from: 0)` 也会经过 0，
-    // 所以要靠 `_dropToTop` 区分（那时它还是 null）。
-    ..addStatusListener((status) {
-      if (status == AnimationStatus.dismissed && _dropToTop != null) {
-        _clearDragCard();
-      }
-    });
+    ..addStatusListener(_onDragFadeStatus);
+
+  /// 拖动中不给任何行加悬停高亮 —— 鼠标掠过别的卡片时它们不该亮
+  final ValueNotifier<bool> _dragging = ValueNotifier(false);
+
+  /// 撤卡片放在**自己那条动画回退到 0 的那一帧**（见 [_onDragFadeStatus]）。
+
+  /// 松手那条动画回退到 0 —— **就在这一帧撤卡片**。
+  ///
+  /// 撤早了会闪（卡片消失、真行还没回来），撤晚了会「亮一下」（卡片和真行叠一帧：
+  /// 正在播放那圈光晕的 `BoxShadow` 是 alpha 0.3，两张叠起来合成成 0.51）。
+  /// 所以两条动画必须**同一帧起跑、同一帧结束**：时长都是 250ms（框架那条
+  /// `_proxyAnimation` 也是 250ms）、都在松手那一刻 `reverse()`、
+  /// 都由同一个 vsync 驱动 —— 于是「我这边归位完成」就是「框架提交新顺序、
+  /// 把行放回来」的同一帧，交接不早不晚。
+  ///
+  /// ⚠️ 拿起时 `forward(from: 0)` 也会经过 `dismissed`，用 `_dropToTop` 区分。
+  void _onDragFadeStatus(AnimationStatus status) {
+    if (status != AnimationStatus.dismissed || _dropToTop == null) return;
+    _clearDragCard();
+  }
 
   /// 拿列表区域这一层量坐标（它跟列表是同一套坐标系）
   final GlobalKey _listAreaKey = GlobalKey();
@@ -265,6 +283,9 @@ class _PlaylistPageState extends State<PlaylistPage>
 
   @override
   void dispose() {
+    _dragFade.dispose();
+    _dragCard.dispose();
+    _dragging.dispose();
     _hoveredMid.dispose();
     _searchCtrl.dispose();
     _searchFocus.dispose();
@@ -285,6 +306,8 @@ class _PlaylistPageState extends State<PlaylistPage>
   /// 拖动中的自动滚动是直接 `jumpTo` 的，没经过控制器 —— 不清掉基准，
   /// 下一次滚轮会从过期的目标位置开始，出现一下跳变。
   void _reorder(int from, int to) {
+    // 框架这时才提交新顺序、把行放回落点 —— 卡片跟它同帧交接，中间不留空洞
+    _clearDragCard();
     final c = widget.scrollController;
     if (c is SmoothScrollController) c.invalidateTarget();
     widget.state.moveSong(from, to);
@@ -308,6 +331,9 @@ class _PlaylistPageState extends State<PlaylistPage>
     _dragFrom = index;
     _dropFromTop = null;
     _dropToTop = null;
+    // 拖动期间只有被拖的那张卡片是"重点"：把已有的悬停清掉，并抑制后续悬停
+    _hoveredMid.value = null;
+    _dragging.value = true;
     _dragFade.forward(from: 0);
     _dragCard.value = _DragCard(
       song: widget.state.songs[index],
@@ -363,6 +389,7 @@ class _PlaylistPageState extends State<PlaylistPage>
   }
 
   void _clearDragCard() {
+    _dragging.value = false;
     _dragCard.value = null;
     _dragFrom = null;
     _dropFromTop = null;
@@ -426,6 +453,7 @@ class _PlaylistPageState extends State<PlaylistPage>
       hoveredMid: _hoveredMid,
       dragIndex: dragIndex,
       onGrab: dragIndex == null ? null : _onCardGrab,
+      dragging: dragIndex == null ? null : _dragging,
     );
   }
 
@@ -677,6 +705,7 @@ class _PlaylistItem extends StatefulWidget {
     this.dragIndex,
     this.forceHover = false,
     this.onGrab,
+    this.dragging,
   });
 
   final Song song;
@@ -699,6 +728,11 @@ class _PlaylistItem extends StatefulWidget {
 
   /// 按下时上报「哪一行、那张卡片的盒子、指针在哪」—— 拖动中自己画卡片要用
   final void Function(int index, RenderBox rowBox, Offset globalPos)? onGrab;
+
+  /// 是否正在拖动。为真时**不响应悬停**：拖动中鼠标会掠过别的卡片，
+  /// 那不是「选中」，那些行不该亮起来。
+  final ValueListenable<bool>? dragging;
+
 
   @override
   State<_PlaylistItem> createState() => _PlaylistItemState();
@@ -763,6 +797,7 @@ class _PlaylistItemState extends State<_PlaylistItem> {
   /// 鼠标进出本行 —— 写回全页共用的那一个值
   void _setHover(bool inside) {
     if (widget.forceHover) return;
+    if (widget.dragging?.value ?? false) return;
     if (inside) {
       widget.hoveredMid.value = widget.song.mid;
     } else if (widget.hoveredMid.value == widget.song.mid) {

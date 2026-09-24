@@ -114,6 +114,13 @@ void main() {
     return ops.isEmpty ? -1 : ops.first.opacity;
   }
 
+  /// 拖动中的那张卡片在不在 —— 它挂在拖动层的 `Opacity` 下面，
+  /// 真行没有这条祖先链（`AnimatedOpacity` 是 FadeTransition，不算）。
+  bool dragCardVisible(WidgetTester tester, String mid) => tester.any(find.ancestor(
+        of: find.byKey(ValueKey(mid)),
+        matching: find.byType(Opacity),
+      ));
+
   /// 铺了 [color] 底色的卡片数
   int cardsWithBg(WidgetTester tester, Color color) => tester
       .widgetList<DecoratedBox>(find.byType(DecoratedBox))
@@ -298,6 +305,129 @@ void main() {
     await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 200));
 
+    controller.dispose();
+  });
+
+  testWidgets('松手后卡片与真行同帧交接，中间不留空洞', (tester) async {
+    state.songs = [for (var i = 0; i < 4; i++) s('mid$i')];
+
+    final controller = ScrollController();
+    await pumpPage(tester, controller);
+    final h = tester.getSize(find.byKey(const ValueKey('mid0'))).height;
+
+    final gesture = await pressCard(tester, 'mid0');
+    for (var step = 0; step < 20; step++) {
+      await gesture.moveBy(Offset(0, h / 20));
+      await tester.pump(const Duration(milliseconds: 8));
+    }
+    // 拖久一点再松手：让「拿起来」那段淡出先跑完。真机上拖一次通常不止 0.25 秒，
+    // 而两个动画从各自"满值"往回退时，时长差才会原封不动地露出来
+    // （都还没跑到满值时，回退时长会按比例缩短，差值被压进一帧里看不出来）。
+    await tester.pump(const Duration(milliseconds: 300));
+    await gesture.up();
+
+    // 一帧一帧看：任何一帧都得有东西在（要么是拖动中的卡片，要么是真行）。
+    // 卡片撤早了（比如动画时长跟框架的落点动画不一致）就会露出一帧空缺，
+    // 观感上就是「闪一下」。
+    var sawRow = false;
+    for (var f = 0; f < 40; f++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      final card = dragCardVisible(tester, 'mid0');
+      final row = !card && tester.any(find.byKey(const ValueKey('mid0')));
+      expect(card || row, isTrue, reason: '第 $f 帧出现了空洞：卡片和真行都不在');
+      if (row) sawRow = true;
+    }
+    expect(sawRow, isTrue, reason: '归位之后真行得回来');
+
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    controller.dispose();
+  });
+
+  testWidgets('拖动中鼠标掠过别的卡片，那些卡片不高亮', (tester) async {
+    state.songs = [for (var i = 0; i < 4; i++) s('mid$i')];
+
+    final controller = ScrollController();
+    await pumpPage(tester, controller);
+    final h = tester.getSize(find.byKey(const ValueKey('mid0'))).height;
+
+    // 悬停机制本身是好的（拖之前先证一下，否则下面那条断言可能是假通过）
+    final hover = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await hover.addPointer();
+    await hover.moveTo(tester.getCenter(find.byKey(const ValueKey('mid1'))));
+    await tester.pumpAndSettle();
+    expect(cardsWithBg(tester, AppColors.light.hover), 1, reason: '悬停要能高亮');
+    await hover.removePointer();
+    await tester.pumpAndSettle();
+
+    final gesture = await pressCard(tester, 'mid0');
+    // 从第 0 行拖到第 2 行附近：指针会依次掠过第 1、2 行
+    for (var step = 0; step < 20; step++) {
+      await gesture.moveBy(Offset(0, h * 1.6 / 20));
+      await tester.pump(const Duration(milliseconds: 8));
+    }
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // 拖动中只该有被拖的那张卡片有底色 —— 鼠标正停在别的卡片上面，
+    // 但那不是「选中」，它们不该亮
+    expect(
+      cardsWithBg(tester, AppColors.light.hover),
+      1,
+      reason: '拖动中只有被拖的卡片该高亮',
+    );
+    // 被拖的那张确实亮着（不是"一张都没亮"）
+    expect(dragCardVisible(tester, 'mid0'), isTrue);
+
+    await gesture.up();
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    controller.dispose();
+  });
+
+  testWidgets('拖正在播放的那一首：归位前后不会有「两张叠一帧」', (tester) async {
+    state.songs = [for (var i = 0; i < 4; i++) s('mid$i')];
+    // 正在播放的那一行有一圈主题色光晕（BoxShadow alpha 0.3）。
+    // 卡片和真行只要叠上一帧，alpha 合成就从 0.3 变成 0.51 ——
+    // 观感是「归位之后突然高亮一下」。
+    player.currentSong = state.songs[0];
+
+    final controller = ScrollController();
+    await pumpPage(tester, controller);
+    final h = tester.getSize(find.byKey(const ValueKey('mid0'))).height;
+
+    int glowing(WidgetTester t) => t
+        .widgetList<Container>(find.byType(Container))
+        .where((c) =>
+            c.decoration is BoxDecoration &&
+            ((c.decoration! as BoxDecoration).boxShadow?.isNotEmpty ?? false))
+        .length;
+    expect(glowing(tester), 1, reason: '正在播放的那张卡片本身有一圈光晕');
+
+    Future<void> dragAndWatch(String mid, double distance) async {
+      final gesture = await pressCard(tester, mid);
+      for (var step = 0; step < 20; step++) {
+        await gesture.moveBy(Offset(0, distance / 20));
+        await tester.pump(const Duration(milliseconds: 8));
+      }
+      await tester.pump(const Duration(milliseconds: 300));
+      await gesture.up();
+      for (var f = 0; f < 40; f++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        expect(glowing(tester), lessThanOrEqualTo(1),
+            reason: '第 $f 帧有两张带光晕的卡片叠在一起');
+      }
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 200));
+    }
+
+    // ① 拖到别的位置（框架会回调 onReorderItem）
+    await dragAndWatch('mid0', h);
+    // ② 拖了但回到原位（框架**不**回调，只能靠「行回来了」这个信号交接）
+    await dragAndWatch('mid0', h * 0.35);
+
+    player.currentSong = null;
     controller.dispose();
   });
 
