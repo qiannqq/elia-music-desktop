@@ -211,12 +211,15 @@ class QQMusicService {
     final vs = data['vs'] as List?;
     final vsPic = (vs != null && vs.length > 1) ? (vs[1] ?? '').toString() : '';
 
+    // 存的是**原图母版**（不带 R{尺寸} 后缀，实测能拿到 3000x3000 那种源图）；
+    // 显示时由 `ApiClient.coverUrlFor` 按实际尺寸降档，列表页不会白下大图。
+    // T002 专辑封面是实测过原图接口的，另两个保守走 1500 档。
     final picKey = vsPic.isNotEmpty
-        ? 'T062R150x150M000$vsPic'
+        ? 'T062R1500x1500M000$vsPic'
         : albumMid.isNotEmpty
-            ? 'T002R150x150M000$albumMid'
+            ? 'T002M000$albumMid'
             : singerMid.isNotEmpty
-                ? 'T001R150x150M000$singerMid'
+                ? 'T001M000$singerMid'
                 : '';
 
     return Song(

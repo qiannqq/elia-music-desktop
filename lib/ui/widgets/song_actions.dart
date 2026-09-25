@@ -277,18 +277,10 @@ class _AddButtonState extends State<AddButton> {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    final added = widget.state.isAdded(widget.mid);
 
-    if (added) {
-      return SizedBox(
-        width: widget.size,
-        height: widget.size,
-        child: Center(
-          child: AppIcon(AppIcons.check, size: 14, color: c.textTertiary, strokeWidth: 2.5),
-        ),
-      );
-    }
-
+    // ⚠️ 这里**不要**因为「当前歌单已经有这首歌」就把按钮换成 ✓（那一版会被
+    // 当成禁用：想把它加到**别的**歌单时先得切歌单，很不讲道理）。
+    // 「已经在哪些歌单里」的信息在弹层里 —— 那一行本来就是置灰的。
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
@@ -568,11 +560,19 @@ List<AppMenuItem> buildSongMenuItems({
   final downloaded = state.downloadedPaths[song.mid];
   final hasFile = downloaded != null && downloaded.isNotEmpty;
 
+  // 正在播的这首要给「暂停」而不是「播放」——
+  // 写成「播放」的话，点了会从头重放一遍（`playSong` 是重新加载），
+  // 而用户想的显然是「按下暂停键」。
+  final isCurrent = song.mid == player.currentSong?.mid;
+  final showingPause = isCurrent && player.isPlaying;
+
   return [
     AppMenuItem(
-      label: '播放',
-      icon: AppIcons.play,
-      onTap: () => state.playSong(song.mid),
+      label: showingPause ? '暂停' : '播放',
+      icon: showingPause ? AppIcons.pause : AppIcons.play,
+      // 正在播的这首本身就是「当前这首」，点「播放」等于重播；
+      // 但它已经在播了，所以这时给的是「暂停」，走 toggle。
+      onTap: () => showingPause ? player.togglePlay() : state.playSong(song.mid),
     ),
     // 插到「正在播的那首」后面。已经在队列里的话会先把它从原位置摘掉 ——
     // 不摘会出现同一首歌占两处。正在播的那首本身不给点：它已经在播了。
@@ -599,6 +599,29 @@ List<AppMenuItem> buildSongMenuItems({
       label: '歌词',
       icon: AppIcons.lyricDoc,
       onTap: () => onOpenLyric(song.mid),
+    ),
+    // 「添加到歌单」展开成二级菜单，直接列所有歌单 ——
+    // 在歌单页右键时尤其需要这条：否则想加进别的歌单只能切过去再加。
+    AppMenuItem(
+      label: '添加到歌单',
+      icon: AppIcons.plus,
+      children: [
+        for (final p in state.playlists)
+          AppMenuItem(
+            label: p.name,
+            // 已经在里面的用对勾 + 置灰：不用点进去才发现重复
+            icon: state.playlistHasSong(p.id, song.mid)
+                ? AppIcons.check
+                : AppIcons.plus,
+            enabled: !state.playlistHasSong(p.id, song.mid),
+            onTap: () => state.addToPlaylist(p.id, song),
+          ),
+      ],
+    ),
+    AppMenuItem(
+      label: '恢复默认歌词',
+      icon: AppIcons.refresh,
+      onTap: () => restoreLyricFromMenu(context, state, song),
     ),
     if (onEditName != null)
       AppMenuItem(
@@ -651,6 +674,23 @@ List<AppMenuItem> buildSongMenuItems({
                 ShellService.openUrl(ShellService.bilibiliSearchUrl(song)),
           ),
   ];
+}
+
+/// 菜单里的「恢复默认歌词」—— 先弹一次确认，再从音源重取。
+///
+/// 要确认是因为它会**丢掉本地改过的歌词**（用户在歌词弹窗里编辑保存过的那份），
+/// 这个动作没法撤销。
+Future<void> restoreLyricFromMenu(
+  BuildContext context,
+  AppState state,
+  Song song,
+) async {
+  final ok = await showConfirmDialog(
+    context,
+    '放弃这首歌已修改的歌词，重新从音源获取？',
+  );
+  if (!ok || !context.mounted) return;
+  await state.restoreDefaultLyric(song.mid);
 }
 
 /// 菜单里的「下载」—— 与下载按钮走同一条路，只是这里不显示环形进度，

@@ -145,6 +145,10 @@ void HandleCall(const flutter::MethodCall<EncodableValue>& call,
         EncodableValue(static_cast<int64_t>(g_slot.result.start_ms));
     out[EncodableValue("endMs")] =
         EncodableValue(static_cast<int64_t>(g_slot.result.end_ms));
+    // 两条包络都是每 20ms 一个字节（5 分钟的歌约 15000 个字节，走通道没问题）：
+    // levels 是全频段响度（压暗层用），bass 是 80~120Hz（背景跟着鼓点放大用）。
+    out[EncodableValue("levels")] = EncodableValue(g_slot.result.levels);
+    out[EncodableValue("bass")] = EncodableValue(g_slot.result.bass);
     result->Success(EncodableValue(out));
     return;
   }

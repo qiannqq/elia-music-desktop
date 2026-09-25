@@ -28,6 +28,21 @@ class AppIcons {
       '<circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>';
   static const info =
       '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>';
+  /// 收起（现在播放页左上角的返回箭头）
+  static const chevronDown = '<polyline points="6 9 12 15 18 9"/>';
+  /// 二级菜单的展开箭头（右键菜单里「这一项还有子菜单」）
+  static const chevronRight = '<polyline points="9 6 15 12 9 18"/>';
+  /// 进入全屏：四个角朝外（24 坐标系）
+  static const expand =
+      '<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>'
+      '<line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>';
+  /// 退出全屏：四个角朝内（24 坐标系）
+  static const compress =
+      '<polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/>'
+      '<line x1="10" y1="14" x2="3" y2="21"/><line x1="14" y1="10" x2="21" y2="3"/>';
+  /// 更多操作。三个点要 `filled: true` 才是实心圆点，否则是三个圆环。
+  static const more =
+      '<circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/>';
 
   // 播放控制（fill 型）
   /// 播放三角。
@@ -55,6 +70,13 @@ class AppIcons {
   static const folder =
       '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>';
   static const check = '<path d="M20 6L9 17l-5-5"/>';
+  /// 还原（窗口已经最大化了）：两个错开的方框，说明「点一下会变小」
+  static const restore =
+      '<rect x="8" y="8" width="13" height="13" rx="2"/>'
+      '<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>';
+  /// 恢复/重取（逆时针箭头）
+  static const refresh =
+      '<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>';
   static const trash =
       '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>';
   static const lyricDoc =

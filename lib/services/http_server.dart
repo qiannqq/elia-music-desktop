@@ -476,26 +476,25 @@ class HttpServerService {
 
       final referer = _refererOf(_sourceOfUrl(targetUrl));
 
-      final up = await _client.getUrl(Uri.parse(targetUrl));
-      up.headers.set('Referer', referer);
-      up.headers.set('User-Agent', kDefaultUa);
-      up.headers.set('Accept', 'image/webp,image/apng,image/*,*/*;q=0.8');
-      final upRes = await up.close();
-
-      if (upRes.statusCode < 200 || upRes.statusCode >= 300) {
-        res.statusCode = upRes.statusCode;
+      // QQ 音乐的封面：原图那一档（`T002M000{mid}.jpg`，不带 R{尺寸}）不是每张
+      // 专辑都有，实测少数专辑会 404。这里按官方固定档从大到小回退 ——
+      // 让 Dart 侧无忧（它只管要原图，拿到的可能是任意一档）。
+      // 回退结果仍然**按原 URL 写缓存**，所以只会在第一次多花几个请求。
+      var  fetched = await _fetchImage(targetUrl, referer);
+      if (fetched == null) {
+        for (final fallback in _qqCoverFallbacks(targetUrl)) {
+          fetched = await _fetchImage(fallback, referer);
+          if (fetched != null) break;
+        }
+      }
+      if (fetched == null) {
+        res.statusCode = 404;
         await res.close();
         return;
       }
 
-      // 先攒成完整的一份：要写进封面缓存，也要给出准确的 Content-Length。
-      // 封面都是几十 KB 的东西，攒一下不心疼。
-      final builder = BytesBuilder(copy: false);
-      await for (final chunk in upRes) {
-        builder.add(chunk);
-      }
-      final bytes = builder.takeBytes();
-      final type = upRes.headers.contentType?.toString() ?? 'image/jpeg';
+      final bytes = fetched.bytes;
+      final type = fetched.contentType;
       CoverCache.put(targetUrl, bytes, type);
 
       res.statusCode = 200;
@@ -512,6 +511,49 @@ class HttpServerService {
         await res.close();
       } catch (_) {}
     }
+  }
+
+  /// 抓一张图片；非 2xx 返回 null（交给上层决定要不要回退）
+  Future<({Uint8List bytes, String contentType})?> _fetchImage(
+      String url, String referer) async {
+    try {
+      final up = await _client.getUrl(Uri.parse(url));
+      up.headers.set('Referer', referer);
+      up.headers.set('User-Agent', kDefaultUa);
+      up.headers.set('Accept', 'image/webp,image/apng,image/*,*/*;q=0.8');
+      final upRes = await up.close();
+      if (upRes.statusCode < 200 || upRes.statusCode >= 300) {
+        await upRes.drain<void>();
+        return null;
+      }
+      // 先攒成完整的一份：要写进封面缓存，也要给出准确的 Content-Length。
+      // 封面都是几十 KB 的东西，攒一下不心疼。
+      final builder = BytesBuilder(copy: false);
+      await for (final chunk in upRes) {
+        builder.add(chunk);
+      }
+      final type = upRes.headers.contentType?.toString() ?? 'image/jpeg';
+      return (bytes: builder.takeBytes(), contentType: type);
+    } catch (e) {
+      fileLogger.warn('ImageProxy', '拉取失败 $url: $e');
+      return null;
+    }
+  }
+
+  /// QQ 封面原图地址的降档候选（只在原图 404 时用）。
+  ///
+  /// 官方只支持 150/300/500/800/1200/1500 这几个固定档（别的尺寸直接 404，
+  /// 不是任意缩放服务），所以从 1500 往下试。
+  List<String> _qqCoverFallbacks(String url) {
+    final m = RegExp(r'/music/photo_new/(T\d{3})M000([^/.]+)\.jpg').firstMatch(url);
+    if (m == null) return const [];
+    final head = url.substring(0, m.start);
+    final type = m.group(1)!;
+    final id = m.group(2)!;
+    return [
+      for (final s in [1500, 1200, 800, 500, 300, 150])
+        '$head/music/photo_new/${type}R${s}x$s' 'M000$id.jpg',
+    ];
   }
 
   Future<void> _apiProxyAudio(HttpRequest req, HttpResponse res, Map<String, String> q) async {

@@ -87,6 +87,21 @@ target_link_libraries(audio_probe PUBLIC
 )
 target_link_libraries(${BINARY_NAME} PRIVATE audio_probe)
 
+# ==== 窗口全屏桥 ====
+#
+# 全屏必须由原生来做：Dart 那边用 `windowManager.setBounds` 改尺寸会污染
+# 系统的「还原尺寸」，把最大化和还原的语义搞乱（详见 window_fx.h 的说明）。
+add_library(window_fx STATIC "window_fx.cpp")
+target_compile_features(window_fx PUBLIC cxx_std_17)
+target_compile_options(window_fx PRIVATE /W3 /EHsc /utf-8)
+target_include_directories(window_fx PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}"
+  "${FLUTTER_MANAGED_DIR}/ephemeral/cpp_client_wrapper/include"
+)
+# DwmSetWindowAttribute：全屏时去掉窗口圆角（否则四个角会露出桌面）
+target_link_libraries(window_fx PUBLIC "dwmapi.lib")
+target_link_libraries(${BINARY_NAME} PRIVATE window_fx)
+
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
 
@@ -97,3 +112,4 @@ add_dependencies(${BINARY_NAME} flutter_assemble)
 # 而本地因为 ephemeral 早就存在，这个顺序问题永远复现不出来。
 add_dependencies(smtc_bridge flutter_assemble)
 add_dependencies(audio_probe flutter_assemble)
+add_dependencies(window_fx flutter_assemble)

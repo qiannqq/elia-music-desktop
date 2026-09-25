@@ -18,8 +18,11 @@ import 'widgets/context_menu.dart';
 const double kPlayerBarHeight = 72;
 const double kLyricLineHeight = 24;
 
-/// 播放模式的图标（`AppIcons` 的路径数据）—— 按钮与菜单共用一份
-String _modeIcon(PlayMode mode) => switch (mode) {
+/// 播放模式的图标（`AppIcons` 的路径数据）。
+///
+/// 播放栏（按钮 + 菜单）和现在播放页共用这一份 —— 两处的图标必须一致，
+/// 否则同一个模式在两个地方长得不一样。
+String playModeIcon(PlayMode mode) => switch (mode) {
       PlayMode.sequential => AppIcons.playOrder,
       PlayMode.reverse => AppIcons.playOrderReverse,
       PlayMode.repeatAll => AppIcons.repeatAll,
@@ -31,12 +34,21 @@ String _modeIcon(PlayMode mode) => switch (mode) {
 
 /// 底部播放器栏 —— 对应 `.player-bar`
 class PlayerBar extends StatefulWidget {
-  const PlayerBar({super.key, required this.state, this.onOpenQueue});
+  const PlayerBar({
+    super.key,
+    required this.state,
+    this.onOpenQueue,
+    this.onOpenNowPlaying,
+  });
 
   final AppState state;
 
   /// 点「播放列表」时调 —— 面板由 shell 托管（它要盖在页面之上、播放栏之下）。
   final VoidCallback? onOpenQueue;
+
+  /// 点左侧**封面**时调 —— 推出现在播放页（整页由 shell 托管，
+  /// 它要盖住播放栏和所有页面）。歌名/歌词那一块还是走歌词编辑弹窗。
+  final VoidCallback? onOpenNowPlaying;
 
   @override
   State<PlayerBar> createState() => _PlayerBarState();
@@ -178,7 +190,8 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
       onEnter: (_) => setState(() {}),
       onExit: (_) => setState(() {}),
       child: GestureDetector(
-        onTap: () => _openLyric(),
+        // 封面推出现在播放页；歌名/歌词那一块仍是歌词编辑弹窗（见 _buildMeta）
+        onTap: () => widget.onOpenNowPlaying?.call(),
         child: SizedBox(
           width: 48,
           height: 48,
@@ -445,7 +458,7 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
         for (final mode in PlayMode.values)
           AppMenuItem(
             label: mode.label,
-            icon: _modeIcon(mode),
+            icon: playModeIcon(mode),
             checked: mode == player.playMode,
             onTap: () => player.setMode(mode),
           ),
@@ -472,7 +485,7 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
             _ctrlSlot(
               AppIconButton(
                 key: _modeKey,
-                icon: _modeIcon(player.playMode),
+                icon: playModeIcon(player.playMode),
                 size: 28,
                 iconSize: 16,
                 baseColor: c.textTertiary,

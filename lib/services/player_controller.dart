@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:path/path.dart' as p;
 
 import 'package:audioplayers/audioplayers.dart';
@@ -71,6 +72,19 @@ class PlayerController extends ChangeNotifier {
   /// 这两种状态下，底层播放器里留着的还是**上一首**的源，
   /// 直接 `resume()` 会把它放出来。
   bool _sourceLoaded = false;
+
+  /// 音频源已经装好了吗（区别于「只是把歌挂在播放栏上」的记忆态）。
+  ///
+  /// 界面层用它判断「点这首歌到底是接着播、还是要重新加载」——
+  /// 见 `AppState.playResolved` 开头那一段。
+  bool get sourceReady => _sourceLoaded;
+
+  /// 仅供测试：直接把「源已就绪」标上。
+  ///
+  /// 真走到那一步要跑完整的 `play()`（取播放地址 / 命中缓存 / 拉歌词），
+  /// 单测里没必要为了一个状态位把整条链路拖进来。
+  @visibleForTesting
+  void debugSetSourceReady(bool value) => _sourceLoaded = value;
 
   /// 加载成功后要跳到的位置（记忆态恢复、或失败重试后接着放）
   Duration? _pendingSeek;

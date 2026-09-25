@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -48,6 +49,44 @@ class SilenceTrim {
     if (d == null || s == null || e == null || d <= 0) return null;
     return SilenceTrim(durationMs: d, startMs: s, endMs: e);
   }
+}
+
+/// 整首歌的响度包络（每 [stepMs] 一格，0~255）。
+///
+/// 这是**真的**音频数据：原生侧解码时顺手算出来的，所以背景能跟着鼓点呼吸，
+/// 而不是按时间瞎编一个节拍。
+class LevelTrack {
+  const LevelTrack(this.levels, {this.stepMs = 20});
+
+  final Uint8List levels;
+  final int stepMs;
+
+  bool get isEmpty => levels.isEmpty;
+
+  /// 某个时刻的响度（0~1）。
+  ///
+  /// 两点之间**线性插值**：一格 100ms，直接按格取会一格一格地闪。
+  double levelAt(double seconds) {
+    if (levels.isEmpty) return 0;
+    final pos = seconds * 1000 / stepMs;
+    if (pos <= 0) return levels.first / 255;
+    final i = pos.floor();
+    if (i >= levels.length - 1) return levels.last / 255;
+    final f = pos - i;
+    return (levels[i] + (levels[i + 1] - levels[i]) * f) / 255;
+  }
+}
+
+/// 让亮度「上得快、落得慢」。
+///
+/// 直接跟着包络走会一抖一抖的：鼓点打下去要立刻亮，松开之后得慢慢回落，
+/// 看起来才像在呼吸而不是在闪。返回新的当前值。
+double followLevel(double prev, double target, double dt,
+    {double attack = 0.035, double release = 0.30}) {
+  final tau = target > prev ? attack : release;
+  if (tau <= 0) return target;
+  final k = 1 - math.exp(-dt / tau);
+  return prev + (target - prev) * k;
 }
 
 /// 一份探测结果怎么用 —— 什么时候跳开头、什么时候算唱完。
@@ -118,7 +157,7 @@ class SilenceProbe {
 
   /// 等结果的上限。本地文件 100ms 上下，网络流慢一些，但也不该等太久 ——
   /// 等不到就当这首歌没有可跳的空白，下次播放再试（结果会存下来）。
-  static const Duration timeout = Duration(seconds: 8);
+  static const Duration timeout = Duration(seconds: 25);
 
   /// 等「本地音频文件出现」的上限。
   ///
@@ -131,25 +170,45 @@ class SilenceProbe {
 
   static File get _cacheFile => File(p.join(AppPaths.dataDir, 'silence_cache.json'));
 
+  /// 解析过一次就留在内存里。
+  ///
+  /// 包络让这个文件涨到几百 KB 到几 MB，每次调用都读盘 + `jsonDecode` 会明显卡手
+  /// （`cached` / `levels` 都在热路径上）。
+  static Map<String, Map<String, Object?>>? _mem;
+
+  /// 缓存格式版本。
+  ///
+  /// **必须带**：条目内容改过两次（v2 加了 20ms 响度包络、v4 加了 80~120Hz 低频
+  /// 包络），老条目字段不全 —— 光看「有条目」会一直命中，新数据永远拿不到
+  /// （表现为「背景一点不动」）。版本对不上就当没有，重新探一次。
+  static const int _cacheVersion = 4;
+
   /// 探测结果：`{mid: {durationMs, startMs, endMs, epoch}}`
   ///
   /// 带 `epoch`（凭据代次）：同一个 mid 在匿名和会员状态下拿到的音频不一样，
   /// 那份旧结果对不上新的音频。
   static Map<String, Map<String, Object?>> _readCache() {
+    final cached = _mem;
+    if (cached != null) return cached;
+    var loaded = <String, Map<String, Object?>>{};
     try {
-      if (!_cacheFile.existsSync()) return {};
-      final raw = jsonDecode(_cacheFile.readAsStringSync());
-      if (raw is! Map) return {};
-      return {
-        for (final e in raw.entries)
-          if (e.value is Map) e.key.toString(): (e.value as Map).cast<String, Object?>(),
-      };
-    } catch (_) {
-      return {};
-    }
+      if (_cacheFile.existsSync()) {
+        final raw = jsonDecode(_cacheFile.readAsStringSync());
+        if (raw is Map) {
+          loaded = {
+            for (final e in raw.entries)
+              if (e.value is Map)
+                e.key.toString(): (e.value as Map).cast<String, Object?>(),
+          };
+        }
+      }
+    } catch (_) {}
+    _mem = loaded;
+    return loaded;
   }
 
   static void _writeCache(Map<String, Map<String, Object?>> cache) {
+    _mem = cache;
     try {
       _cacheFile.writeAsStringSync(jsonEncode(cache), flush: true);
     } catch (e) {
@@ -157,19 +216,25 @@ class SilenceProbe {
     }
   }
 
+  /// 缓存条目还有效吗（版本 + 凭据代次都对得上）
+  static bool _valid(Map<String, Object?>? entry) {
+    if (entry == null) return false;
+    if ((entry['v'] as num?)?.toInt() != _cacheVersion) return false;
+    return (entry['epoch'] as num?)?.toInt() == AudioDiskCache.epoch;
+  }
+
   /// 已缓存的探测结果（没有 / 过期返回 null）
   static SilenceTrim? cached(String mid) {
     if (mid.isEmpty) return null;
     final entry = _readCache()[mid];
-    if (entry == null) return null;
-    if ((entry['epoch'] as num?)?.toInt() != AudioDiskCache.epoch) return null;
-    return SilenceTrim.fromJson(entry);
+    return _valid(entry) ? SilenceTrim.fromJson(entry) : null;
   }
 
   /// 清掉全部探测结果，返回释放的字节数。
   ///
   /// 跟音频缓存一起清：探测结果是从那份音频算出来的，音频没了它就没意义。
   static int clearCache() {
+    _mem = null;
     try {
       final f = _cacheFile;
       if (!f.existsSync()) return 0;
@@ -178,6 +243,26 @@ class SilenceProbe {
       return n;
     } catch (_) {
       return 0;
+    }
+  }
+
+  /// 已经算好的响度包络（没有 / 过期返回 null）。同步读，热路径上用它。
+  static LevelTrack? levels(String mid) => _track(mid, 'levels');
+
+  /// 已经算好的低频（80~120Hz）包络 —— 背景「跟着鼓点放大」用它。
+  static LevelTrack? bass(String mid) => _track(mid, 'bass');
+
+  static LevelTrack? _track(String mid, String key) {
+    if (mid.isEmpty) return null;
+    final entry = _readCache()[mid];
+    if (!_valid(entry)) return null;
+    final raw = entry?[key];
+    if (raw is! String || raw.isEmpty) return null;
+    try {
+      final track = LevelTrack(base64Decode(raw));
+      return track.isEmpty ? null : track;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -288,10 +373,18 @@ class SilenceProbe {
       );
       if (trim.durationMs <= 0) return null;
 
+      final rawLevels = res['levels'];
+      final rawBass = res['bass'];
       final cache = _readCache();
       cache[mid] = {
         ...trim.toJson(),
+        'v': _cacheVersion,
         'epoch': AudioDiskCache.epoch,
+        // 包络走 base64：15000 个字节写成 JSON 数组要一百多 KB，base64 只要 20KB
+        if (rawLevels is Uint8List && rawLevels.isNotEmpty)
+          'levels': base64Encode(rawLevels),
+        if (rawBass is Uint8List && rawBass.isNotEmpty)
+          'bass': base64Encode(rawBass),
       };
       _writeCache(cache);
       fileLogger.info(

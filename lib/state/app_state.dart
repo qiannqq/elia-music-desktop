@@ -187,6 +187,15 @@ class AppState extends ChangeNotifier {
   /// 探测要解一次音频，所以结果会存下来，一首歌只探一次。
   bool skipSilence = true;
 
+  /// 现在播放页背景的律动幅度（1.0 = 默认，约 10% 的画面位移）。
+  /// 跟的是歌曲响度，不是按时间编的节拍。
+  double bgPulse = 1;
+
+  /// 现在播放页背景的**转速倍数**（1.0 = 约 31 秒一圈，0 = 不转）。
+  /// 它只乘在匀速旋转上 —— 低频推角和缩放幅度仍然只归 [bgPulse] 管，
+  /// 所以把幅度调 0 依旧是「完全静止」，两个选项互不干扰。
+  double bgSpin = 1;
+
   /// 当前打开着「+」二级菜单的歌曲 mid（没有则为 null）。
   /// 搜索卡片靠它决定「弹出层打开期间也显示操作按钮」，
   /// 否则遮罩会让卡片失去 hover、按钮闪一下。
@@ -265,6 +274,10 @@ class AppState extends ChangeNotifier {
     searchSource = LocalStore.getOr('search_source', 'qq');
     highQuality = LocalStore.get('qqmusic_high_quality') != 'false';
     skipSilence = LocalStore.get('skip_silence') != 'false';
+    bgPulse = (double.tryParse(LocalStore.getOr('bg_pulse', '1')) ?? 1)
+        .clamp(0, 2);
+    bgSpin = (double.tryParse(LocalStore.getOr('bg_spin', '1')) ?? 1)
+        .clamp(0, 3);
     savePath = LocalStore.getOr('qqmusic_save_path', '');
     // 默认 110%：未设置过时用它；已设置过的仍读存下来的值
     zoom = (double.tryParse(LocalStore.getOr('qqmusic_zoom', '110')) ?? 110)
@@ -850,6 +863,20 @@ class AppState extends ChangeNotifier {
   /// [manual] = 用户主动点的（点歌、双击）。只有手动点歌才动队列位置：
   /// 自动续播时位置已经由 [nextInQueue] / [prevInQueue] 挪好了。
   Future<void> playResolved(Song song, {bool manual = true}) async {
+    // 点的是**当前这一首**、而且它的音频源已经装好：接着播就行了。
+    //
+    // 不判这一条的话会走下面的完整重载（取地址 → play → 位置归零）——
+    // 表现就是「暂停之后点播放，从头开始放」。右键菜单里的「播放」正好是这条路
+    // （正在播的歌我们给的是「暂停」，暂停之后又变回「播放」）。
+    //
+    // 只认「同一首 + 源就绪」：别的歌当然要换过去；而记忆态恢复那种
+    // 「挂着歌但没装源」（sourceReady = false）也必须走重载，否则 resume()
+    // 放出来的是上一首的声音。
+    if (song.mid == player.currentSong?.mid && player.sourceReady) {
+      if (!player.isPlaying) await player.togglePlay();
+      return;
+    }
+
     if (manual) {
       final idx = playQueue.indexWhere((s) => s.mid == song.mid);
       if (idx >= 0) {
@@ -1171,6 +1198,20 @@ class AppState extends ChangeNotifier {
       return;
     }
     unawaited(_probeSilence(song, player.currentUrl ?? ''));
+  }
+
+  /// 背景律动幅度（0~2）
+  void setBgPulse(double v) {
+    bgPulse = v.clamp(0, 2);
+    LocalStore.set('bg_pulse', '$bgPulse');
+    notifyListeners();
+  }
+
+  /// 背景旋转速度（0~3 倍速，0 = 不转）
+  void setBgSpin(double v) {
+    bgSpin = v.clamp(0, 3);
+    LocalStore.set('bg_spin', '$bgSpin');
+    notifyListeners();
   }
 
   void setZoom(double v) {
@@ -1617,6 +1658,44 @@ class AppState extends ChangeNotifier {
     currentLyricParsed =
         b.lines.map((e) => LyricLineBox(e.time, e.text, words: e.words)).toList();
     currentLyricTransMap = b.transMap;
+  }
+
+  /// **恢复默认歌词**：丢掉本地改过的（自定义）歌词，重新从音源拉一遍。
+  ///
+  /// 三步缺一不可：
+  ///   1. 删掉 `custom_lyric_*` 两个键 —— 取词链路上**自定义歌词优先**，
+  ///      不删的话重拉多少次都是本地那份（`_fetch` 里能看到这个优先顺序）；
+  ///   2. `LyricCache.invalidate` 把内存与磁盘缓存作废；
+  ///   3. `force: true` 再取一次，绕开缓存直奔网络。
+  ///
+  /// 结果会同时刷到弹窗那份（`currentLyric*`）和播放栏那份（`player.lyricLines`）——
+  /// 两边是两份数据，只刷一边会出现「弹窗对了、播放栏还是旧的」。
+  Future<bool> restoreDefaultLyric(String mid) async {
+    final song = findSong(mid) ??
+        (player.currentSong?.mid == mid ? player.currentSong : null);
+    if (song == null || !song.hasMid) {
+      toast.show('找不到这首歌，无法重取歌词', type: ToastType.error);
+      return false;
+    }
+
+    LocalStore.remove('custom_lyric_$mid');
+    LocalStore.remove('custom_lyric_trans_$mid');
+    LyricCache.invalidate(mid);
+
+    final bundle = await LyricCache.load(mid, source: song.source, force: true);
+
+    if (currentLyricMid == mid && bundle != null) _applyLyricBundle(bundle);
+    // 等它读完：这样这个方法返回时，弹窗和播放栏两边都已经是新的了
+    // （reloadLyrics 会命中刚取回的那份内存缓存，不会再请求一次网络）
+    if (player.currentSong?.mid == mid) await player.reloadLyrics();
+    notifyListeners();
+
+    if (bundle == null || bundle.lines.isEmpty) {
+      toast.show('没能取到歌词，稍后再试', type: ToastType.error);
+      return false;
+    }
+    toast.show('已恢复默认歌词', type: ToastType.success);
+    return true;
   }
 
   /// 只加载歌词、不弹窗（供编辑态重载等场景使用）

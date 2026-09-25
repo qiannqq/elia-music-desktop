@@ -7,6 +7,7 @@
 #include "lyric_island.h"
 #include "smtc_bridge.h"
 #include "system_bridge.h"
+#include "window_fx.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -33,6 +34,7 @@ bool FlutterWindow::OnCreate() {
   RegisterLyricIsland(flutter_controller_->engine()->messenger(), GetHandle());
   RegisterSystemBridge(flutter_controller_->engine()->messenger());
   RegisterAudioProbe(flutter_controller_->engine()->messenger());
+  RegisterWindowFx(flutter_controller_->engine()->messenger(), GetHandle());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -50,6 +52,7 @@ bool FlutterWindow::OnCreate() {
 void FlutterWindow::OnDestroy() {
   // 通道挂在引擎的 messenger 上，要先拆掉再销毁引擎。
   LyricIslandShutdown();
+  WindowFxShutdown();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }

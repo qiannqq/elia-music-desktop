@@ -33,6 +33,34 @@ void main() {
       expect(map[1.0], '译文');
       expect(map[2.5], '译文二');
     });
+
+    test('只有 // 的行丢掉（QQ 拿它隔开作者信息和正文）', () {
+      const raw = '[00:00.00]Written by: A/B/C\n'
+          '[00:00.50]//\n'
+          '[00:01.00]Charlie Puth:\n'
+          '[00:02.00]只剩沉默\n';
+      final lines = parseLrc(raw);
+      expect(lines.map((l) => l.text).toList(),
+          ['Written by: A/B/C', 'Charlie Puth:', '只剩沉默'],
+          reason: '夹在中间的那行 // 不该显示出来');
+    });
+
+    test('翻译里的 // 一样丢掉（否则「这一句的翻译」会显示成两个斜杠）', () {
+      final map = parseTransLrc('[00:00.50]//\n[00:02.00]只剩沉默\n');
+      expect(map.containsKey(0.5), isFalse);
+      expect(map[2.0], '只剩沉默');
+    });
+
+    test('空行 / 全角斜杠 / 带空格都算分隔符', () {
+      expect(isLyricSeparator('//'), isTrue);
+      expect(isLyricSeparator(' // '), isTrue);
+      expect(isLyricSeparator('／／'), isTrue);
+      expect(isLyricSeparator('/'), isTrue);
+      // 真内容不能被误伤
+      expect(isLyricSeparator('爱/情'), isFalse);
+      expect(isLyricSeparator('A/B/C'), isFalse);
+      expect(isLyricSeparator(''), isFalse);
+    });
   });
 
   group('时间格式化', () {

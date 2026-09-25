@@ -11,6 +11,7 @@ import 'package:elia_music/models/song.dart';
 import 'package:elia_music/services/player_controller.dart';
 import 'package:elia_music/state/app_state.dart';
 import 'package:elia_music/ui/sidebar.dart';
+import 'package:elia_music/ui/widgets/song_actions.dart';
 
 /// 多歌单的冒烟测试。
 ///
@@ -146,6 +147,43 @@ void main() {
       state.switchPlaylist(b.id);
       expect(state.isAdded('a1'), isFalse,
           reason: '搜索结果里的「已添加」是相对当前歌单说的');
+    });
+  });
+
+  group('添加按钮', () {
+    testWidgets('当前歌单已经有这首歌了，「+」也照样能点开（去加进别的歌单）', (tester) async {
+      state.addToList(s('a1'));
+      state.createPlaylist('乙歌单');
+      expect(state.isAdded('a1'), isTrue, reason: '当前歌单里确实有它');
+
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(AppColors.light, Brightness.light),
+        home: Scaffold(body: Center(child: AddButton(mid: 'a1', state: state))),
+      ));
+      await tester.pump();
+
+      // 以前这里会把按钮换成 ✓ 且不可点 —— 想加到别的歌单得先切歌单，很不讲道理
+      await tester.tap(find.byType(AddButton));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('默认歌单'), findsOneWidget, reason: '弹出歌单列表才算可用');
+      expect(find.text('乙歌单'), findsOneWidget);
+    });
+
+    testWidgets('没有这首歌时同样能点开', (tester) async {
+      state.createPlaylist('乙歌单');
+      await tester.pumpWidget(MaterialApp(
+        theme: buildTheme(AppColors.light, Brightness.light),
+        home: Scaffold(body: Center(child: AddButton(mid: 'zz', state: state))),
+      ));
+      await tester.pump();
+
+      await tester.tap(find.byType(AddButton));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('默认歌单'), findsOneWidget);
     });
   });
 

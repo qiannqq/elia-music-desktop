@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import '../../services/api_client.dart';
 import '../../core/app_theme.dart';
 import '../icons.dart';
 
@@ -429,6 +430,8 @@ class AppProgressBar extends StatelessWidget {
     this.onSeekStart,
     this.onSeekEnd,
     this.draggable = false,
+    this.trackColor,
+    this.fillColor,
   });
 
   final double value;
@@ -445,6 +448,10 @@ class AppProgressBar extends StatelessWidget {
   final VoidCallback? onSeekEnd;
 
   final bool draggable;
+
+  /// 轨道与填充色。不给就用主题里的（现在播放页整页是封面底色，需要白色系）。
+  final Color? trackColor;
+  final Color? fillColor;
 
   @override
   Widget build(BuildContext context) {
@@ -482,7 +489,7 @@ class AppProgressBar extends StatelessWidget {
                   width: double.infinity,
                   height: draggable && hovered ? hoverHeight : height,
                   decoration: BoxDecoration(
-                    color: c.progressBg,
+                    color: trackColor ?? c.progressBg,
                     borderRadius: BorderRadius.circular(height / 2),
                   ),
                   child: FractionallySizedBox(
@@ -490,7 +497,7 @@ class AppProgressBar extends StatelessWidget {
                     widthFactor: value.clamp(0.0, 1.0),
                     child: Container(
                       decoration: BoxDecoration(
-                        color: c.accent,
+                        color: fillColor ?? c.accent,
                         borderRadius: BorderRadius.circular(height / 2),
                       ),
                     ),
@@ -528,27 +535,36 @@ class AppSpinner extends StatelessWidget {
 
 /// 歌曲封面 —— 对应 `.song-cover` / `.song-cover-placeholder`
 class SongCover extends StatelessWidget {
-  const SongCover({super.key, this.url, this.size = 44, this.radius = 6});
+  const SongCover({
+    super.key,
+    this.pic,
+    this.size = 44,
+    this.radius = 6,
+    this.px,
+  });
 
-  final String? url;
+  /// **原始**封面地址（不是代理地址）—— 内部要按显示尺寸重新挑一档。
+  ///
+  /// QQ 音乐那套封面有固定档位（150/300/…/1500，以及不带尺寸的原图），
+  /// 存的母版是原图；小格子用原图纯属浪费流量，所以这里按 [size] 降档。
+  final String? pic;
+
   final double size;
   final double radius;
+
+  /// 强制指定要哪一档（不传就按 [size] 自动算）。
+  ///
+  /// ⚠️ 同一个歌在不同地方要**用同一档**，否则 URL 不同 = 下两张图、两次解码。
+  /// 播放页的封面、背景、预热就是靠这个参数对齐的（见 `kNowPlayingCoverPx`）。
+  final int? px;
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    if (url == null || url!.isEmpty) {
-      return Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: c.surfaceAlt,
-          borderRadius: BorderRadius.circular(radius),
-        ),
-        child: Center(child: AppIcon(AppIcons.music, size: size * 0.4, color: c.textTertiary)),
-      );
-    }
-    // 按显示尺寸解码。封面原图常有 300~800px，为一个 40px 的格子解出整张，
+    final raw = pic ?? '';
+    if (raw.isEmpty) return _placeholder(c);
+
+    // 按显示尺寸解码。封面原图常有 300~3000px，为一个 40px 的格子解出整张，
     // 几百首歌就能把图片缓存挤爆、反复重新解码。
     //
     // 只给 cacheWidth：同时给 width/height 会按指定尺寸拉伸（等同 BoxFit.fill），
@@ -557,28 +573,45 @@ class SongCover extends StatelessWidget {
     // 尺寸再**取整到 2 的幂**：歌单是 40px、搜索页是 44px，直接算出来 80 / 88，
     // 缓存键不同 —— 同一个封面在两个页面之间来回切会被反复重新解码。
     // 取整到同一档就能共用一份。
-    final wanted = size * MediaQuery.devicePixelRatioOf(context) * 2;
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final wanted = size * dpr * 2;
     var cachePx = 64;
     while (cachePx < wanted && cachePx < 512) {
       cachePx *= 2;
     }
+
+    // 请求的尺寸档跟解码尺寸用**同一个** `wanted`：
+    // 40px 的歌单行拿 150 档（约 11KB），播放页那个大封面拿 1200 档
+    // （实测 800 档 183KB、1200 档约 400KB、原图 1.5MB+）—— 刚好够清晰又不白下。
+    final url = ApiClient.getProxyImageUrl(
+      ApiClient.coverUrlFor(raw, px: px ?? wanted.round()),
+    );
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),
       child: Image.network(
-        url!,
+        url,
         width: size,
         height: size,
         fit: BoxFit.cover,
         cacheWidth: cachePx,
-        errorBuilder: (_, _, _) => Container(
-          width: size,
-          height: size,
-          color: c.surfaceAlt,
-          child: Center(child: AppIcon(AppIcons.music, size: size * 0.4, color: c.textTertiary)),
-        ),
+        errorBuilder: (_, _, _) => _placeholder(c),
         loadingBuilder: (ctx, child, progress) => progress == null
             ? child
             : Container(width: size, height: size, color: c.surfaceAlt),
+      ),
+    );
+  }
+
+  Widget _placeholder(AppColors c) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: c.surfaceAlt,
+        borderRadius: BorderRadius.circular(radius),
+      ),
+      child: Center(
+        child: AppIcon(AppIcons.music, size: size * 0.4, color: c.textTertiary),
       ),
     );
   }

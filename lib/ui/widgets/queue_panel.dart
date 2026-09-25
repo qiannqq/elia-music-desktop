@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
 import '../../models/song.dart';
-import '../../services/api_client.dart';
 import '../../services/player_controller.dart';
 import '../../state/app_state.dart';
 import '../icons.dart';
@@ -266,7 +265,7 @@ class _QueueRow extends StatelessWidget {
               const SizedBox(width: 8),
               // 与歌单行**同 URL 同尺寸**：两边算出来的 cacheWidth 一样，
               // ImageCache 的键就一样 —— 来回切不会重复解码，也不会多打一次网络。
-              SongCover(url: ApiClient.getProxyImageUrl(song.pic), size: 40),
+              SongCover(pic: song.pic, size: 40),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(

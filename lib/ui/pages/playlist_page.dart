@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 
 import '../../core/app_theme.dart';
 import '../../models/song.dart';
-import '../../services/api_client.dart';
 import '../../services/player_controller.dart';
 import '../../state/app_state.dart';
 import '../icons.dart';
@@ -917,7 +916,7 @@ class _PlaylistItemState extends State<_PlaylistItem> {
               onChanged: (_) => state.toggleSelect(song.mid),
             ),
             const SizedBox(width: 12),
-            SongCover(url: ApiClient.getProxyImageUrl(song.pic), size: 40),
+            SongCover(pic: song.pic, size: 40),
             const SizedBox(width: 12),
             Expanded(
               child: Column(

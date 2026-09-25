@@ -9,6 +9,7 @@ import 'package:elia_music/core/app_theme.dart';
 import 'package:elia_music/models/song.dart';
 import 'package:elia_music/services/player_controller.dart';
 import 'package:elia_music/state/app_state.dart';
+import 'package:elia_music/ui/icons.dart';
 import 'package:elia_music/ui/widgets/song_actions.dart';
 
 void main() {
@@ -38,7 +39,10 @@ void main() {
     );
   });
 
-  tearDown(() => player.currentSong = null);
+  tearDown(() {
+    player.currentSong = null;
+    player.isPlaying = false;
+  });
 
   /// 菜单里的「下载」要用 context 弹保存框，所以借一棵最小 widget 树取一个。
   Future<BuildContext> takeContext(WidgetTester tester) async {
@@ -109,6 +113,45 @@ void main() {
     expect(labels, isNot(contains('从歌单中移除')));
     expect(labels, isNot(contains('置顶')));
     expect(labels, isNot(contains('置底')));
+  });
+
+  testWidgets('正在播、且在播放：第一项是「暂停」而不是「播放」', (tester) async {
+    player.currentSong = song;
+    player.isPlaying = true;
+    final items = buildSongMenuItems(
+      context: await takeContext(tester),
+      state: AppState.instance,
+      song: song,
+      onOpenLyric: (_) {},
+    );
+    final first = items.first;
+    expect(first.label, '暂停', reason: '正在播的歌给「播放」的话，点了会从头重放');
+    expect(first.icon, AppIcons.pause);
+  });
+
+  testWidgets('正在播但已暂停：仍然是「播放」，点了继续放这首', (tester) async {
+    player.currentSong = song;
+    player.isPlaying = false;
+    final items = buildSongMenuItems(
+      context: await takeContext(tester),
+      state: AppState.instance,
+      song: song,
+      onOpenLyric: (_) {},
+    );
+    expect(items.first.label, '播放');
+    expect(items.first.icon, AppIcons.play);
+  });
+
+  testWidgets('别的歌：一直是「播放」', (tester) async {
+    player.currentSong = const Song(mid: '999', name: '别的歌', artist: '某人');
+    player.isPlaying = true;
+    final items = buildSongMenuItems(
+      context: await takeContext(tester),
+      state: AppState.instance,
+      song: song,
+      onOpenLyric: (_) {},
+    );
+    expect(items.first.label, '播放', reason: '不是当前这首，点了就该切过去放它');
   });
 
   testWidgets('正在播的那首：「插入到下一首」是灰的', (tester) async {

@@ -17,6 +17,7 @@ import 'services/lyric_island_service.dart';
 import 'services/smtc_service.dart';
 import 'state/app_state.dart';
 import 'state/theme_controller.dart';
+import 'core/window_fx.dart';
 import 'ui/app_shell.dart';
 
 Future<void> main() async {
@@ -109,6 +110,26 @@ Future<void> main() async {
 /// 17071 端口，导致下一次启动因端口冲突而直接退出（表现为「程序打不开」）。
 /// 因此这里在窗口关闭时先落盘、停服务，再显式 exit。
 class _AppLifecycle with WindowListener {
+  /// 窗口状态被**系统那边**改了（用户点标题栏、按 Win+↑、拖到屏幕边缘分屏）——
+  /// 我们记的那份就不成立了，跟着更新。
+  ///
+  /// ⚠️ 我们自己切全屏时也会触发这些事件（原生那边要 restore / 重设样式），
+  /// 那些不是用户操作 —— 靠 [windowFxBusy] 区分。
+  void _syncWindowState(bool maximized) {
+    if (windowFxBusy) return;
+    appMaximized.value = maximized;
+    if (appFullscreen.value) appFullscreen.value = false;
+  }
+
+  @override
+  void onWindowMaximize() => _syncWindowState(true);
+
+  @override
+  void onWindowUnmaximize() => _syncWindowState(false);
+
+  @override
+  void onWindowRestore() => _syncWindowState(false);
+
   @override
   void onWindowClose() {
     fileLogger.info('App', 'window close requested, shutting down');

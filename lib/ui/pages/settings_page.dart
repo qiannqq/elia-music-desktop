@@ -222,6 +222,7 @@ class _SettingsPageState extends State<SettingsPage> {
       SettingsTab.appearance => [
           _appearanceSection(c, state),
           _accentColorSection(c, state),
+          _nowPlayingSection(c, state),
         ],
     };
     return [
@@ -606,6 +607,109 @@ class _SettingsPageState extends State<SettingsPage> {
           ],
         ),
       ],
+    );
+  }
+
+  Widget _nowPlayingSection(AppColors c, AppState state) {
+    return _Section(
+      title: '现在播放页',
+      desc: '背景是这张封面糊开的大图，它会绕屏幕中心匀速旋转，'
+          '并跟着歌曲的低频（80~120Hz，也就是鼓点）轻轻向内放大。',
+      children: [
+        _FieldLabel('律动幅度', c),
+        Row(
+          children: [
+            _slider(
+              c: c,
+              value: state.bgPulse,
+              min: 0,
+              max: 2,
+              divisions: 20,
+              onChanged: state.setBgPulse,
+            ),
+            const SizedBox(width: 12),
+            _sliderValue('${(state.bgPulse * 100).round()}%', c),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            _FieldLabel('旋转速度', c),
+            const SizedBox(width: 8),
+            Text(
+              '1 倍速约 31 秒转一圈',
+              style: TextStyle(fontSize: 12, color: c.textTertiary),
+            ),
+          ],
+        ),
+        Row(
+          children: [
+            _slider(
+              c: c,
+              value: state.bgSpin,
+              min: 0,
+              max: 3,
+              divisions: 30,
+              onChanged: state.setBgSpin,
+            ),
+            const SizedBox(width: 12),
+            _sliderValue(_spinLabel(state.bgSpin), c, width: 92),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// 转速读成「多少秒一圈」—— 秒数比百分比直观
+  /// （「150%」看不出是多快，「21.0 秒/圈」一眼就懂）。
+  String _spinLabel(double spin) =>
+      spin < 0.05 ? '不旋转' : '${(31.4159 / spin).toStringAsFixed(1)} 秒/圈';
+
+  Widget _slider({
+    required AppColors c,
+    required double value,
+    required double min,
+    required double max,
+    required int divisions,
+    required ValueChanged<double> onChanged,
+  }) {
+    return SizedBox(
+      width: 200,
+      child: SliderTheme(
+        data: SliderTheme.of(context).copyWith(
+          trackHeight: 4,
+          activeTrackColor: c.accent,
+          inactiveTrackColor: c.progressBg,
+          thumbColor: c.accent,
+          overlayColor: c.accentLight,
+          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+          overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+        ),
+        child: Slider(
+          value: value,
+          min: min,
+          max: max,
+          divisions: divisions,
+          onChanged: onChanged,
+        ),
+      ),
+    );
+  }
+
+  Widget _sliderValue(String text, AppColors c, {double width = 56}) {
+    return SizedBox(
+      width: width,
+      child: Text(
+        text,
+        textAlign: TextAlign.right,
+        style: TextStyle(
+          fontSize: 13,
+          color: c.textSecondary,
+          fontFeatures: const [FontFeature.tabularFigures()],
+        ),
+      ),
     );
   }
 

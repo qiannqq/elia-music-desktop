@@ -89,7 +89,23 @@ void main() {
     await tapTab('外观设置');
     expect(find.text('外观'), findsOneWidget);
     expect(find.text('主题色'), findsOneWidget);
+    expect(find.text('现在播放页'), findsOneWidget);
     expect(find.text('下载设置'), findsNothing);
+
+    // 现在播放页里的两个可调项：律动幅度、旋转速度（各有一个滑块，
+    // 按量程认 —— 主题色那一栏也有滑块，数总数是数不清的）
+    expect(find.text('律动幅度'), findsOneWidget);
+    expect(find.text('旋转速度'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate((w) => w is Slider && w.min == 0 && w.max == 2),
+      findsOneWidget,
+      reason: '律动幅度滑块不见了',
+    );
+    expect(
+      find.byWidgetPredicate((w) => w is Slider && w.min == 0 && w.max == 3),
+      findsOneWidget,
+      reason: '旋转速度滑块不见了',
+    );
 
     // 换栏时滚动位置要归零，否则回来时停在半截
     expect(scroll.offset, 0);

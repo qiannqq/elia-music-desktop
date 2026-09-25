@@ -73,7 +73,7 @@ List<LyricLine> parseQrc(String? text) {
     final plain = words.isNotEmpty
         ? words.map((w) => w.text).join()
         : body.replaceAll(RegExp(r'\(\d+,\d+(?:,\d+)?\)'), '').trim();
-    if (plain.isEmpty) continue;
+    if (plain.isEmpty || isLyricSeparator(plain)) continue;
 
     result.add(LyricLine(lineStart, plain, words: words.isEmpty ? null : words));
   }
@@ -95,6 +95,25 @@ bool looksLikeQrc(String? text) =>
 
 final RegExp _lrcTsRe = RegExp(r'\[(\d{1,2}):(\d{1,2})[.:](\d{1,3})\]');
 
+/// 这一行是不是「只有斜杠」——QQ 那边拿 `//` 把作者信息、正文之类隔开。
+///
+/// 它带着时间戳进了行列表，于是歌词中间会冒出一行孤零零的 `//`
+/// （千奈截图里就有）。它不是歌词，解析时直接丢掉。
+///
+/// 半角 `/` 和全角 `／` 都认；前后空白无所谓。
+bool isLyricSeparator(String content) {
+  var sawSlash = false;
+  for (final ch in content.split('')) {
+    if (ch == '/' || ch == '／') {
+      sawSlash = true;
+      continue;
+    }
+    if (ch.trim().isEmpty) continue;
+    return false;
+  }
+  return sawSlash;
+}
+
 /// 解析 LRC 文本为按时间排序的行列表
 List<LyricLine> parseLrc(String? text) {
   if (text == null || text.isEmpty) return const [];
@@ -104,7 +123,7 @@ List<LyricLine> parseLrc(String? text) {
     if (matches.isEmpty) continue;
     // 正文取「最后一个时间戳之后」的部分
     final content = line.substring(matches.last.end).trim();
-    if (content.isEmpty) continue;
+    if (content.isEmpty || isLyricSeparator(content)) continue;
     for (final m in matches) {
       result.add(LyricLine(_toSeconds(m), content));
     }
@@ -121,7 +140,8 @@ Map<double, String> parseTransLrc(String? text) {
     final matches = _lrcTsRe.allMatches(line).toList();
     if (matches.isEmpty) continue;
     final content = line.substring(matches.last.end).trim();
-    if (content.isEmpty) continue;
+    // 翻译里的 `//` 同样要丢：留着的话「这一句的翻译」会显示成两个斜杠
+    if (content.isEmpty || isLyricSeparator(content)) continue;
     for (final m in matches) {
       map[_toSeconds(m)] = content;
     }

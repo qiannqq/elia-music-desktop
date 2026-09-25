@@ -279,6 +279,65 @@ class ApiClient {
     return '$apiBase/api/proxy/image?url=${Uri.encodeComponent(url)}';
   }
 
+  /// QQ 音乐封面地址里「类型 + 专辑/歌手 ID」那一段。
+  ///
+  /// 形如 `/music/photo_new/T002R150x150M000{albumMid}.jpg`：
+  ///   * `T002` 专辑封面、`T001` 歌手头像、`T062` 某些专辑的另一张图；
+  ///   * `R150x150` 是尺寸档，**原图这一档不带它**（就是 `T002M000{mid}.jpg`）；
+  ///   * `M000` 是多图标记，固定。
+  static final RegExp _qqCoverRe =
+      RegExp(r'/music/photo_new/(T\d{3})(?:R\d+x\d+)?M000([^/.]+)\.jpg');
+
+  /// QQ 音乐官方支持的固定尺寸档（别的一律 404，不是任意缩放服务）。
+  static const List<int> _qqCoverSizes = [150, 300, 500, 800, 1200, 1500];
+
+  /// 按**实际要显示的像素**挑一档封面地址。
+  ///
+  /// [pic] 存的是「原图母版」（`T002M000{mid}.jpg`，实测能到 3000×3000）：
+  /// 列表行只有 40px，为它下一张 1.5MB 的原图纯属浪费，所以这里按尺寸降档；
+  /// 播放页那种大图才给原图。
+  ///
+  /// [px] 为 null 表示要原图。非 QQ 的地址（网易云、B站）原样返回。
+  static String coverUrlFor(String? pic, {int? px}) {
+    if (pic == null || pic.isEmpty) return '';
+    final m = _qqCoverRe.firstMatch(pic);
+    if (m == null) return pic;
+
+    final type = m.group(1)!;
+    final id = m.group(2)!;
+    final host = _qqCoverHost(pic);
+
+    // 只有专辑封面（T002）的原图接口被实测过（能到 3000×3000）；
+    // 歌手头像 T001 的原图也能用、但 R800 以上会 404，所以小图才降档。
+    // T062 没实测过，保守处理：小图照旧，大图回落到 1500 档。
+    final wantOriginal = px == null;
+    if (wantOriginal) {
+      if (type == 'T002' || type == 'T001') {
+        return '$host/music/photo_new/${type}M000$id.jpg';
+      }
+      return '$host/music/photo_new/${type}R1500x1500M000$id.jpg';
+    }
+
+    if (type == 'T001' && px > 500) {
+      return '$host/music/photo_new/T001M000$id.jpg';
+    }
+    // 就近取档：比目标略小没事（本来就是缩小采样），别取大一档白下流量
+    var chosen = _qqCoverSizes.last;
+    for (final s in _qqCoverSizes) {
+      if (s >= px) {
+        chosen = s;
+        break;
+      }
+    }
+    return '$host/music/photo_new/${type}R${chosen}x$chosen' 'M000$id.jpg';
+  }
+
+  /// 保留原地址的 host（`y.gtimg.cn` / `y.qq.com` 都可用，实测同一张图）
+  static String _qqCoverHost(String pic) {
+    final i = pic.indexOf('/music/photo_new/');
+    return i > 0 ? pic.substring(0, i) : 'https://y.gtimg.cn';
+  }
+
   /// 推断音频扩展名。
   ///
   /// 这个后缀是**必需的**：`audioplayers_windows` 走 Media Foundation 的
