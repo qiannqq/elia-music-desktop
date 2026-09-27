@@ -521,25 +521,7 @@ class BilibiliService {
 
   /// 取音频流地址。fnval=16 要 DASH，音频在 `dash.audio[]` 里按带宽排序。
   Future<String> getAudioUrl(Song song) async {
-    await _ensureMixinKey();
-    final info = await _infoOf(song.mid);
-    if (info == null) throw Exception('无法获取该视频的 aid/cid');
-
-    final query = _sign({
-      'avid': info.aid,
-      'cid': info.cid,
-      'qn': 127,
-      'fnval': 16,
-      'fourk': 1,
-    });
-    final res = await _getJson(
-      '$_host/x/player/wbi/playurl?$query',
-      headers: {'Referer': 'https://www.bilibili.com/video/${song.mid}'},
-    );
-    if (res['code'] != 0) {
-      throw Exception('B站取流失败（code=${res['code']}）');
-    }
-    final dash = ((res['data'] as Map?)?['dash']) as Map?;
+    final dash = await _playurlDash(song);
     final audios = (dash?['audio'] as List?) ?? const [];
     if (audios.isEmpty) throw Exception('该视频没有可用的音频流');
 
@@ -573,6 +555,58 @@ class BilibiliService {
     fileLogger.info('Bilibili',
         '${song.mid} 音频 ${bwKbps}kbps codecs=$pickedCodecs mime=$pickedMime');
     return url;
+  }
+
+  /// 取一条**视频流**地址（「B站视频背景」用）。
+  ///
+  /// 和音频一样来自 `dash`，只是在 `dash.video[]` 里挑（B站的音视频是分开的两条流）。
+  /// 挑法见 [pickBilibiliVideo] —— 总原则是**能解、够用、尽量小**：
+  /// 背景会被压暗铺满，1080P 的码流只是白等下载。
+  ///
+  /// 返回值里的 `urls` 是**候选地址**（baseUrl + 备份节点，非 mcdn 的排前面）——
+  /// 同一条流 B站会挂好几个节点，`mcdn.bilivideo.cn` 那个实测会半路掐连接，
+  /// 所以拉流失败时要能换下一个（见 `video_bg.dart`）。
+  Future<({
+    String url,
+    List<String> urls,
+    int width,
+    int height,
+    String codecs,
+    int qn,
+  })> getVideoStream(Song song) async {
+    final dash = await _playurlDash(song);
+    final videos = (dash?['video'] as List?) ?? const [];
+    final picked = pickBilibiliVideo(videos);
+    if (picked == null) throw Exception('该视频没有可用的视频流');
+    fileLogger.info(
+      'Bilibili',
+      '${song.mid} 视频背景用 ${picked.qn} 档 ${picked.width}x${picked.height} '
+      'codecs=${picked.codecs} 候选节点 ${picked.urls.length} 个',
+    );
+    return picked;
+  }
+
+  /// playurl 的 DASH 清单（音频、视频都在里面）。取流的两处共用它。
+  Future<Map?> _playurlDash(Song song) async {
+    await _ensureMixinKey();
+    final info = await _infoOf(song.mid);
+    if (info == null) throw Exception('无法获取该视频的 aid/cid');
+
+    final query = _sign({
+      'avid': info.aid,
+      'cid': info.cid,
+      'qn': 127,
+      'fnval': 16,
+      'fourk': 1,
+    });
+    final res = await _getJson(
+      '$_host/x/player/wbi/playurl?$query',
+      headers: {'Referer': 'https://www.bilibili.com/video/${song.mid}'},
+    );
+    if (res['code'] != 0) {
+      throw Exception('B站取流失败（code=${res['code']}）');
+    }
+    return ((res['data'] as Map?)?['dash']) as Map?;
   }
 
   // ---------------------------------------------------------------- 歌词
@@ -684,5 +718,87 @@ class BilibiliService {
     return sec;
   }
 }
+
+/// 从 `dash.video[]` 里挑一条给「B站视频背景」用。
+///
+/// 原则是**能解、够用、尽量小**：
+///
+///  * **编码优先 AVC**（`avc1`）：HEVC / AV1 不是每台机器都硬解得了，
+///    而背景不值当为它退回软解；
+///  * **直接取最低分辨率那一档**：它只是糊开的背景，高清档只会让起流更慢
+///    （实测同一支视频 360P 与 1080P 差十倍体积）；
+///  * 同一档里挑**带宽最小**的。
+///
+/// 返回 null 表示没有可用的视频流（只有音频的投稿、或者风控只给了音频）。
+({String url, List<String> urls, int width, int height, String codecs, int qn})?
+    pickBilibiliVideo(List<dynamic> videos) {
+  final usable = <({
+    List<String> urls,
+    int width,
+    int height,
+    String codecs,
+    int qn,
+    int bw,
+  })>[];
+  for (final v in videos) {
+    if (v is! Map) continue;
+    final urls = bilibiliStreamUrls(v);
+    final w = (v['width'] as num?)?.toInt() ?? 0;
+    final h = (v['height'] as num?)?.toInt() ?? 0;
+    if (urls.isEmpty || w <= 0 || h <= 0) continue;
+    usable.add((
+      urls: urls,
+      width: w,
+      height: h,
+      codecs: (v['codecs'] ?? '').toString(),
+      qn: (v['id'] as num?)?.toInt() ?? 0,
+      bw: (v['bandwidth'] as num?)?.toInt() ?? 0,
+    ));
+  }
+  if (usable.isEmpty) return null;
+
+  final avc = usable
+      .where((e) => e.codecs.toLowerCase().contains('avc'))
+      .toList(growable: false);
+  final pool = avc.isNotEmpty ? avc : usable;
+  pool.sort((a, b) => a.height != b.height
+      ? a.height.compareTo(b.height)
+      : (a.width != b.width ? a.width.compareTo(b.width) : a.bw.compareTo(b.bw)));
+  final best = pool.first;
+  return (
+    url: best.urls.first,
+    urls: best.urls,
+    width: best.width,
+    height: best.height,
+    codecs: best.codecs,
+    qn: best.qn,
+  );
+}
+
+/// 一条 dash 流上的**全部候选地址**（`baseUrl` + `backupUrl[]`），排好序。
+///
+/// ⚠️ **`mcdn.bilivideo.cn` 要排到最后**：那是 B站的 P2P 边缘节点，实测会
+/// 「Connection closed before full header was received」——连接被对端直接掐掉，
+/// 代理只能回 5XX，ffmpeg 就报 `Server returned 5XX Server Error reply` 起不来。
+/// 同一份流的 upos / akamai 节点稳得多，所以优先用它们。
+List<String> bilibiliStreamUrls(Map<dynamic, dynamic> v) {
+  final raw = <String>[
+    (v['baseUrl'] ?? v['base_url'] ?? '').toString(),
+    ...[
+      ...((v['backupUrl'] as List?) ?? const []),
+      ...((v['backup_url'] as List?) ?? const []),
+    ].map((e) => e.toString()),
+  ].where((e) => e.isNotEmpty).toList();
+  final seen = <String>{};
+  final uniq = <String>[];
+  for (final u in raw) {
+    if (seen.add(u)) uniq.add(u);
+  }
+  uniq.sort((a, b) => _hostScore(a).compareTo(_hostScore(b)));
+  return uniq;
+}
+
+/// 越小越优先：mcdn（P2P 边缘）排最后
+int _hostScore(String url) => url.contains('mcdn.bilivideo') ? 1 : 0;
 
 final bilibiliService = BilibiliService.instance;

@@ -1,4 +1,4 @@
-﻿; Elia Music Desktop - Inno Setup 安装脚本
+; Elia Music Desktop - Inno Setup 安装脚本
 ; 适用于 Windows x64
 
 #define MyAppName "Elia Music"
@@ -59,6 +59,11 @@ Name: "associatefiles"; Description: "关联 MP3 文件"; GroupDescription: "文
 Source: "..\..\build\windows\x64\runner\Release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\build\windows\x64\runner\Release\*.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\build\windows\x64\runner\Release\data\*"; DestDir: "{app}\data"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 随包自带的 ffmpeg（B站视频背景用它解码）。用 #if 挡一下：本机还没取过
+; （python tool/fetch_ffmpeg.py）时不让整个编译失败 —— 缺了只是那个功能退回封面。
+#if FileExists(AddBackslash(SourcePath) + "..\..\build\windows\x64\runner\Release\ffmpeg.exe")
+Source: "..\..\build\windows\x64\runner\Release\ffmpeg.exe"; DestDir: "{app}"; Flags: ignoreversion
+#endif
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Registry]

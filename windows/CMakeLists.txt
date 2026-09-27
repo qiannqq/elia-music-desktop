@@ -75,6 +75,18 @@ set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 
+# ==== 随包自带的 ffmpeg ====
+#
+# B站视频背景要用它把视频流解成帧。**不依赖用户机器上装没装 ffmpeg**，
+# 所以构建产物里必须有一份。
+#
+# 它不入库（见 .gitignore），用 `python tool/fetch_ffmpeg.py` 取到
+# `windows/third_party/ffmpeg/`；这里拷到 exe 旁边，`AppPaths` 那边
+# 也是先看 exe 目录。
+# ⚠️ OPTIONAL：没有它**不该**让构建失败 —— 缺了只是「视频背景用不了、退回封面」。
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/third_party/ffmpeg/ffmpeg.exe"
+  DESTINATION "${CMAKE_INSTALL_PREFIX}" COMPONENT Runtime OPTIONAL)
+
 install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   COMPONENT Runtime)
 

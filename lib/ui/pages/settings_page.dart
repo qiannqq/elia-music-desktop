@@ -658,6 +658,40 @@ class _SettingsPageState extends State<SettingsPage> {
             _sliderValue(_spinLabel(state.bgSpin), c, width: 92),
           ],
         ),
+        const SizedBox(height: 18),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'B站视频背景',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: c.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'B站音源的歌，用这支视频的画面当背景（与音频时间轴对齐）。'
+                    '边拉边解，第一帧解出来就切过去，在那之前仍然是旋转的封面；'
+                    '拖动进度条会跟着重新对位。默认关闭。',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: c.textTertiary,
+                      height: 1.6,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            AppToggle(value: state.bgVideo, onChanged: state.setBgVideo),
+          ],
+        ),
       ],
     );
   }

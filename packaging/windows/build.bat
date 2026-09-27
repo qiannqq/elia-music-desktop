@@ -61,6 +61,13 @@ for %%f in ("%RELEASE_DIR%\*.dll") do (
 echo   复制 data 目录...
 xcopy "%RELEASE_DIR%\data" "%PORTABLE_DIR%\data\" /e /i /q >nul
 
+echo   复制 ffmpeg.exe（B站视频背景用，随包自带）...
+if exist "%RELEASE_DIR%\ffmpeg.exe" (
+    copy "%RELEASE_DIR%\ffmpeg.exe" "%PORTABLE_DIR%\" >nul
+) else (
+    echo   [警告] 没找到 ffmpeg.exe，先跑 python tool\fetch_ffmpeg.py
+)
+
 echo   复制 native_assets.json...
 if exist "%RELEASE_DIR%\native_assets.json" copy "%RELEASE_DIR%\native_assets.json" "%PORTABLE_DIR%\" >nul
 

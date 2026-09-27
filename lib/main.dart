@@ -15,6 +15,7 @@ import 'services/audio_cache.dart';
 import 'services/player_controller.dart';
 import 'services/lyric_island_service.dart';
 import 'services/smtc_service.dart';
+import 'services/video_bg.dart';
 import 'state/app_state.dart';
 import 'state/theme_controller.dart';
 import 'core/window_fx.dart';
@@ -184,6 +185,8 @@ Future<bool> _acquireSingleInstanceLock() async {
 /// 只做同步落盘，然后立刻 exit；socket 由操作系统回收。
 void _forceExit(int code) {
   try {
+    // ffmpeg 是子进程：不显式杀掉的话，窗口关了它还在后台解码
+    videoBackground.dispose();
     LocalStore.flush();
   } catch (_) {}
   exit(code);

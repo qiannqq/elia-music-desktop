@@ -34,6 +34,12 @@ shutil.copy2(os.path.join(RELEASE, "elia_music.exe"), STAGE)
 for entry in os.listdir(RELEASE):
     if entry.lower().endswith(".dll"):
         shutil.copy2(os.path.join(RELEASE, entry), STAGE)
+# 随包自带的 ffmpeg（B站视频背景用它解码）—— 缺了也能跑，只是那个功能退回封面
+ffmpeg = os.path.join(RELEASE, "ffmpeg.exe")
+if os.path.isfile(ffmpeg):
+    shutil.copy2(ffmpeg, STAGE)
+else:
+    print("[warn] Release 里没有 ffmpeg.exe（先跑 python tool/fetch_ffmpeg.py）")
 # 空 native assets 清单：runner 启动时可能会去找它
 na = os.path.join(RELEASE, "native_assets.json")
 if os.path.isfile(na):

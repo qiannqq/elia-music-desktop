@@ -37,6 +37,20 @@ jobs:
           PYTHONUTF8: "1"
         run: python tool/gen_build_info.py
 
+      # 随包自带的 ffmpeg（B站视频背景的解码器）。产物不入库，缓存一下，
+      # 免得每次 CI 都下一百多 MB。
+      - name: Cache ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: windows/third_party/ffmpeg/ffmpeg.exe
+          key: ffmpeg-essentials-win64-v9
+
+      - name: Fetch ffmpeg
+        shell: bash
+        env:
+          PYTHONUTF8: "1"
+        run: python tool/fetch_ffmpeg.py
+
       - name: Flutter pub get
         run: flutter pub get
 

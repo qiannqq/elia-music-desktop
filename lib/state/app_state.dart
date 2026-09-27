@@ -196,6 +196,11 @@ class AppState extends ChangeNotifier {
   /// 所以把幅度调 0 依旧是「完全静止」，两个选项互不干扰。
   double bgSpin = 1;
 
+  /// 现在播放页给 **B站音源**用视频流当背景（默认关）。
+  ///
+  /// 拉流、解码、按音频时间轴取帧都在 `services/video_bg.dart`，这里只是个开关。
+  bool bgVideo = false;
+
   /// 当前打开着「+」二级菜单的歌曲 mid（没有则为 null）。
   /// 搜索卡片靠它决定「弹出层打开期间也显示操作按钮」，
   /// 否则遮罩会让卡片失去 hover、按钮闪一下。
@@ -278,6 +283,7 @@ class AppState extends ChangeNotifier {
         .clamp(0, 2);
     bgSpin = (double.tryParse(LocalStore.getOr('bg_spin', '1')) ?? 1)
         .clamp(0, 3);
+    bgVideo = LocalStore.get('bg_video') == 'true';
     savePath = LocalStore.getOr('qqmusic_save_path', '');
     // 默认 110%：未设置过时用它；已设置过的仍读存下来的值
     zoom = (double.tryParse(LocalStore.getOr('qqmusic_zoom', '110')) ?? 110)
@@ -1211,6 +1217,14 @@ class AppState extends ChangeNotifier {
   void setBgSpin(double v) {
     bgSpin = v.clamp(0, 3);
     LocalStore.set('bg_spin', '$bgSpin');
+    notifyListeners();
+  }
+
+  /// 现在播放页用不用 B站视频当背景
+  void setBgVideo(bool v) {
+    if (bgVideo == v) return;
+    bgVideo = v;
+    LocalStore.set('bg_video', '$v');
     notifyListeners();
   }
 

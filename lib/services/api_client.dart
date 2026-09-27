@@ -367,6 +367,11 @@ class ApiClient {
         '?url=${Uri.encodeComponent(url)}';
   }
 
+  /// 通用媒体代理地址 —— 和 [getProxyAudioUrl] 是同一条通道（服务端按前缀匹配），
+  /// 「audio」只是历史名字。B站的**视频流**也走它：那层代理会按目标源补上
+  /// 正确的 Referer，CDN 才认。
+  static String getProxyMediaUrl(String? url) => getProxyAudioUrl(url);
+
   // ------------------------------------------------------------ 下载 / 校验
 
   static Future<({String url, String filename})> downloadSong(

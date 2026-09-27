@@ -17,6 +17,7 @@ import '../services/api_client.dart';
 import '../services/lyric_cache.dart';
 import '../services/player_controller.dart';
 import '../services/silence_probe.dart';
+import '../services/video_bg.dart';
 import '../state/app_state.dart';
 import '../state/toast.dart';
 import 'icons.dart';
@@ -122,6 +123,17 @@ class _NowPlayingPageState extends State<NowPlayingPage>
     WidgetsBinding.instance.addPostFrameCallback((_) => _prefetchCover());
   }
 
+  /// 现在该不该给「视频背景」拉流：**页面开着 + 设置里开着 + B站音源**。
+  ///
+  /// 每次重建都调一次是故意的 —— 换歌、开关页面、改设置都要重新判断，
+  /// 而 `VideoBackground.sync` 对「目标没变」是空操作。
+  void _syncVideoBackground() {
+    videoBackground.sync(
+      want: widget.open && widget.state.bgVideo,
+      song: player.currentSong,
+    );
+  }
+
   /// 已经预热过封面的歌
   String _prefetchedMid = '';
 
@@ -163,6 +175,8 @@ class _NowPlayingPageState extends State<NowPlayingPage>
         _anim.reverse();
       }
     }
+    // 页面开合、设置里开关「B站视频背景」都要重新判断一次
+    _syncVideoBackground();
   }
 
   @override
@@ -179,6 +193,7 @@ class _NowPlayingPageState extends State<NowPlayingPage>
     if (!mounted) return;
     _prefetchCover();
     if (!widget.open) return;
+    _syncVideoBackground(); // 换歌了：该拉新一首的视频流
     setState(() => _page = null); // 内容作废，下一帧重建
   }
 
@@ -231,18 +246,32 @@ class _NowPlayingPageState extends State<NowPlayingPage>
         child: Stack(
           children: [
             Positioned.fill(
-              // ⚠️ 「律动幅度 / 旋转速度」是设置页里的**活值**，但整页内容是缓存的
-              // （`_page`）—— 直接把它塞进缓存的那份 widget 里，用户在设置页拖滑块
-              // 不会有任何变化（那两份 widget 是同一个实例，框架会直接跳过更新）。
-              // 所以只让这一小块听着 AppState 重建：不去作废整页
-              // （整页有几十行歌词 + 一层全屏模糊）。
-              child: AnimatedBuilder(
-                animation: widget.state,
-                builder: (_, _) => _Backdrop(
-                  pic: pic,
-                  mid: song?.mid ?? '',
-                  amount: widget.state.bgPulse,
-                  spin: widget.state.bgSpin,
+              // B站音源开了「视频背景」并且**整段流已经拉完、解码出帧**之后，
+              // 这里换成视频；在那之前（拉流中、不是 B站、设置关着）都还是封面。
+              // 两者之间补一段淡入淡出 —— 硬切会像画面闪了一下。
+              child: ValueListenableBuilder<ui.Image?>(
+                valueListenable: videoBackground.frame,
+                builder: (_, video, _) => AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 320),
+                  child: video == null
+                      // ⚠️ 「律动幅度 / 旋转速度」是设置页里的**活值**，但整页内容
+                      // 是缓存的（`_page`）—— 直接把它塞进缓存的那份 widget 里，
+                      // 用户在设置页拖滑块不会有任何变化（那两份 widget 是同一个
+                      // 实例，框架会直接跳过更新）。所以只让这一小块听着 AppState
+                      // 重建：不去作废整页（整页有几十行歌词 + 一层全屏模糊）。
+                      ? AnimatedBuilder(
+                          animation: widget.state,
+                          builder: (_, _) => _Backdrop(
+                            pic: pic,
+                            mid: song?.mid ?? '',
+                            amount: widget.state.bgPulse,
+                            spin: widget.state.bgSpin,
+                          ),
+                        )
+                      : _VideoBackdrop(
+                          key: const ValueKey('bili-video'),
+                          image: video,
+                        ),
                 ),
               ),
             ),
@@ -993,6 +1022,52 @@ class _BackdropState extends State<_Backdrop>
           ),
         );
       },
+    );
+  }
+}
+
+/// B站视频背景：把解码出来的那一帧铺满整屏（cover），上面罩的是**和封面背景
+/// 同一套**「压暗 + 暗角」—— 不压的话画面本身的亮部会把歌词的对比度吃光。
+///
+/// 不跟着封面那套旋转 / 律动：画面自己就在动，再转一圈只会晕。
+class _VideoBackdrop extends StatelessWidget {
+  const _VideoBackdrop({super.key, required this.image});
+
+  final ui.Image image;
+
+  @override
+  Widget build(BuildContext context) {
+    // 自己关一层 `RepaintBoundary`：这个画面每 1/30 秒换一次，
+    // 不关起来就会把**整页**（封面、歌词、控件）的绘制记录一起标脏。
+    return RepaintBoundary(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          RawImage(
+            image: image,
+            fit: BoxFit.cover,
+            filterQuality: FilterQuality.low,
+          ),
+          // 压暗与暗角的数值和 `_Backdrop` 保持一致（那里是 0.24 + 0.26）
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.24),
+            ),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                radius: 0.95,
+                stops: const [0.45, 1.0],
+                colors: [
+                  Colors.transparent,
+                  Colors.black.withValues(alpha: 0.26),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
