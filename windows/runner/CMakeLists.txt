@@ -16,6 +16,7 @@ add_executable(${BINARY_NAME} WIN32
   "system_bridge.cpp"
   "utils.cpp"
   "win32_window.cpp"
+  "window_chrome.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
   "Runner.rc"
   "runner.exe.manifest"
@@ -42,7 +43,9 @@ target_compile_options(${BINARY_NAME} PRIVATE /utf-8)
 # Add dependency libraries and include directories. Add any application-specific
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
-target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib" "gdiplus.lib" "shcore.lib")
+# comctl32：窗口 chrome 的命中测试用了子类化窗口过程
+# （SetWindowSubclass / DefSubclassProc / RemoveWindowSubclass）
+target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib" "gdiplus.lib" "shcore.lib" "comctl32.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # ==== SMTC 桥（Windows 系统媒体控件）====
