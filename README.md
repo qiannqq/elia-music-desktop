@@ -23,10 +23,12 @@
 - **界面缩放** — 滑块调节，或按住 Ctrl 滚轮快捷缩放
 - **Windows SMTC** — 系统媒体控件集成（播放/暂停/上一曲/下一曲）
 - **Lyricify Lite** — 第三方歌词同步工具兼容
+- **QRC、LRC** — QQMusic逐字歌词、NeteaseMusic逐行歌词、Bilibili嵌入式字幕歌词支持
+- **胶囊气泡歌词** — 桌面歌词显示
 
 ## UI/界面样式
 
-> 界面预览待补充
+> 界面预览待补充（UI正在重构中）
 
 ## 技术栈
 
@@ -89,9 +91,10 @@ elia-music-desktop/
 - Flutter — 桌面应用框架
 - [QQ Music](https://y.qq.com) — 音乐数据来源
 - [NetEase Music](https://music.163.com) — 音乐数据来源
-- workbuddy国际版 — harness
+- [Bilibili](https://www.bilibili.com) — 音乐数据来源
+- workbuddy国际版、DeepSeek Harness — harness
 - deepseek-v4.1-flash — 主力开发模型
-- 伊莉雅二世 — Agent
+- 伊莉雅二世、伊莉雅三世 — Agent
 
 ## 许可证
 
