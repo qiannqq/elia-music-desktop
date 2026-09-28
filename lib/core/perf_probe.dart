@@ -30,6 +30,11 @@ class PerfProbe {
 
   static final List<int> _build = [];
   static final List<int> _raster = [];
+  /// 整帧跨度与 vsync 等待 —— 判「到底是谁在等」用的：
+  /// build + raster 都很小、而 total 很大，说明时间花在**等 vsync / 等呈现**上
+  /// （瓶颈在合成器与桌面，不在我们的代码）。
+  static final List<int> _total = [];
+  static final List<int> _vsync = [];
   static int _frames = 0;
   static int _janky = 0;
   static Timer? _timer;
@@ -59,6 +64,8 @@ class PerfProbe {
       final r = t.rasterDuration.inMicroseconds;
       _build.add(b);
       _raster.add(r);
+      _total.add(t.totalSpan.inMicroseconds);
+      _vsync.add(t.vsyncOverhead.inMicroseconds);
       _frames++;
       if (b > 16700 || r > 16700) _janky++;
 
@@ -79,17 +86,23 @@ class PerfProbe {
     if (_frames == 0) return;
     final build = List<int>.from(_build)..sort();
     final raster = List<int>.from(_raster)..sort();
+    final total = List<int>.from(_total)..sort();
+    final vsync = List<int>.from(_vsync)..sort();
     final fps = _frames / windowSeconds;
 
     fileLogger.info(
       'Perf',
       '[$_label] 帧=$_frames (${fps.toStringAsFixed(1)}fps) 掉帧=$_janky '
       'build p50=${_ms(build, 0.50)} p95=${_ms(build, 0.95)} max=${_ms(build, 1.0)} '
-      'raster p50=${_ms(raster, 0.50)} p95=${_ms(raster, 0.95)} max=${_ms(raster, 1.0)}',
+      'raster p50=${_ms(raster, 0.50)} p95=${_ms(raster, 0.95)} max=${_ms(raster, 1.0)} '
+      'total p50=${_ms(total, 0.50)} p95=${_ms(total, 0.95)} '
+      'vsync p50=${_ms(vsync, 0.50)}',
     );
 
     _build.clear();
     _raster.clear();
+    _total.clear();
+    _vsync.clear();
     _frames = 0;
     _janky = 0;
   }

@@ -48,7 +48,23 @@ extension PlayModeX on PlayMode {
 
 /// 播放器 —— `public/dist/js/player.js` 的 Dart 移植。
 class PlayerController extends ChangeNotifier {
-  PlayerController._();
+  /// 位置推送改成**定时器**驱动（30Hz）。
+  ///
+  /// ⚠️ audioplayers 默认用的是 `FramePositionUpdater`：它 `scheduleFrameCallback`
+  /// **自续** —— 于是「播放期间每一帧都要查一次位置」，而那次查询是一次
+  /// MethodChannel 往返（原生 `GetCurrentTime`）。结果就是**播放期间应用永远不
+  /// idle**，帧率被这个轮询循环拖着走：实测播放时只有 36~53fps、暂停时 5~6fps，
+  /// 而每帧 build/raster 都很低、掉帧数为 0 —— 体感正是「没掉帧，但一放歌就卡」。
+  ///
+  /// 30Hz 足够：进度条与时间按 33ms 走一格肉眼看不出来；逐字歌词本来就不直接吃
+  /// 位置事件（它用「最近一次位置事件 + 秒表」推连续播放时刻，见 `now_playing`
+  /// 里的 `_playT`）。**别**为了省事把它调到 200ms —— 那会把逐字歌词的定位拖慢。
+  PlayerController._() {
+    _player.positionUpdater = TimerPositionUpdater(
+      getPosition: () => _player.getCurrentPosition(),
+      interval: const Duration(milliseconds: 33),
+    );
+  }
 
   static final PlayerController instance = PlayerController._();
 
