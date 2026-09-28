@@ -81,6 +81,10 @@ class VideoBackground {
   @visibleForTesting
   String? get wantedMid => _wanted;
 
+  /// 目标被切换过几次。测试用：**它涨一次就意味着一路「掐掉 → 重拉」**。
+  @visibleForTesting
+  int debugTargetChanges = 0;
+
   // ---- 解码运行时
   Process? _ffmpeg;
   StreamSubscription<List<int>>? _stdoutSub;
@@ -137,17 +141,36 @@ class VideoBackground {
 
   // ------------------------------------------------------------ 对外
 
+  /// 谁在要视频背景。用**身份**而不是一个布尔值 —— 现在有两处会要它
+  /// （现在播放页、以及外观设置里的「以歌曲封面为整体背景」），
+  /// 布尔值的话后一个调用方会把前一个的意思覆盖掉：
+  /// 播放页一关就 `want=false`，整窗背景跟着被掐掉。
+  final Set<String> _demands = <String>{};
+
   /// 告诉它「现在想要谁当背景」。
   ///
-  /// [want] 由调用方决定（现在播放页开着 + 设置里开了 + 是 B站音源）。
+  /// [want] 由调用方决定（[who] 那处自己判断：页面开着 / 整窗背景是封面模式）。
   /// 目标没变时是空操作 —— 页面每次重建都会调它。
-  void sync({required bool want, Song? song}) {
-    final mid =
-        (want && song != null && song.source == 'bilibili' && song.mid.isNotEmpty)
-            ? song.mid
-            : null;
+  void sync({required bool want, Song? song, String who = 'now-playing'}) {
+    if (want) {
+      _demands.add(who);
+    } else {
+      _demands.remove(who);
+    }
+    final effective = _demands.isNotEmpty;
+    final mid = (effective &&
+            song != null &&
+            song.source == 'bilibili' &&
+            song.mid.isNotEmpty)
+        ? song.mid
+        : null;
     if (mid == _wanted) return;
     _wanted = mid;
+    // 目标切换的次数（测试用）：它涨一次就意味着一路「掐掉 → 重拉」。
+    // 现在有两处调用方（播放页 / 整窗背景），它们互相顶掉过一次 ——
+    // 表现就是开关播放页各重新拉一遍 B站视频（日志里 `视频背景关掉` 紧跟着
+    // 同一条 `解码 320x180`）。`now_playing_test` 里有一条守着它。
+    debugTargetChanges++;
     final epoch = ++_epoch;
 
     // 解码与下载**一起掐掉**：丢着一个还在写的下载，下一首的 `.part` 会被它占住，

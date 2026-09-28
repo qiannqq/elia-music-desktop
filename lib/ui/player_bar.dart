@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 import '../core/app_theme.dart';
+import '../services/app_background.dart';
 import 'widgets/karaoke_text.dart';
 import '../core/lyric.dart';
 import '../models/song.dart';
@@ -54,12 +55,7 @@ class PlayerBar extends StatefulWidget {
   State<PlayerBar> createState() => _PlayerBarState();
 }
 
-class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMixin {
-  late final AnimationController _glow = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 2400),
-  );
-
+class _PlayerBarState extends State<PlayerBar> {
   bool _draggingProgress = false;
 
   /// 播放模式按钮的锚点 —— 菜单要贴着它往上弹
@@ -73,13 +69,11 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
   void initState() {
     super.initState();
     player.addListener(_onPlayer);
-    _syncGlow();
   }
 
   @override
   void dispose() {
     player.removeListener(_onPlayer);
-    _glow.dispose();
     super.dispose();
   }
 
@@ -93,7 +87,6 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
 
   void _onPlayer() {
     if (!mounted) return;
-    _syncGlow();
     final key = Object.hash(
       player.currentSong?.mid,
       player.isPlaying,
@@ -111,14 +104,6 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
     setState(() {});
   }
 
-  void _syncGlow() {
-    if (player.isPlaying && !_glow.isAnimating) {
-      _glow.repeat(reverse: true);
-    } else if (!player.isPlaying && _glow.isAnimating) {
-      _glow.stop();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final c = context.c;
@@ -131,7 +116,10 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
         Container(
           height: kPlayerBarHeight,
           decoration: BoxDecoration(
-            color: c.playerBg,
+            // 开了整体背景时这条**完全透明**：整窗的明暗只由背景层那一层叠色决定，
+            // 播放栏自己再套一层白/黑底，就会比标题栏暗、跟侧边栏也对不上
+            // （千奈报的「几处明暗不统一」）。
+            color: appBackground.active ? Colors.transparent : c.playerBg,
             border: Border(top: BorderSide(color: c.borderSubtle)),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -197,32 +185,29 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
           height: 48,
           child: Stack(
             children: [
-              // 发光**单独一层**，并且只在它内部重建。
+              // 发光**单独一层**，只在它内部重建。
               //
-              // 两点讲究：
-              //  * 模糊核（blurRadius/spreadRadius）固定，只让透明度呼吸 ——
-              //    动 blurRadius 等于每帧重算一次高斯模糊，是光栅化里最贵的操作；
-              //  * 外面套 RepaintBoundary，把 2.4 秒的循环动画关在这一层里，
-              //    不让它把封面图也带着每帧重绘。
+              // ⚠️ 这里原本是「2.4 秒呼吸」的循环动画，**已经改成静态**：
+              // 任何一个常驻动画都会让整个应用**每帧都出帧**（帧本身很便宜，
+              // 但「一直在渲染」会和系统合成器抢 DWM —— 实测播放时 36~43fps、
+              // 暂停时 5~8fps，千奈的原话是「不播放时拖标题栏很流畅，放歌就不行」）。
+              // 留着的这层光晕只是**静态**的：视觉上几乎看不出区别，但那颗
+              // `AnimationController` 不再有了。
               RepaintBoundary(
-                child: AnimatedBuilder(
-                  animation: _glow,
-                  builder: (_, _) => Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(c.radius),
-                      boxShadow: player.isPlaying
-                          ? [
-                              BoxShadow(
-                                color: c.accent.withValues(
-                                    alpha: (0.35 + 0.25 * _glow.value) * 0.6),
-                                blurRadius: 16,
-                                spreadRadius: 3,
-                              )
-                            ]
-                          : const [],
-                    ),
+                child: Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(c.radius),
+                    boxShadow: player.isPlaying
+                        ? [
+                            BoxShadow(
+                              color: c.accent.withValues(alpha: 0.36),
+                              blurRadius: 16,
+                              spreadRadius: 3,
+                            )
+                          ]
+                        : const [],
                   ),
                 ),
               ),

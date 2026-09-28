@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
@@ -9,6 +8,7 @@ import 'package:flutter/physics.dart';
 import 'package:flutter/scheduler.dart';
 
 import '../core/app_theme.dart';
+import '../core/backdrop.dart';
 import '../core/window_fx.dart';
 import '../core/lyric.dart';
 import '../core/lyric_scroll.dart';
@@ -16,7 +16,6 @@ import '../models/song.dart';
 import '../services/api_client.dart';
 import '../services/lyric_cache.dart';
 import '../services/player_controller.dart';
-import '../services/silence_probe.dart';
 import '../services/video_bg.dart';
 import '../state/app_state.dart';
 import '../state/toast.dart';
@@ -25,6 +24,7 @@ import 'player_bar.dart';
 import 'widgets/common.dart';
 import 'widgets/context_menu.dart';
 import 'widgets/song_actions.dart';
+import 'widgets/song_backdrop.dart';
 
 /// 歌词行的透明度：当前句最亮，离得越远越暗。
 ///
@@ -68,12 +68,6 @@ const double kActiveUnsungAlpha = 0.42;
 ///
 /// 配色**不跟主题走**：底色是封面自己（放大 + 高斯模糊 + 压暗），文字一律白系。
 /// 浅色主题下它照样是这一副样子 —— 这是设计的一部分（Apple Music 的播放页也这样）。
-/// 播放页封面（含背景、预热）统一用的封面档位。
-///
-/// 显示尺寸最大 320 逻辑像素，2 倍屏也就 640 物理像素 —— 1200 档足够，
-/// 而原图动辄 1.5~4.7MB（实测 3000×3000 那张 4.7MB），白下 10 倍流量。
-/// ⚠️ 三处（[SongCover]、背景、预热）必须是**同一个数**，否则各下各的。
-const int kNowPlayingCoverPx = 1200;
 
 class NowPlayingPage extends StatefulWidget {
   const NowPlayingPage({
@@ -148,7 +142,7 @@ class _NowPlayingPageState extends State<NowPlayingPage>
     _prefetchedMid = song.mid;
     // 和封面、背景用同一档（否则各自都是一个不同的 URL = 下好几张）
     final url = ApiClient.getProxyImageUrl(
-      ApiClient.coverUrlFor(song.pic, px: kNowPlayingCoverPx),
+      ApiClient.coverUrlFor(song.pic, px: kBackdropCoverPx),
     );
     if (url.isEmpty) return;
     precacheImage(ResizeImage(NetworkImage(url), width: 512), context)
@@ -245,32 +239,22 @@ class _NowPlayingPageState extends State<NowPlayingPage>
         child: Stack(
           children: [
             Positioned.fill(
-              // B站音源开了「视频背景」并且**整段流已经拉完、解码出帧**之后，
-              // 这里换成视频；在那之前（拉流中、不是 B站、设置关着）都还是封面。
-              // 两者之间补一段淡入淡出 —— 硬切会像画面闪了一下。
-              child: ValueListenableBuilder<ui.Image?>(
-                valueListenable: videoBackground.frame,
-                builder: (_, video, _) => AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 320),
-                  child: video == null
-                      // ⚠️ 「律动幅度 / 旋转速度」是设置页里的**活值**，但整页内容
-                      // 是缓存的（`_page`）—— 直接把它塞进缓存的那份 widget 里，
-                      // 用户在设置页拖滑块不会有任何变化（那两份 widget 是同一个
-                      // 实例，框架会直接跳过更新）。所以只让这一小块听着 AppState
-                      // 重建：不去作废整页（整页有几十行歌词 + 一层全屏模糊）。
-                      ? AnimatedBuilder(
-                          animation: widget.state,
-                          builder: (_, _) => _Backdrop(
-                            pic: pic,
-                            mid: song?.mid ?? '',
-                            amount: widget.state.bgPulse,
-                            spin: widget.state.bgSpin,
-                          ),
-                        )
-                      : _VideoBackdrop(
-                          key: const ValueKey('bili-video'),
-                          image: video,
-                        ),
+              // ⚠️ 「律动幅度 / 旋转速度」是设置页里的**活值**，但整页内容是缓存的
+              // （`_page`）—— 直接把它塞进缓存的那份 widget 里，用户在设置页拖滑块
+              // 不会有任何变化（那两份 widget 是同一个实例，框架会直接跳过更新）。
+              // 所以只让这一小块听着 AppState 重建：不去作废整页
+              // （整页有几十行歌词 + 一层全屏模糊）。
+              //
+              // 封面 / B站视频帧之间的切换、旋转与律动都在 [SongBackdrop] 里 ——
+              // 外观设置里的「整体背景（歌曲封面）」用的是同一个组件，
+              // 两处的观感必须一致。
+              child: AnimatedBuilder(
+                animation: widget.state,
+                builder: (_, _) => SongBackdrop(
+                  pic: pic,
+                  mid: song?.mid ?? '',
+                  amount: widget.state.bgPulse,
+                  spin: widget.state.bgSpin,
                 ),
               ),
             ),
@@ -447,7 +431,7 @@ class _NowPlayingPageState extends State<NowPlayingPage>
           pic: song.pic.isEmpty ? null : song.pic,
           size: size,
           radius: 10,
-          px: kNowPlayingCoverPx,
+          px: kBackdropCoverPx,
         ),
       ),
     );
@@ -733,335 +717,6 @@ class _NowPlayingPageState extends State<NowPlayingPage>
   bool _wasPlaying = false;
 }
 
-/// AMLL 背景律动的三条公式（照它的 MeshGradientRenderer 复刻）。
-///
-/// 它那边的模型是：
-///
-///   * **匀速慢转**：角度 = `(已播秒数 + 低频音量) × 2`；换算过来就是
-///     **0.2 rad/s（约 31 秒一圈）**，低频那项最多再把角度推 0.2 rad（≈11.5°）；
-///   * **低频 → 缩放**：外面给的 0~1 低频音量它内部先 `/10`，再用 `1 − 2×音量`
-///     去缩 UV，所以最多把画面**向内放大 25%** —— 这就是「跟着鼓点跳动」；
-///   * 低频还让画面稍微暗一点点（最多 5%，基本看不出来）。
-///
-/// 三个量都乘上设置里的幅度倍数（`amount`，调成 0 就是完全静止）。
-double bgVolume(double level) => ((level - 0.5) / 0.4).clamp(0.0, 1.0);
-
-/// 转角（弧度）：0.2 rad/s 的匀速慢转 + 低频推角。
-///
-/// [spin] 是设置里的「旋转速度」倍数，**只乘在匀速那一项上** ——
-/// 低频推角与缩放幅度归 [amount]（「律动幅度」）管，两个选项互不干扰；
-/// 幅度调 0 依旧是「完全静止」。
-double bgAngle(double seconds, double bass, double amount, {double spin = 1}) =>
-    0.2 * amount * spin * seconds + 0.2 * amount * bass;
-
-/// 低频驱动的缩放倍数（最多向内放大 25%；`amount` 再放大这个幅度）。
-double bgZoom(double bass, double amount) =>
-    1.0 / (1.0 - (0.2 * bass * amount).clamp(0.0, 0.6));
-/// 背景 = 一张**放得很大、绕着屏幕中心**的糊封面，外面罩两层黑。
-///
-/// 运动照 AMLL 的背景渲染器复刻（见上面 `bgAngle` / `bgZoom`）：
-/// **匀速慢转**（约 31 秒一圈）+ **低频把画面轻轻向内放大**（最多 25%）。
-/// 没有按拍「搓」那一套 —— 那是上一版的猜测，和它实际的行为对不上。
-///
-/// 两处开销上的讲究：
-///  * 底图是**预先糊好的普通图片**（[_RecordArt]）：`ImageFiltered` 在滑动子树里会
-///    每帧重糊并和内容错位，这里一次糊好、之后只是贴图 + 改变换矩阵；
-///  * 尺寸给到 `2.8 × 对角线`：绕屏幕中心转，图的**内切圆半径**（边长/2）只要盖得住
-///    窗口的外接圆（对角线/2）就行，2.8 倍余量很大。贴图本身只有 512²，
-///    放大由 GPU 采样，显存可以忽略。
-class _Backdrop extends StatefulWidget {
-  const _Backdrop({
-    required this.pic,
-    required this.mid,
-    required this.amount,
-    required this.spin,
-  });
-
-  final String pic;
-  final String mid;
-
-  /// 律动幅度倍数（设置里的「现在播放页」→「律动幅度」）：
-  /// 1.0 = 默认幅度 + 最多 25% 的低频放大；0 = 完全静止
-  final double amount;
-
-  /// 转速倍数（设置里的「现在播放页」→「旋转速度」）：
-  /// 1.0 = 约 31 秒一圈，0 = 不转（低频推角仍在）
-  final double spin;
-
-  @override
-  State<_Backdrop> createState() => _BackdropState();
-}
-
-class _BackdropState extends State<_Backdrop>
-    with SingleTickerProviderStateMixin {
-  /// 60fps 的时钟，只驱动这一层
-  late final AnimationController _clock = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 1),
-  );
-
-  /// 快速跟随的响度（压暗层用）
-  double _level = 0;
-
-  /// 平滑过的「低频音量」（0~1，见 [bgVolume]）—— 缩放与推角都看它
-  double _bass = 0;
-
-  /// 真实时间的钟：算帧间隔、以及「位置事件距今多久」
-  final Stopwatch _wall = Stopwatch();
-
-  /// 位置事件的锚点：那只事件说「音频到了 _anchorPos 秒」，发生在这只表的 _anchorAt。
-  double _anchorPos = 0;
-  Duration _anchorAt = Duration.zero;
-
-  Duration _wallPrev = Duration.zero;
-
-
-  /// 这一帧的平滑播放时刻（秒）。
-  ///
-  /// ⚠️ 不能拿 `player.position` 直接当播放时刻：播放器的位置事件是**每 200ms 一档**
-  /// （audioplayers 的位置流），而包络是 20ms 一档 —— 按事件采样会一步跨过鼓点的
-  /// 上升沿（一个鼓点只有几十毫秒）。所以拿「最近一次事件的时刻 + 事件到现在的时间」
-  /// 当播放时刻，误差只剩几十毫秒。
-  double get _playT {
-    final since = (_wall.elapsed - _anchorAt).inMicroseconds / 1e6;
-    return _anchorPos + since.clamp(0.0, 0.4);
-  }
-
-  void _onPos() {
-    _anchorPos = player.positionNotifier.value.inMicroseconds / 1e6;
-    _anchorAt = _wall.elapsed;
-  }
-
-
-  /// 两条包络都是一次探测算出来的，一起取：
-  /// [bass]（80~120Hz）管缩放与推角，[level]（全频段响度）管压暗层。
-  LevelTrack? _bassTrack;
-  LevelTrack? _levelTrack;
-
-  /// 包络还没算好时的重试（探测要解一遍整首歌，是异步的）
-  Timer? _retry;
-
-  bool get _hasTracks => _bassTrack != null && _levelTrack != null;
-
-  /// 换一首歌：重拿两条包络，跟随器清零
-  void _useTracks(String mid) {
-    _bassTrack = SilenceProbe.bass(mid);
-    _levelTrack = SilenceProbe.levels(mid);
-    _bass = 0;
-    _level = 0;
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _wall.start();
-    player.positionNotifier.addListener(_onPos);
-    _onPos();
-    _useTracks(widget.mid);
-    player.addListener(_sync);
-    _sync();
-  }
-
-  @override
-  void didUpdateWidget(covariant _Backdrop old) {
-    super.didUpdateWidget(old);
-    if (old.mid != widget.mid) {
-      _useTracks(widget.mid);
-      _onPos();
-      _sync();
-    }
-  }
-
-  @override
-  void dispose() {
-    _retry?.cancel();
-    player.positionNotifier.removeListener(_onPos);
-    player.removeListener(_sync);
-    _clock.dispose();
-    super.dispose();
-  }
-
-  void _scheduleRetry() {
-    _retry?.cancel();
-    _retry = Timer(const Duration(seconds: 2), () {
-      if (!mounted) return;
-      final bass = SilenceProbe.bass(widget.mid);
-      final level = SilenceProbe.levels(widget.mid);
-      if (bass == null || level == null) {
-        _scheduleRetry();
-        return;
-      }
-      setState(() {
-        _bassTrack = bass;
-        _levelTrack = level;
-      });
-      _sync();
-    });
-  }
-
-  /// 只要在播就转（慢转本身不依赖包络，低频那项只是叠在上面的）。
-  void _sync() {
-    if (!_hasTracks) {
-      // 低频还没算好（探测在后台跑）→ 过会儿再来看
-      _scheduleRetry();
-    } else {
-      _retry?.cancel();
-    }
-    if (player.isPlaying && !_clock.isAnimating) {
-      // 起跑前重新对一次表（暂停期间位置不动，直接续上）
-      _onPos();
-      _wallPrev = _wall.elapsed;
-      _clock.repeat();
-    } else if (!player.isPlaying && _clock.isAnimating) {
-      _clock.stop();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (ctx, cons) {
-        final w = cons.maxWidth;
-        final h = cons.maxHeight;
-        final diag = math.sqrt(w * w + h * h);
-        final size = diag * kBackdropScale;
-        return RepaintBoundary(
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              // 图挂在窗口正中间、绕自己的中心转 —— 和 AMLL 一样，
-              // 旋转与缩放的不动点就是屏幕中心
-              Positioned(
-                left: (w - size) / 2,
-                top: (h - size) / 2,
-                width: size,
-                height: size,
-                child: AnimatedBuilder(
-                  animation: _clock,
-                  builder: (_, child) {
-                    final t = _playT;
-                    // 帧间隔用真实时间的钟：暂停时时钟停了，画面就停住
-                    final wall = _wall.elapsed;
-                    final dt = ((wall - _wallPrev).inMicroseconds / 1e6)
-                        .clamp(0.0, 0.1);
-                    _wallPrev = wall;
-                    final bassTrack = _bassTrack;
-                    final levelTrack = _levelTrack;
-                    if (dt > 0) {
-                      if (bassTrack != null) {
-                        // 低频「上得快、落得慢」：鼓点打下去立刻放大，之后慢慢回来
-                        _bass = followLevel(_bass, bgVolume(bassTrack.levelAt(t)),
-                            dt, attack: 0.05, release: 0.35);
-                      }
-                      if (levelTrack != null) {
-                        _level = followLevel(_level, levelTrack.levelAt(t), dt,
-                            attack: 0.05, release: 0.40);
-                      }
-                    }
-                    return Transform.rotate(
-                      angle: bgAngle(t, _bass, widget.amount, spin: widget.spin),
-                      child: Transform.scale(
-                        scale: bgZoom(_bass, widget.amount),
-                        child: child,
-                      ),
-                    );
-                  },
-                  // 底图自己再关一层：旋转只改变换，纹理不用重画
-                  child: RepaintBoundary(
-                    child: widget.pic.isEmpty
-                        ? const SizedBox.shrink()
-                        : _RecordArt(
-                            // 背景要糊掉，但糊之前缩到 512 —— 用原图这一档，
-                            // 和封面预热共用同一份下载与解码缓存
-                            url: ApiClient.getProxyImageUrl(
-                              ApiClient.coverUrlFor(widget.pic,
-                                  px: kNowPlayingCoverPx),
-                            ),
-                          ),
-                  ),
-                ),
-              ),
-              // 压暗：只压一点点。
-              //
-              // 实测标定过（同一张封面，和 iPad 上的 Apple Music 比）：
-              // 它的背景亮度是同图封面的 **0.76**（= 只压 24%），而且中心到边缘
-              // 靠**暗角**收下去；我们原先压了 0.50~0.68，所以整页发灰发暗。
-              // 响的时候再透一点点。
-              AnimatedBuilder(
-                animation: _clock,
-                builder: (_, _) => DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.24 - 0.06 * _level),
-                  ),
-                ),
-              ),
-              // 暗角：中心不压、四周收下去（也是抄它那套，比线性渐变自然）
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    radius: 0.95,
-                    stops: const [0.45, 1.0],
-                    colors: [
-                      Colors.transparent,
-                      Colors.black.withValues(alpha: 0.26),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-/// B站视频背景：把解码出来的那一帧铺满整屏（cover），上面罩的是**和封面背景
-/// 同一套**「压暗 + 暗角」—— 不压的话画面本身的亮部会把歌词的对比度吃光。
-///
-/// 不跟着封面那套旋转 / 律动：画面自己就在动，再转一圈只会晕。
-class _VideoBackdrop extends StatelessWidget {
-  const _VideoBackdrop({super.key, required this.image});
-
-  final ui.Image image;
-
-  @override
-  Widget build(BuildContext context) {
-    // 自己关一层 `RepaintBoundary`：这个画面每 1/30 秒换一次，
-    // 不关起来就会把**整页**（封面、歌词、控件）的绘制记录一起标脏。
-    return RepaintBoundary(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          RawImage(
-            image: image,
-            fit: BoxFit.cover,
-            filterQuality: FilterQuality.low,
-          ),
-          // 压暗与暗角的数值和 `_Backdrop` 保持一致（那里是 0.24 + 0.26）
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.24),
-            ),
-          ),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(
-                radius: 0.95,
-                stops: const [0.45, 1.0],
-                colors: [
-                  Colors.transparent,
-                  Colors.black.withValues(alpha: 0.26),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// 暂停时把封面收小（0.75），恢复播放时弹回原样。
 ///
 /// 两条曲线不一样，这是照 AMLL 的 Cover 组件来的：
@@ -1133,116 +788,6 @@ class _PausedCoverScaleState extends State<_PausedCoverScale>
         child: child,
       ),
       child: widget.child,
-    );
-  }
-}
-
-/// 预先糊好的封面（唱片本体）。
-///
-/// **不在动画里用 `ImageFiltered`**：它产生的是 `ImageFilterLayer`，而这个页面整体在
-/// 滑动、这一层自己还在转（每帧换变换矩阵）—— 滤镜层的缓存跟矩阵绑在一起，实测结果是
-/// **每帧重新糊一遍**（掉帧），而且和内容错位（背景比内容慢半拍）。
-///
-/// 改成「糊一次、存成一张普通 `ui.Image`」：之后每帧只是贴图 + 改变换，
-/// 零滤镜开销，也不会错位。
-///
-/// 糊的时候顺手套一道**照片滤镜**（[bgPhotoFilter]，照 AMLL 的配方）：
-/// 对比度 0.4 → 饱和度 **×3** → 对比度 1.7。Apple Music 那种背景是「亮艳」的，
-/// 而模糊只会把颜色摊平、越糊越灰 —— 不补饱和度就整页发灰。
-class _RecordArt extends StatefulWidget {
-  const _RecordArt({required this.url});
-
-  final String url;
-
-  @override
-  State<_RecordArt> createState() => _RecordArtState();
-}
-
-class _RecordArtState extends State<_RecordArt> {
-  ui.Image? _image;
-  String _loading = '';
-
-  /// 解出来的边长。
-  ///
-  /// 256 就够：它会被放大到约 1.06×对角线（1080p 窗口下约 1400px），
-  /// 放大 5.5 倍；「解得更细」在这条链路上没有任何意义 —— 反正要糊掉。
-  static const int _px = 256;
-
-  /// 模糊半径（作用在这张 256 的小图上）。
-  ///
-  /// 屏幕上看到的模糊 ≈ `_sigma × (显示尺寸 / _px)` —— 18 × 5.5 ≈ **100px**，
-  /// 糊到这个程度就只剩大块色域，没有能看出照片结构的细节了。
-  static const double _sigma = 18;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void didUpdateWidget(covariant _RecordArt old) {
-    super.didUpdateWidget(old);
-    if (old.url != widget.url) _load();
-  }
-
-  Future<void> _load() async {
-    final url = widget.url;
-    if (url.isEmpty) {
-      if (mounted) setState(() => _image = null);
-      return;
-    }
-    _loading = url;
-    try {
-      final provider = ResizeImage(NetworkImage(url), width: _px, height: _px);
-      final stream = provider.resolve(ImageConfiguration.empty);
-      final done = Completer<ui.Image>();
-      late ImageStreamListener listener;
-      listener = ImageStreamListener(
-        (info, _) {
-          if (!done.isCompleted) done.complete(info.image);
-          stream.removeListener(listener);
-        },
-        onError: (e, _) {
-          if (!done.isCompleted) done.completeError(e);
-          stream.removeListener(listener);
-        },
-      );
-      stream.addListener(listener);
-      final src = await done.future;
-
-      final recorder = ui.PictureRecorder();
-      Canvas(recorder).drawImage(
-        src,
-        Offset.zero,
-        Paint()
-          ..imageFilter = ui.ImageFilter.blur(
-            sigmaX: _sigma,
-            sigmaY: _sigma,
-            // 不给 clamp 的话四周会糊出一圈透明边
-            tileMode: ui.TileMode.clamp,
-          )
-          ..colorFilter = ColorFilter.matrix(bgPhotoFilter()),
-      );
-      final blurred =
-          await recorder.endRecording().toImage(src.width, src.height);
-      // 期间已经换歌 / 换页面了：这份结果丢掉
-      if (!mounted || _loading != url) return;
-      setState(() => _image = blurred);
-    } catch (_) {
-      if (mounted && _loading == url) setState(() => _image = null);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final img = _image;
-    if (img == null) return const SizedBox.shrink();
-    return RawImage(
-      image: img,
-      fit: BoxFit.cover,
-      // 放大十几倍，双线性就够了（本来就糊）
-      filterQuality: FilterQuality.low,
     );
   }
 }
@@ -2115,45 +1660,6 @@ class _LyricLineFadeState extends State<_LyricLineFade>
 /// ⚠️ 别用 `ShaderMask` 做这件事：它每帧都要 `saveLayer`（一块离屏纹理），
 /// 60fps 下光是分配/释放这些纹理就会把出场动画拖成幻灯片。
 /// 挂 `foreground` 着色器是**直接用渐变画字形**，没有离屏层。
-/// 背景底图相对**窗口对角线**的放大倍数。
-///
-/// 绕屏幕中心转，图的内切圆半径（边长/2）只要盖得住窗口的外接圆（对角线/2）就行
-/// → **1.0 倍就是下限**，这里留 6% 余量。
-///
-/// ⚠️ **别把它放大**：这个值直接决定「背景能采到封面的多少」——
-/// 放到 2.8 倍时只看得见封面中心那一小块（宽 30%、高 30%），封面上半部的颜色
-/// 根本进不了画面。实测同一张 Lover 封面：2.8 倍出来是没有人味的灰蓝
-/// （R−G 只有 +17），1.06 倍能采到宽 81%、高 53%，R−G 到 +43（明显的粉，
-/// iPad 上是 +34）。`test/now_playing_test.dart` 里有一条守着它。
-const double kBackdropScale = 1.06;
-
-/// 背景底图的「照片滤镜」—— 照 AMLL 的配方：
-/// **对比度 0.4 → 饱和度 3.0 → 对比度 1.7**（三步都是仿射变换，合成成一个矩阵）。
-///
-/// 为什么要这么狠地提饱和：底图要糊成一大片色域，而模糊本身会把颜色摊平；
-/// 不补回来的话整页就是灰的 —— 实测我们的背景 RGB 119/123/131（几乎没有色相），
-/// 而 Apple Music 同一张封面是 197/163/156（明显的粉）。
-///
-/// 合成公式：对比度 `y = c·x + 128(1−c)`、饱和度按 Rec.709 亮度权重混灰，
-/// 所以最终 = `c1·c2·sat(x) + 128·(c2(1−c1) + (1−c2))`。
-/// 中间那两步**不clamp**（和 AMLL 一样在浮点里算完才落盘），否则合并不了。
-List<double> bgPhotoFilter({
-  double contrast1 = 0.4,
-  double saturate = 3.0,
-  double contrast2 = 1.7,
-}) {
-  const lr = 0.2126, lg = 0.7152, lb = 0.0722;
-  final m = 1 - saturate;
-  final k = contrast1 * contrast2;
-  final off = 128 * (contrast2 * (1 - contrast1) + (1 - contrast2));
-  return <double>[
-    (lr * m + saturate) * k, lg * m * k, lb * m * k, 0, off, //
-    lr * m * k, (lg * m + saturate) * k, lb * m * k, 0, off, //
-    lr * m * k, lg * m * k, (lb * m + saturate) * k, 0, off, //
-    0, 0, 0, 1, 0,
-  ];
-}
-
 /// 逐字歌词里**每一行**该怎么着色。
 ///
 /// 为什么需要它：着色用的是一条只沿**水平方向**取值的渐变（`LinearGradient`），

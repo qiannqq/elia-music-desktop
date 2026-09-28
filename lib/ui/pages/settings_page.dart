@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/app_theme.dart';
 import '../../core/app_paths.dart';
 import '../../services/api_client.dart';
+import '../../services/app_background.dart';
 import '../../services/audio_cache.dart';
 import '../../services/bilibili_service.dart';
 import '../../services/cache_manager.dart';
@@ -242,6 +243,7 @@ class _SettingsPageState extends State<SettingsPage> {
       SettingsTab.appearance => [
           _appearanceSection(c, state),
           _accentColorSection(c, state),
+          _backgroundSection(c, state),
           _nowPlayingSection(c, state),
         ],
     };
@@ -846,6 +848,139 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  /// 整体背景 —— 一张图或当前封面铺满整窗。
+  ///
+  /// 两种模式的参数口径**故意不同**：
+  ///  * 自定义图片：模糊与明暗可调（用户自己的图，他自己说了算）；
+  ///  * 歌曲封面：固定用「现在播放页」那一套（[kBackdropSigma] + 0.24 压暗），
+  ///    只有旋转与律动跟着「现在播放页」那两个滑块走 —— 这样两处观感一致。
+  Widget _backgroundSection(AppColors c, AppState state) {
+    final bg = appBackground;
+    final isImage = bg.mode == AppBgMode.image;
+    return _Section(
+      title: '整体背景',
+      desc: '把一张图或当前这首的封面铺满整个应用：标题栏、侧边栏、内容区、'
+          '播放栏都沉浸在里面。默认关。',
+      children: [
+        Row(
+          children: [
+            for (final mode in AppBgMode.values) ...[
+              Expanded(
+                child: _OptionCard(
+                  icon: _bgModeIcon(mode),
+                  // 「关」用的是窗口按钮那族的 12 坐标系图标
+                  iconViewBox: mode == AppBgMode.none ? 12 : 24,
+                  label: _bgModeLabel(mode),
+                  selected: bg.mode == mode,
+                  onTap: () {
+                    bg.setMode(mode);
+                    // 封面模式要低频包络（「跟着鼓点跳」靠它）——
+                    // 用户以前没开过「跳过首尾无声」的话，这首歌还没探过
+                    state.ensureEnvelope();
+                    setState(() {});
+                  },
+                ),
+              ),
+              if (mode != AppBgMode.values.last) const SizedBox(width: AppSpace.inline),
+            ],
+          ],
+        ),
+        if (isImage) ...[
+          const SizedBox(height: AppSpace.line),
+          Row(
+            children: [
+              AppButton(
+                label: '选择图片',
+                small: true,
+                onPressed: () async {
+                  final path = await AppState.pickImageFile();
+                  if (path == null || path.isEmpty) return;
+                  bg.setImage(path);
+                  setState(() {});
+                },
+              ),
+              const SizedBox(width: AppSpace.gap),
+              Expanded(
+                // 文件名要跟着 [appBackground] 变 —— 设置页本身只监听 AppState，
+                // 不接这一条的话，换完图这行还是旧名字（千奈报的）。
+                child: ListenableBuilder(
+                  listenable: appBackground,
+                  builder: (_, _) => Text(
+                    bg.imageLabel.isNotEmpty
+                        ? bg.imageLabel
+                        : (bg.imageName.isEmpty ? '还没有选图片' : bg.imageName),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: c.textTertiary),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpace.line),
+          Row(
+            children: [
+              Text('背景明暗', style: TextStyle(fontSize: 13, color: c.textSecondary)),
+              const SizedBox(width: AppSpace.line),
+              _slider(
+                c: c,
+                value: bg.dim * 100,
+                min: 0,
+                max: 85,
+                divisions: 17,
+                onChanged: (v) => bg.setDim(v / 100),
+              ),
+              _sliderValue('${(bg.dim * 100).round()}%', c),
+            ],
+          ),
+          Row(
+            children: [
+              Text('背景模糊', style: TextStyle(fontSize: 13, color: c.textSecondary)),
+              const SizedBox(width: AppSpace.line),
+              _slider(
+                c: c,
+                // 模糊是**烤进底图**的，拖动时只改状态、停手 150ms 后才重糊
+                // （服务里带防抖）。0 = 完全不糊，保留原图分辨率。
+                value: bg.blurSigma,
+                min: 0,
+                max: AppBackground.kMaxBlur,
+                divisions: 50,
+                onChanged: bg.setBlur,
+              ),
+              _sliderValue(bg.blurSigma < 0.5 ? '关' : bg.blurSigma.round().toString(), c),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '明暗叠的是主题底色：浅色主题下变亮、深色主题下变暗。'
+            '模糊为 0 时按原分辨率显示。',
+            style: TextStyle(fontSize: 12, color: c.textTertiary),
+          ),
+        ],
+        if (bg.mode == AppBgMode.cover) ...[
+          const SizedBox(height: AppSpace.line),
+          Text(
+            '模糊度与明暗度固定用「现在播放页」那一套；旋转与律动受下面「现在播放页」'
+            '里的两个滑块控制。开着 B站视频背景时，这里也会跟着放那段视频。',
+            style: TextStyle(fontSize: 12, color: c.textTertiary, height: 1.5),
+          ),
+        ],
+      ],
+    );
+  }
+
+  static String _bgModeLabel(AppBgMode m) => switch (m) {
+        AppBgMode.none => '关',
+        AppBgMode.image => '自定义图片',
+        AppBgMode.cover => '歌曲封面',
+      };
+
+  static String _bgModeIcon(AppBgMode m) => switch (m) {
+        AppBgMode.none => AppIcons.close,
+        AppBgMode.image => AppIcons.folder,
+        AppBgMode.cover => AppIcons.music,
+      };
+
   Widget _cacheSection(AppColors c, AppState state) {
     return _Section(
       title: '缓存',
@@ -865,7 +1000,8 @@ class _SettingsPageState extends State<SettingsPage> {
     final isPreset = kAccentPresets.any((p) => p.toARGB32() == current.toARGB32());
     return _Section(
       title: '主题色',
-      desc: '替换界面里所有的强调色：按钮、开关、进度条、歌词高亮、选中态。',
+      desc: '替换界面里所有的强调色：按钮、开关、进度条、歌词高亮、选中态。'
+          '默认跟随 Windows「设置 → 个性化 → 颜色」里的主题色。',
       children: [
         Wrap(
           spacing: 10,
@@ -916,11 +1052,22 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
             const Spacer(),
             AppButton(
+              // 「恢复默认」= **重新跟一次 Windows 的主题色**（不是回到那个写死的蓝）。
+              // 第一次启动时已经自动跟过一次（见 `ThemeController.init`），
+              // 之后想再同步一次就点这里。
               label: '恢复默认',
               small: true,
-              onPressed: isPreset && current.toARGB32() == kAccentPresets.first.toARGB32()
+              onPressed: themeController.systemAccent != null &&
+                      current.toARGB32() == themeController.systemAccent!.toARGB32()
                   ? null
-                  : () => _useAccent(kAccentPresets.first),
+                  : () async {
+                      final ok = await themeController.useSystemAccent();
+                      if (!mounted) return;
+                      setState(() {});
+                      if (!ok) {
+                        toast.show('没能读到 Windows 的主题色', type: ToastType.info);
+                      }
+                    },
             ),
           ],
         ),
@@ -1595,10 +1742,41 @@ class _ThemeOption extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
+  Widget build(BuildContext context) => _OptionCard(
+        icon: mode.icon,
+        label: mode.label,
+        selected: selected,
+        onTap: onTap,
+      );
+}
+
+/// 一排「多选一」的小卡片（主题模式、整体背景模式都用它）。
+class _OptionCard extends StatelessWidget {
+  const _OptionCard({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.iconViewBox = 24,
+  });
+
+  final String icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  /// 图标的坐标系。⚠️ `AppIcons.close` 那几个窗口按钮同族的图是 **12 见方**的，
+  /// 按默认的 24 画会只占左上角四分之一 —— 看着又小又偏（千奈报的
+  /// 「图标太小、位置在字的左上角」）。
+  final double iconViewBox;
+
+  @override
   Widget build(BuildContext context) {
     final c = context.c;
     return HoverBuilder(
       builder: (_, hovered) => GestureDetector(
+        // 整块可点：里面是 Center 布局，默认的 deferToChild 会把命中区缩到文字那么宽
+        behavior: HitTestBehavior.opaque,
         onTap: onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
@@ -1614,10 +1792,11 @@ class _ThemeOption extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              AppIcon(mode.icon, size: 16, color: selected ? c.accent : c.textSecondary),
-              const SizedBox(width: 8),
+              AppIcon(icon, size: 16, color: selected ? c.accent : c.textSecondary,
+                  viewBox: iconViewBox),
+              const SizedBox(width: AppSpace.inline),
               Text(
-                mode.label,
+                label,
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w500,

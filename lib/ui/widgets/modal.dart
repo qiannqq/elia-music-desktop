@@ -84,7 +84,10 @@ class AppModalCard extends StatelessWidget {
             width: maxWidth,
             height: height,
             decoration: BoxDecoration(
-              color: c.surface,
+              // 弹窗一律**不透明**：`surface` 在开了整窗背景时是半透明的，
+            // 用在弹窗上会把底下的照片透上来（千奈报的「弹窗不需要半透明」）。
+            // 这里走弹出层那一档 —— 菜单、对话框共用，两种主题下都是实色。
+            color: c.flyoutBg,
               border: Border.all(color: c.flyoutBorder),
               borderRadius: BorderRadius.circular(c.radiusLg),
               boxShadow: c.elevation64,
