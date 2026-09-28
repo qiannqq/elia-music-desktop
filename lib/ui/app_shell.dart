@@ -5,8 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/app_theme.dart';
+import '../core/perf_probe.dart';
 import '../core/window_fx.dart';
+import '../services/app_background.dart';
 import '../services/player_controller.dart';
+import '../services/video_bg.dart';
 import '../state/app_state.dart';
 import '../state/theme_controller.dart';
 import 'dialogs/lyrics_dialog.dart';
@@ -19,6 +22,7 @@ import 'player_bar.dart';
 import 'sidebar.dart';
 import 'titlebar.dart';
 import 'toast_overlay.dart';
+import 'widgets/app_backdrop.dart';
 import 'widgets/modal.dart';
 import 'widgets/fluent.dart';
 import 'widgets/queue_panel.dart';
@@ -82,6 +86,49 @@ class _AppShellState extends State<AppShell>
   /// 走 Navigator 的弹窗是挂在根 Overlay 上的，那个在缩放之外。
   bool _nowPlayingOpen = false;
 
+  /// 开合现在播放页。**统一走这里**：除了本地开关，还要告诉状态层「页面开着」——
+  /// 它决定要不要去算低频包络（背景要律动才用得上），以及整窗背景那一路的
+  /// 视频需求要不要让位给页面。
+  void _setNowPlaying(bool open) {
+    if (_nowPlayingOpen == open) return;
+    setState(() => _nowPlayingOpen = open);
+    state.nowPlayingOpen = open;
+    if (open) state.ensureEnvelope();
+    _syncVideoDemand();
+  }
+
+  /// 整窗背景（封面模式）那一路的视频需求。
+  ///
+  /// ⚠️ **不要**把「播放页开着」也算进条件：那样页面一开一关，需求会经历
+  /// 「有 → 空 → 有」—— 而服务里空需求等于「谁都不要了」，它会当场
+  /// `_stopDecoding()` + 清帧，紧接着再重新拉一遍流。表现就是
+  /// 「展开播放页又拉了一次 B站视频」（千奈报的）。
+  /// 两处要的是**同一首歌同一条流**，一起要着就行，本来就该只拉一次。
+  void _syncVideoDemand() {
+    videoBackground.sync(
+      who: 'app-bg',
+      want: appBackground.mode == AppBgMode.cover && state.bgVideo,
+      song: player.currentSong,
+    );
+  }
+
+  void _onBackgroundChanged() {
+    if (!mounted) return;
+    // 刚切成封面模式 → 这首歌可能还没探过包络（用户以前没开过「跳过首尾无声」）
+    if (appBackground.mode == AppBgMode.cover) state.ensureEnvelope();
+    _syncVideoDemand();
+    _markPerf();
+  }
+
+  /// 给帧探针（`--dart-define=ELIA_PERF=true`）打标签。
+  ///
+  /// 探针每 5 秒往日志写一行汇总，但数字本身不知道对应什么场景 ——
+  /// 打上「播放/暂停 + 背景模式」之后，同一次运行里开/关背景的数字可以直接对比。
+  /// 探针关着时 `mark` 只是一次赋值，没有开销。
+  void _markPerf() {
+    PerfProbe.mark('${player.isPlaying ? '播放' : '暂停'}/背景=${appBackground.mode.name}');
+  }
+
   /// 点播放栏那个按钮：开着就收回，收起就展开。
   void _toggleQueue() {
     if (_queueOpen) {
@@ -100,6 +147,11 @@ class _AppShellState extends State<AppShell>
     // 之后再进来可能对不上，顺手同步一下）
     unawaited(syncWindowFxState());
     state.addListener(_onState);
+    appBackground.addListener(_onBackgroundChanged);
+    // 启动时也要报一次视频需求：`_syncVideoDemand` 挂在播放器与背景的**变化**上，
+    // 而开机时「已经在放的那首 + 已经开着的封面背景」没有任何变化会触发它
+    // —— 少了这一句，恢复播放的情况下整窗背景的视频永远不会开始拉。
+    _syncVideoDemand();
     player.addListener(_onPlayer);
     player.onEnded = (action) => state.handleEndedAction(action);
     player.onModeChange = state.onModeChanged;
@@ -160,6 +212,7 @@ class _AppShellState extends State<AppShell>
   @override
   void dispose() {
     state.removeListener(_onState);
+    appBackground.removeListener(_onBackgroundChanged);
     player.removeListener(_onPlayer);
     FocusManager.instance.removeListener(_reclaimFocusIfLost);
     _searchScroll.dispose();
@@ -253,7 +306,7 @@ class _AppShellState extends State<AppShell>
     if (_nowPlayingOpen) {
       if (event is KeyDownEvent &&
           event.logicalKey == LogicalKeyboardKey.escape) {
-        setState(() => _nowPlayingOpen = false);
+        _setNowPlaying(false);
         return KeyEventResult.handled;
       }
       return KeyEventResult.ignored;
@@ -309,11 +362,15 @@ class _AppShellState extends State<AppShell>
   /// 不能无条件 setState：播放位置每秒变化几十次，会把整个页面（含几十行
   /// 列表）一起重建。位置相关的变化由各自的 `ValueListenableBuilder` 处理。
   void _onPlayer() {
+    // 换歌要重新报一次视频需求（同一首歌重复报是空操作）——
+    // 下面那个「有没有歌」的早退会把换歌挡掉，而视频背景要跟着新歌走。
+    _syncVideoDemand();
+    _markPerf();
     final hasSong = player.currentSong != null;
     if (hasSong == _lastHasSong) return;
     _lastHasSong = hasSong;
     // 歌没了（点了关闭）：现在播放页留着就是个空壳
-    if (!hasSong) _nowPlayingOpen = false;
+    if (!hasSong) _setNowPlaying(false);
     if (mounted) setState(() {});
   }
 
@@ -359,26 +416,61 @@ class _AppShellState extends State<AppShell>
             // 用 Material 而非 Container 作为根：TextField / Tooltip 等
             // Material 组件需要 Material 祖先，否则报
             // "No Material widget found. TextField widgets require a Material widget ancestor"
-            child: Material(
-              color: c.bg,
-              child: Stack(
-                children: [
-                  // ---- 内容区：顶部给标题栏让出高度 ----
-                  //
-                  // 标题栏从 Column 的一个子项改成了**浮层**（见下面），
-                  // 这样现在播放页才能盖住它 —— 否则播放页只能从标题栏下沿开始。
-                  //
-                  // 播放页开着时整块 Offstage：它被盖住了，可播放栏的进度条
-                  // 还在每秒重画几十次 —— 白画的那些帧正好跟出场动画抢时间。
-                  Positioned.fill(
-                    child: Offstage(
-                      offstage: _nowPlayingOpen,
-                      child: Padding(
-                        padding: const EdgeInsets.only(top: kTitlebarHeight),
-                        child: ZoomWrapper(
-                          scale: state.zoom / 100,
-                          child: Stack(
-                            children: [
+            //
+            // ⚠️ 底色**留在原地不要动**（`color: c.bg`）：Material 的底色画在它自己
+            // 子树的**下面**，而整体背景层是 Stack 的第一个子节点 —— 盖得住。
+            // 于是窗口输出仍然不透明，DWM 走的是「不透明快速合成」那条路。
+            // （云母那一版必须把它改成透明，是因为云母层自己带 alpha、整窗要跟着透明；
+            //   这里是一张不透明的图 + 压暗罩，不需要付那份代价。）
+            child: AnimatedBuilder(
+              animation: appBackground,
+              builder: (_, _) {
+                return Material(
+                  color: c.bg,
+                  child: Stack(
+                    children: [
+                      // ---- 整体背景：整窗最底一层 ----
+                      //
+                      // **无条件存在**（关着时它自己返回 `SizedBox.shrink()`）：
+                      // 条件插入会让 Stack 的兄弟节点错位、整棵 shell 子树重挂。
+                      // 现在播放页开着时它整个被盖住 —— Offstage 掉，别让它继续转。
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: TickerMode(
+                            // ⚠️ `Offstage` **只省绘制、不停表**：被盖住的那份背景
+                            // 仍在 60fps 地转（`AnimationController.repeat()`）。
+                            // 这里连时钟一起停掉 —— 背景画面是**播放时刻的纯函数**，
+                            // 停表再启不会跳角度。
+                            enabled: !_nowPlayingOpen,
+                            child: Offstage(
+                              offstage: _nowPlayingOpen,
+                              child: const AppBackdropLayer(),
+                            ),
+                          ),
+                        ),
+                      ),
+                      // ---- 内容区：顶部给标题栏让出高度 ----
+                      //
+                      // 标题栏从 Column 的一个子项改成了**浮层**（见下面），
+                      // 这样现在播放页才能盖住它 —— 否则播放页只能从标题栏下沿开始。
+                      //
+                      // 播放页开着时整块 Offstage：它被盖住了，可播放栏的进度条
+                      // 还在每秒重画几十次 —— 白画的那些帧正好跟出场动画抢时间。
+                      Positioned.fill(
+                        child: Offstage(
+                          offstage: _nowPlayingOpen,
+                          child: Padding(
+                            padding: const EdgeInsets.only(top: kTitlebarHeight),
+                            child: ZoomWrapper(
+                              scale: state.zoom / 100,
+                              child: Stack(
+                                children: [
+                                  // ⚠️ 这里**不要**再铺一层内容底色：标题栏与侧边栏
+                                  // 本来就是透明的，只有内容区和播放栏各套了自己的
+                                  // 半透明底 —— 于是同一张背景在几处呈现的明暗不一样
+                                  // （千奈真机看出来的：播放栏偏暗、标题栏偏亮）。
+                                  // 现在整窗只有背景层那一层统一叠色（明暗滑块），
+                                  // 其余 chrome 一律透明，亮度才真正统一。
                               // 播放栏出现时**必须为它让出高度**（等价原版
                               // `body.has-player .page.active{padding-bottom:88px}`），
                               // 否则它会盖住页面底部内容（设置页的「外观」区）。
@@ -442,16 +534,22 @@ class _AppShellState extends State<AppShell>
                                 ),
                               ),
                               // 播放器栏（有歌曲时显示，等价 body.has-player）
+                              //
+                              // ⚠️ 自己关一层重绘边界：进度条与时间按位置事件
+                              // （30Hz）在变，而外壳这一层原本**一个重绘边界都没有**
+                              // —— 不关起来的话它们每变一次都会把整窗内容层的绘制
+                              // 记录标脏，白白重录一遍整屏。
                               if (player.currentSong != null)
                                 Positioned(
                                   left: 0,
                                   right: 0,
                                   bottom: 0,
-                                  child: PlayerBar(
-                                    state: state,
-                                    onOpenQueue: _toggleQueue,
-                                    onOpenNowPlaying: () =>
-                                        setState(() => _nowPlayingOpen = true),
+                                  child: RepaintBoundary(
+                                    child: PlayerBar(
+                                      state: state,
+                                      onOpenQueue: _toggleQueue,
+                                      onOpenNowPlaying: () => _setNowPlaying(true),
+                                    ),
                                   ),
                                 ),
                             ],
@@ -467,7 +565,7 @@ class _AppShellState extends State<AppShell>
                     child: NowPlayingPage(
                       state: state,
                       open: _nowPlayingOpen,
-                      onClose: () => setState(() => _nowPlayingOpen = false),
+                      onClose: () => _setNowPlaying(false),
                     ),
                   ),
                   // ---- 标题栏：永远在最上层 ----
@@ -482,6 +580,8 @@ class _AppShellState extends State<AppShell>
                   ),
                 ],
               ),
+            );
+              },
             ),
           ),
         ),
@@ -601,7 +701,9 @@ class EliaMusicApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: themeController,
+      // 主题色、深/浅、以及「有没有整体背景」都会影响令牌（有背景时卡片要透一些），
+      // 所以两个都要听。
+      animation: Listenable.merge([themeController, appBackground]),
       builder: (ctx, _) {
         return MaterialApp(
           title: 'Elia Music',

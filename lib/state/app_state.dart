@@ -12,6 +12,7 @@ import '../core/lyric.dart';
 import '../core/perf_probe.dart';
 import '../models/playlist.dart';
 import '../models/song.dart';
+import '../services/app_background.dart';
 import '../services/api_client.dart';
 import '../services/audio_cache.dart';
 import '../services/bilibili_service.dart';
@@ -940,18 +941,47 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// 探一下这首歌首尾有没有空白，有就让播放器跳过去。
+  /// 探一下这首歌首尾有没有空白，有就让播放器跳过去；顺带把低频包络算出来
+  /// （背景律动要用同一份数据）。
   ///
   /// 探测要解一次音频（本地文件几十毫秒、网络流几百毫秒），所以**不等它** ——
   /// 结果回来时歌多半刚开播，正好把开头那段跳掉。结果会存下来，一首歌只探一次。
   Future<void> _probeSilence(Song song, String url) async {
-    if (!skipSilence) return;
+    // ⚠️ 探测有**两个**消费者，任一需要就得探：
+    //   * 用户开着「跳过首尾无声」→ 要那两段裁剪点；
+    //   * 背景要「跟着鼓点跳」→ 要低频包络。
+    // 原来只看第一个，于是关掉「跳过首尾无声」之后包络永远算不出来 ——
+    // 表现是背景**只转不跳**，还挂着一个每 2 秒重试、永远失败的表。
+    if (!skipSilence && !_wantEnvelope) return;
     final gen = _playGeneration;
     final trim = await SilenceProbe.probe(song.mid, url: url);
     // 探测期间用户已经换歌了：这份结果不能安到新歌头上
     if (gen != _playGeneration) return;
     if (player.currentSong?.mid != song.mid) return;
     player.applySilenceTrim(skipSilence ? trim : null);
+  }
+
+  /// 现在有没有人需要这首歌的低频包络（背景律动靠它）。
+  bool get _wantEnvelope =>
+      appBackground.mode == AppBgMode.cover || nowPlayingOpen;
+
+  /// 现在播放页开着吗（页面自己维护）。背景要律动 → 要包络，
+  /// 而包络是一次完整解码，没人看的时候不该白算。
+  bool nowPlayingOpen = false;
+
+  /// 有新的消费者开始要包络了（刚打开整窗背景 / 刚打开播放页）：补探一次。
+  ///
+  /// 只在**真的在放歌**时探：探测要等本地那份音频文件落地（最长几秒的轮询），
+  /// 没在放歌的话既白等，又会留下一个悬着的定时器（测试里就是一条
+  /// 「A Timer is still pending」）。按下播放时 [playSong] 那条路本来就会探，
+  /// 所以暂停时漏掉的那次，开播时会自己补上。
+  ///
+  /// 一首歌只探一次（`SilenceProbe` 自带缓存），重入没有代价。
+  void ensureEnvelope() {
+    if (!player.isPlaying) return;
+    final song = player.currentSong;
+    if (song == null) return;
+    unawaited(_probeSilence(song, ''));
   }
 
   // ============================================================ 搜索
@@ -1382,6 +1412,25 @@ class AppState extends ChangeNotifier {
 
   static String sanitizeFilename(String name) =>
       name.replaceAll(RegExp(r'[/\\:*?"<>|]'), '_').replaceAll(RegExp(r'\s+'), ' ').trim();
+
+  /// 选一张图当「整体背景」（外观设置里那个按钮）。
+  ///
+  /// 只取**路径**，不拷进应用数据目录：换图是常见操作，拷贝会在数据目录里
+  /// 攒下一堆再也用不到的图。代价是用户把原图删了/移了之后背景失效 ——
+  /// 那条路会退回纯色底（`AppBackground` 里处理），不崩也不报错。
+  static Future<String?> pickImageFile() async {
+    try {
+      const group = XTypeGroup(
+        label: '图片',
+        extensions: ['jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif'],
+      );
+      final file = await openFile(acceptedTypeGroups: const [group]);
+      return file?.path;
+    } catch (e) {
+      fileLogger.error('Dialog', 'pickImageFile failed: $e');
+      return null;
+    }
+  }
 
   static Future<String?> pickDirectory() async {
     try {

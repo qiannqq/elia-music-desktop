@@ -306,6 +306,40 @@ void main() {
     });
   });
 
+  group('两处都要视频背景时，需求按调用方身份合并', () {
+    // 现在有两处会要 B站视频：现在播放页、以及外观设置里的「整体背景（歌曲封面）」。
+    // 服务里按 `who` 存一个需求集合 —— 只要还有一方要，流就不能停。
+    //
+    // ⚠️ 这条守的是一个真出现过的症状：把「播放页开着」也算进整窗条件之后，
+    // 展开页面的一瞬间需求集合会经历「有 → 空 → 有」，服务当场
+    // `_stopDecoding()` + 清帧，紧接着又把同一首歌重新拉一遍 ——
+    // 日志里就是 `视频背景关掉（回到封面）` 紧跟着同一条 `解码 320x180`。
+    test('一处撤掉不会把另一处要着的流掐掉', () {
+      videoBackground.debugDisabled = true; // 单测里不真去拉流
+      const bili =
+          Song(mid: 'BV1xx411c7mD', name: 'B站歌', artist: 'a', source: 'bilibili');
+
+      // 整窗背景先要
+      videoBackground.sync(who: 'app-bg', want: true, song: bili);
+      expect(videoBackground.wantedMid, 'BV1xx411c7mD');
+
+      // 播放页也要（同一条流，目标没变）
+      videoBackground.sync(who: 'now-playing', want: true, song: bili);
+      expect(videoBackground.wantedMid, 'BV1xx411c7mD');
+
+      // 播放页收起：整窗背景还要着 —— 流必须留着，**不能**在这里掐掉
+      videoBackground.sync(who: 'now-playing', want: false, song: bili);
+      expect(videoBackground.wantedMid, 'BV1xx411c7mD',
+          reason: '整窗背景还要着，不该掐掉再重拉');
+
+      // 整窗背景也撤掉 —— 这才是真的不要了
+      videoBackground.sync(who: 'app-bg', want: false, song: bili);
+      expect(videoBackground.wantedMid, isNull);
+
+      videoBackground.debugDisabled = true;
+    });
+  });
+
   group('有帧之后背景换成视频', () {
     /// 造一张真图（`ui.Image` 只能由引擎产出，测试里用这个 API 造）
     Future<ui.Image> solid(int w, int h) {

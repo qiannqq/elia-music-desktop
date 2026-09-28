@@ -10,6 +10,7 @@ import 'core/file_logger.dart';
 import 'core/local_store.dart';
 import 'core/perf_probe.dart';
 import 'services/api_client.dart';
+import 'services/app_background.dart';
 import 'services/http_server.dart';
 import 'services/audio_cache.dart';
 import 'services/player_controller.dart';
@@ -49,6 +50,10 @@ Future<void> main() async {
   }
 
   themeController.init();
+
+  // 整体背景（外观设置里的「自定义图片 / 歌曲封面」）。默认关 ——
+  // 关着的时候它不读文件、不解码、不挂任何监听。
+  appBackground.init();
 
   // ---- 本地 HTTP API 服务 ----
   // 必须在 app.init() **之前**启动：

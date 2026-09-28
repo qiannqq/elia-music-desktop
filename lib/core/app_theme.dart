@@ -371,6 +371,87 @@ class AppColors extends ThemeExtension<AppColors> {
       BoxShadow(color: Color(0x40000000), blurRadius: 64, offset: Offset(0, 32)),
     ],
   );
+  /// 「有整体背景」时的那一套底：把几个**近乎不透明**的面变透。
+  ///
+  /// 为什么需要它：卡片（`card` 浅色 70% 白）、控件填充（`controlFill` 70% 白）、
+  /// 输入框（`inputBg` 纯白）在纯色底上正好，一旦底下铺了照片，它们就是一排
+  /// 「不透的白块」，把用户自己挑的背景挡死了（千奈报的「卡片基本不透明」）。
+  ///
+  /// 取值参照官方的 `LayerOnAcrylicFillColorDefault`（浅 `#40FFFFFF` /
+  /// 深 `#09FFFFFF`）—— 那正是「压在亚克力上的一层」的官方值。
+  /// 深色那档比官方稍厚：照片的亮部透上来会把白字的对比度吃掉。
+  AppColors immersive({required bool dark}) => AppColors(
+        bg: bg,
+        layer: layer,
+        sidebarBg: sidebarBg,
+        titlebarBg: titlebarBg,
+        surface: surface.withValues(alpha: dark ? 0.72 : 0.66),
+        // ⚠️ 深色那档**不能**只是把原来的深色压透明：`surfaceAlt` 深色是
+        // `#1C1C1C`，压在照片上就是一坨不透明的黑（千奈报的「CK 状态气泡
+        // 在深色下是不透明的黑」）。有背景时它改用「淡淡的提亮」——
+        // 和卡片同一档，看起来才像同一套材料。
+        surfaceAlt:
+            dark ? const Color(0x1FFFFFFF) : surfaceAlt.withValues(alpha: 0.45),
+        playerBg: playerBg,
+        modalOverlay: modalOverlay,
+        card: dark ? const Color(0x1AFFFFFF) : const Color(0x59FFFFFF),
+        cardHover: dark ? const Color(0x26FFFFFF) : const Color(0x73FFFFFF),
+        cardStroke: cardStroke,
+        text: text,
+        textSecondary: textSecondary,
+        textTertiary: textTertiary,
+        textDisabled: textDisabled,
+        accentText: accentText,
+        accent: accent,
+        accentHover: accentHover,
+        accentLight: accentLight,
+        accentFill: accentFill,
+        accentFillHover: accentFillHover,
+        accentFillPressed: accentFillPressed,
+        accentFillDisabled: accentFillDisabled,
+        controlFill: dark ? const Color(0x17FFFFFF) : const Color(0x4DFFFFFF),
+        controlFillHover: dark ? const Color(0x26FFFFFF) : const Color(0x66FFFFFF),
+        controlFillPressed: dark ? const Color(0x0DFFFFFF) : const Color(0x3DFFFFFF),
+        controlFillDisabled: controlFillDisabled,
+        altFill: altFill,
+        altFillHover: altFillHover,
+        altFillPressed: altFillPressed,
+        border: border,
+        strokeStrong: strokeStrong,
+        strokeStrongDisabled: strokeStrongDisabled,
+        borderSubtle: borderSubtle,
+        inputBg: dark ? const Color(0x1FFFFFFF) : const Color(0x66FFFFFF),
+        inputBorder: inputBorder,
+        inputFocus: inputFocus,
+        hover: hover,
+        active: active,
+        focusOuter: focusOuter,
+        focusInner: focusInner,
+        // 弹出层（菜单/对话框）**保持不透明**：它们要盖在照片上、又要一眼看清
+        // 内容，透出来只会变成一锅粥。
+        flyoutBg: flyoutBg,
+        flyoutBorder: flyoutBorder,
+        scrollbarThumb: scrollbarThumb,
+        success: success,
+        successBg: successBg,
+        danger: danger,
+        dangerBg: dangerBg,
+        caution: caution,
+        badgeBg: badgeBg,
+        badgeText: badgeText,
+        progressBg: progressBg,
+        toastBg: toastBg,
+        toastBorder: toastBorder,
+        elevation2: elevation2,
+        elevation4: elevation4,
+        elevation8: elevation8,
+        elevation16: elevation16,
+        elevation28: elevation28,
+        elevation64: elevation64,
+        radius: radius,
+        radiusLg: radiusLg,
+      );
+
   @override
   AppColors copyWith() => this;
 

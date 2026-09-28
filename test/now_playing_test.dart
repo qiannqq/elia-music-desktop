@@ -8,11 +8,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:elia_music/core/app_paths.dart';
 
 import 'package:elia_music/core/app_theme.dart';
+import 'package:elia_music/core/backdrop.dart';
 import 'package:elia_music/core/lyric.dart';
 import 'package:elia_music/core/window_fx.dart';
 import 'package:elia_music/models/song.dart';
+import 'package:elia_music/services/app_background.dart';
 import 'package:elia_music/services/player_controller.dart';
 import 'package:elia_music/services/silence_probe.dart';
+import 'package:elia_music/services/video_bg.dart';
 import 'package:elia_music/state/app_state.dart';
 import 'package:elia_music/state/toast.dart';
 import 'package:elia_music/ui/titlebar.dart';
@@ -919,6 +922,57 @@ void main() {
       await tester.pumpAndSettle();
       tester.takeException();
     }
+
+    testWidgets('开着「整体背景=歌曲封面」时，开关播放页不会把 B站视频重新拉一遍',
+        (tester) async {
+      // 两处都会要 B站视频：整窗背景（封面模式）与播放页。需求在服务里按
+      // `who` 合并 —— 只要还有一方要，目标就不该被掐掉。
+      // ⚠️ 这里守的是一个真实出现过的症状：把「播放页开着」也算进整窗的条件之后，
+      // 开关页面会让需求集合瞬间变空，服务当场 `_stopDecoding()` + 清帧，
+      // 紧接着又把同一首歌重新拉一遍（日志：`视频背景关掉` 紧跟着同一条 `解码`）。
+      videoBackground.debugDisabled = true; // 不真去拉流，只看目标变没变
+      videoBackground.debugTargetChanges = 0;
+      app.setBgVideo(true);
+      appBackground.setMode(AppBgMode.cover);
+      player.isPlaying = false;
+      player.currentSong =
+          const Song(mid: 'BV1xx411c7mD', name: 'B站歌', artist: 'a', source: 'bilibili');
+
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      app.setZoom(100);
+      appFullscreen.value = false;
+
+      await tester.pumpWidget(const MaterialApp(home: AppShell()));
+      await tester.pump();
+      await tester.pump();
+      tester.takeException();
+
+      expect(videoBackground.wantedMid, 'BV1xx411c7mD',
+          reason: '整窗背景要着这条流');
+      final changes = videoBackground.debugTargetChanges;
+
+      // 展开播放页 → 再收起
+      final origin = tester.getTopLeft(find.byType(PlayerBar));
+      await tester.tapAt(origin + const Offset(16 + 24, kPlayerBarHeight / 2));
+      await tester.pumpAndSettle();
+      tester.takeException();
+      expect(videoBackground.wantedMid, 'BV1xx411c7mD', reason: '展开后还该要着它');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(videoBackground.wantedMid, 'BV1xx411c7mD', reason: '收起后也还该要着它');
+
+      expect(videoBackground.debugTargetChanges, changes,
+          reason: '开关播放页不该把目标掐掉再拉起 —— 那就是又拉了一遍流');
+
+      // 收尾：把需求和设置都还原，别影响别的用例
+      appBackground.setMode(AppBgMode.none);
+      app.setBgVideo(false);
+      player.currentSong = null;
+      await tester.pump(const Duration(milliseconds: 200)); // LocalStore 的防抖
+    });
 
     testWidgets('点封面后整页盖住整窗，标题栏切到 over', (tester) async {
       player.isPlaying = false;
