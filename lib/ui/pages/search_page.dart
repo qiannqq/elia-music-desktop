@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
+import '../../core/motion.dart';
 import '../../models/song.dart';
 import '../../state/app_state.dart';
 import '../icons.dart';
 import '../widgets/common.dart';
 import '../widgets/context_menu.dart';
+import '../widgets/fluent.dart';
 import '../widgets/smooth_scroll.dart';
 import '../widgets/song_actions.dart';
 
@@ -101,7 +103,8 @@ class _SearchPageState extends State<SearchPage> {
           child: ConstrainedBox(
             constraints: BoxConstraints(minHeight: hasResults ? 0 : 260),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(32, 24, 32, 0),
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpace.page, AppSpace.pageTop, AppSpace.page, 0),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -112,7 +115,7 @@ class _SearchPageState extends State<SearchPage> {
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 28,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w600,
                         letterSpacing: -0.5,
                         color: c.text,
                       ),
@@ -140,19 +143,21 @@ class _SearchPageState extends State<SearchPage> {
         // ---------------- 结果区 ----------------
         if (hasResults) ...[
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(64, 16, 64, 0),
+            padding: const EdgeInsets.fromLTRB(
+                AppSpace.page, AppSpace.line, AppSpace.page, 0),
             sliver: SliverToBoxAdapter(child: _buildResultsHeader(c, state)),
           ),
           // 比上面那个 16 小：结果头部的按钮比文字高，
           // 文字垂直居中后下方天然多出约 6px，这里减掉才能让
           // 「搜索框→标题」与「标题→卡片」两段视觉间距一致。
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(64, 10, 64, 0),
+            padding: const EdgeInsets.fromLTRB(
+                AppSpace.page, 10, AppSpace.page, 0),
             sliver: _buildGrid(context, state),
           ),
           if (state.searchKeyword.isNotEmpty && !state.isPlaylistPage)
             SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 64),
+              padding: const EdgeInsets.symmetric(horizontal: AppSpace.page),
               sliver: SliverToBoxAdapter(child: _buildPagination(c, state)),
             ),
           const SliverToBoxAdapter(child: SizedBox(height: 16)),
@@ -163,7 +168,8 @@ class _SearchPageState extends State<SearchPage> {
             state.searchKeyword.isNotEmpty)
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 64, vertical: 32),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpace.page, vertical: AppSpace.page),
               child: EmptyState(
                 icon: AppIcons.search,
                 title: '没有找到「${state.searchKeyword}」相关的歌曲',
@@ -212,13 +218,13 @@ class _SearchPageState extends State<SearchPage> {
   Widget _buildSearchBar(AppColors c, AppState state) {
     final linkStyle = state.searchLinkStyle;
     return Container(
-      height: 44,
+      height: 36,
       decoration: BoxDecoration(
-        color: c.inputBg,
-        border: Border.all(color: c.inputBorder, width: 1.5),
-        borderRadius: BorderRadius.circular(c.radiusLg),
+        color: c.controlFill,
+        border: Border.all(color: c.inputBorder),
+        borderRadius: BorderRadius.circular(c.radius),
       ),
-      padding: const EdgeInsets.only(left: 16, right: 4),
+      padding: const EdgeInsets.only(left: 12, right: 2),
       // 整条都聚焦输入框：
       // TextField 用了 isDense，实际高度只有 ~20px，而外框 44px ——
       // 点到上下留白时不会聚焦，用户会觉得「可点击区域很小」。
@@ -250,12 +256,14 @@ class _SearchPageState extends State<SearchPage> {
             child: GestureDetector(
               onTap: state.isSearching ? null : _search,
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                width: 36,
-                height: 36,
+                duration: kStateFade,
+                curve: Motion.easyEase,
+                width: 28,
+                height: 28,
                 decoration: BoxDecoration(
-                  color: linkStyle ? Colors.transparent : c.accent,
-                  border: linkStyle ? Border.all(color: c.accent, width: 1.5) : null,
+                  // 实心按钮走填充档
+                  color: linkStyle ? null : c.accentFill,
+                  border: linkStyle ? Border.all(color: c.accent) : null,
                   borderRadius: BorderRadius.circular(c.radius),
                 ),
                 child: Center(
@@ -469,18 +477,24 @@ class _SourceTab extends StatelessWidget {
         builder: (_, hovered) => GestureDetector(
           onTap: disabled ? null : onTap,
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            duration: kStateFade,
+            curve: Motion.easyEase,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            height: 32,
             decoration: BoxDecoration(
               // 不要用 Colors.transparent（那是「透明的黑」）——
               // Color.lerp 从它过渡到灰色时会经过半透明的黑，悬浮瞬间先「黑」一下。
               // 用同色 + alpha 0 才能保证插值在同一色相内。
-              color: active ? c.accentLight : c.accentLight.withValues(alpha: 0),
+              color: active
+                  ? c.accentLight
+                  : (hovered ? c.controlFillHover : c.controlFill),
               border: Border.all(
-                color: active ? c.accent : (hovered ? c.textTertiary : c.border),
-                width: 1.5,
+                color: active
+                    ? c.accent.withValues(alpha: 0.35)
+                    : (hovered ? c.border : c.border),
               ),
-              borderRadius: BorderRadius.circular(20),
+              // 胶囊形（WinUI 的 chip 就是整圆角）
+              borderRadius: BorderRadius.circular(16),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -558,12 +572,14 @@ class _SongCardState extends State<_SongCard> {
         onSecondaryClick: _showMenu,
         onDoubleClick: () => state.playSong(song.mid),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
+          duration: kStateFade,
+          curve: Motion.easyEase,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
+            // Win11 的卡片：`CardBackgroundFillColorDefault` + `CardStrokeColorDefault`
             color: _hovered ? c.cardHover : c.card,
-            border: Border.all(color: _hovered ? c.border : c.borderSubtle),
-            borderRadius: BorderRadius.circular(c.radius),
+            border: Border.all(color: _hovered ? c.border : c.cardStroke),
+            borderRadius: BorderRadius.circular(c.radiusLg),
           ),
           child: Row(
             children: [

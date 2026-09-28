@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core/app_theme.dart';
+import '../core/motion.dart';
 import '../models/playlist.dart';
 import '../state/app_state.dart';
 import '../state/toast.dart';
 import 'icons.dart';
 import 'widgets/common.dart';
 import 'widgets/context_menu.dart';
+import 'widgets/fluent.dart';
 
 class NavDef {
   final String page;
@@ -15,6 +17,10 @@ class NavDef {
   final String label;
   const NavDef(this.page, this.icon, this.label);
 }
+
+/// 导航项的左右外边距（官方 `NavigationViewItemButtonMargin` 的横向值）。
+/// 选中底与指示条都要用它对齐 —— 别在两处各写一个 4。
+const double _kItemMargin = 4;
 
 const List<NavDef> kNavItems = [
   NavDef('search', AppIcons.search, '搜索'),
@@ -38,7 +44,9 @@ class AppSidebar extends StatelessWidget {
     return LayoutBuilder(
       builder: (ctx, constraints) {
         final compact = constraints.maxWidth < 800;
-        final width = compact ? 56.0 : 200.0;
+        // 紧凑宽度 48 是官方的 `NavigationViewCompactPaneLength`；
+        // 展开宽度 WinUI 只给上限（320），应用自定 —— 这里 200 够放歌单名。
+        final width = compact ? 48.0 : 200.0;
 
         return Container(
           width: width,
@@ -47,42 +55,41 @@ class AppSidebar extends StatelessWidget {
           // 上下露出窗口底色 —— 看着就像一张被裁过的图贴在中间。
           height: double.infinity,
           decoration: BoxDecoration(
+            // 官方的展开态 pane 是**完全透明**的（`SolidBackgroundFillColor-
+            // Transparent`）：云母直接透上来，只靠一条分隔线跟内容区分。
             color: c.sidebarBg,
             border: Border(right: BorderSide(color: c.borderSubtle)),
           ),
-          padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 8, vertical: 8),
+          padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 4, vertical: 8),
           child: SingleChildScrollView(
             child: Column(
               children: [
                 for (final item in kNavItems) ...[
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 2),
-                    child: _NavItem(
-                      item: item,
-                      active: state.page == item.page,
-                      compact: compact,
-                      badge: item.page == 'playlist' ? state.songs.length : 0,
-                      onTap: () {
-                        if (item.page != 'playlist') {
-                          state.navigate(item.page);
-                          return;
-                        }
-                        // 已经在歌单页了：这一下就是「收起 / 展开子列表」。
-                        // 从别的页面过来时 navigate 自己会展开，不用再补一下。
-                        if (state.page == 'playlist') {
-                          state.togglePlaylistsExpanded();
-                        } else {
-                          state.navigate(item.page);
-                        }
-                      },
-                    ),
+                  _NavItem(
+                    item: item,
+                    active: state.page == item.page,
+                    compact: compact,
+                    badge: item.page == 'playlist' ? state.songs.length : 0,
+                    onTap: () {
+                      if (item.page != 'playlist') {
+                        state.navigate(item.page);
+                        return;
+                      }
+                      // 已经在歌单页了：这一下就是「收起 / 展开子列表」。
+                      // 从别的页面过来时 navigate 自己会展开，不用再补一下。
+                      if (state.page == 'playlist') {
+                        state.togglePlaylistsExpanded();
+                      } else {
+                        state.navigate(item.page);
+                      }
+                    },
                   ),
                   if (item.page == 'playlist' && !compact)
                     // 展开/收起要有动画：直接 if 掉的话是「啪」地跳出来。
                     // 收起时给一个零高度的占位，AnimatedSize 才有东西可以量。
                     AnimatedSize(
-                      duration: const Duration(milliseconds: 200),
-                      curve: Curves.easeOutCubic,
+                      duration: Motion.controlFast,
+                      curve: Motion.decelerate,
                       alignment: Alignment.topCenter,
                       child: state.playlistsExpanded
                           ? _PlaylistChildren(state: state)
@@ -276,8 +283,8 @@ class _PlaylistChildState extends State<_PlaylistChild> {
           );
 
     final row = Container(
-      height: 30,
-      padding: const EdgeInsets.only(left: 10, right: 4),
+      height: 32,
+      padding: const EdgeInsets.only(left: 12, right: 4),
       decoration: BoxDecoration(
         color: active
             ? c.accentLight
@@ -348,6 +355,8 @@ class _PlaylistChildState extends State<_PlaylistChild> {
         onEnter: (_) => setState(() => _hovered = true),
         onExit: (_) => setState(() => _hovered = false),
         child: GestureDetector(
+          // 同 _NavItem：让命中区跟悬浮区一致（能悬浮就能点）
+          behavior: HitTestBehavior.opaque,
           onTap: _editing ? null : () => widget.state.switchPlaylist(widget.playlist.id),
           child: body,
         ),
@@ -383,8 +392,8 @@ class _NewPlaylistButtonState extends State<_NewPlaylistButton> {
           toast.show('已新建「${p.name}」', type: ToastType.success);
         },
         child: Container(
-          height: 30,
-          padding: const EdgeInsets.only(left: 10, right: 4),
+          height: 32,
+          padding: const EdgeInsets.only(left: 12, right: 4),
           decoration: BoxDecoration(
             color: _hovered ? c.hover : c.hover.withValues(alpha: 0),
             borderRadius: BorderRadius.circular(c.radius),
@@ -434,19 +443,23 @@ class _NavItem extends StatefulWidget {
 
 class _NavItemState extends State<_NavItem> {
   bool _hovered = false;
+  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
     final active = widget.active;
-    final fg = active ? c.accent : (_hovered ? c.text : c.textSecondary);
-    final bg = active
-        ? c.accentLight
-        : (_hovered ? c.hover : c.hover.withValues(alpha: 0));
+    // WinUI 的 NavigationView：选中项**不是**主色文字，而是
+    // `TextFillColorPrimary`（主文字色）+ `SubtleFillColorSecondary` 底，
+    // 「我在这一页」这件事由左边那道主色指示条表达。
+    final fg = active ? c.text : (_hovered ? c.text : c.textSecondary);
+    final bg = stateFill(c, hovered: _hovered, pressed: _pressed, selected: active);
 
     Widget row = Container(
-      height: 38,
-      padding: EdgeInsets.symmetric(horizontal: widget.compact ? 0 : 14),
+      // `NavigationViewItemOnLeftMinHeight` = 36
+      height: 36,
+      margin: const EdgeInsets.symmetric(horizontal: _kItemMargin, vertical: 2),
+      padding: EdgeInsets.symmetric(horizontal: widget.compact ? 0 : 12),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(c.radius),
@@ -454,15 +467,16 @@ class _NavItemState extends State<_NavItem> {
       child: Row(
         mainAxisAlignment: widget.compact ? MainAxisAlignment.center : MainAxisAlignment.start,
         children: [
-          AppIcon(widget.item.icon, size: 18, color: fg),
+          AppIcon(widget.item.icon, size: 16, color: fg),
           if (!widget.compact) ...[
             const SizedBox(width: 12),
             Expanded(
               child: Text(
                 widget.item.label,
                 style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                  // 正文档 14 —— 选中项**不加粗**（官方只换颜色，字重恒定）
+                  fontSize: 14,
+                  fontWeight: FontWeight.w400,
                   color: fg,
                 ),
                 overflow: TextOverflow.ellipsis,
@@ -480,8 +494,8 @@ class _NavItemState extends State<_NavItem> {
                   '${widget.badge}',
                   textAlign: TextAlign.center,
                   style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
                     color: c.badgeText,
                   ),
                 ),
@@ -491,32 +505,67 @@ class _NavItemState extends State<_NavItem> {
       ),
     );
 
-    // 激活态左侧 3×16 指示条
-    if (active && !widget.compact) {
+    // 激活态指示条：官方左侧模式是 **3×16、圆角 2**。
+    // 位置贴着**选中那一项自己的左边缘**（也就是那一圈 4px 外边距之内），
+    // 看起来是「长在选项卡里侧」；挂在导航栏边缘的话离选项卡还有一截，
+    // 观感是「外面飘着一根线」（千奈真机看出来的）。
+    if (active) {
       row = Stack(
         alignment: Alignment.centerLeft,
         children: [
           row,
-          Positioned(
-            left: 0,
-            child: Container(
-              width: 3,
-              height: 16,
-              decoration: BoxDecoration(
-                color: c.accent,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
+          const Positioned(
+            left: _kItemMargin,
+            child: _NavIndicator(),
           ),
         ],
       );
     }
 
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(onTap: widget.onTap, child: row),
+    return FluentFocus(
+      radius: c.radius,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() {
+          _hovered = false;
+          _pressed = false;
+        }),
+        child: GestureDetector(
+          // ⚠️ `opaque`：里面那层 Container 带 4px 外边距，默认的
+          // `deferToChild` 会把这圈边距排除在命中区之外 ——
+          // 于是「划过去会高亮、点下去却没反应」。能悬浮就得能点。
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onTap,
+          onTapDown: (_) => setState(() => _pressed = true),
+          onTapUp: (_) => setState(() => _pressed = false),
+          onTapCancel: () => setState(() => _pressed = false),
+          child: row,
+        ),
+      ),
+    );
+  }
+}
+
+/// 导航选中指示条 —— 3×16、圆角 2、主色。
+///
+/// ⚠️ **不要给它套补间**（`TweenAnimationBuilder` / `AnimatedContainer`）：
+/// 侧边栏每次重建（切页、改歌单都会）都会新建一个 tween，动画从 0 重跑一遍
+/// —— 表现就是「每切一次页，指示条闪一下」。官方那条指示条是从一个条目
+/// **滑**到另一个条目的，那需要把它做成跨条目共用的一个实例；
+/// 现在是每条各自画一根，所以老老实实静态画。
+class _NavIndicator extends StatelessWidget {
+  const _NavIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 3,
+      height: 16,
+      decoration: BoxDecoration(
+        color: context.c.accent,
+        borderRadius: BorderRadius.circular(2),
+      ),
     );
   }
 }

@@ -47,8 +47,10 @@ class AppMenuItem {
   final bool enabled;
 }
 
-const double _kItemHeight = 33;
-const double _kMenuWidth = 176;
+/// 菜单项高度与宽度，按 WinUI 的 `MenuFlyout`：
+/// 条目 **32**、菜单本体左右各留 4 的边距（官方 `MenuFlyoutPresenter` 的内边距）。
+const double _kItemHeight = 32;
+const double _kMenuWidth = 184;
 const double _kDividerHeight = 9;
 
 /// 在 [position] 处弹出右键菜单。
@@ -354,21 +356,21 @@ class _MenuCard extends StatelessWidget {
         ),
       ),
       child: Material(
-        color: Colors.transparent,
+        type: MaterialType.transparency,
         child: Container(
           width: _kMenuWidth,
-          padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
           decoration: BoxDecoration(
-            color: c.card,
-            border: Border.all(color: c.border),
-            borderRadius: BorderRadius.circular(8),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.18),
-                blurRadius: 18,
-                offset: const Offset(0, 6),
-              ),
-            ],
+            // WinUI 的飞出层是**亚克力**；透明效果关掉时官方的兜底就是
+            // `SolidBackgroundFillColorTertiary`（浅 #F9F9F9 / 深 #282828）——
+            // 我们用的就是这份兜底色。真亚克力要窗口本身能透出背景，
+            // 而 Flutter 的视图是不透明的：系统的 backdrop 画在顶层窗口背后，
+            // 永远透不出来（见 `windows/runner/window_fx.cpp` 的说明）。
+            color: c.flyoutBg,
+            border: Border.all(color: c.flyoutBorder),
+            // 弹层圆角走 `OverlayCornerRadius` = 8
+            borderRadius: BorderRadius.circular(c.radiusLg),
+            boxShadow: c.elevation16,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -445,14 +447,16 @@ class _MenuItemState extends State<_MenuItem> {
   Widget build(BuildContext context) {
     final c = context.c;
     final on = widget.enabled;
-    // 危险项 hover 也用红的：跟着主色变蓝的话，「移除」看着就不危险了
+    // 危险项 hover 也用红的：跟着主色变蓝的话，「移除」看着就不危险了。
+    // 普通项的悬停是 `SubtleFillColorSecondary`（WinUI 的菜单项悬停就是这档
+    // 灰底，不是主色淡底）。
     final hoverBg = widget.danger
         ? c.danger.withValues(alpha: 0.12)
-        : c.accentLight;
+        : c.hover;
     // 禁用项一律用三级文字色，且不跟着悬停变色 —— 灰着就得一直是灰的
     final fg = !on
-        ? c.textTertiary
-        : (widget.danger ? c.danger : (_hovered ? c.accent : c.text));
+        ? c.textDisabled
+        : (widget.danger ? c.danger : c.text);
 
     final hot = on && (_hovered || widget.expanded);
 
@@ -467,14 +471,15 @@ class _MenuItemState extends State<_MenuItem> {
         onTap: on ? widget.onTap : null,
         child: Container(
           height: _kItemHeight,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 11),
           decoration: BoxDecoration(
-            color: hot ? hoverBg : c.accentLight.withValues(alpha: 0),
-            borderRadius: BorderRadius.circular(6),
+            color: hot ? hoverBg : c.hover.withValues(alpha: 0),
+            // 菜单项自己的圆角是**控件档 4**（弹层才是 8）
+            borderRadius: BorderRadius.circular(c.radius),
           ),
           child: Row(
             children: [
-              AppIcon(widget.icon, size: 14, color: fg),
+              AppIcon(widget.icon, size: 16, color: fg),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -482,8 +487,9 @@ class _MenuItemState extends State<_MenuItem> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
+                    // 菜单项文字是 Body 档（14 / 常规字重）
+                    fontSize: 14,
+                    fontWeight: FontWeight.w400,
                     color: fg,
                   ),
                 ),

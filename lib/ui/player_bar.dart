@@ -161,9 +161,9 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFC42B1C),
+                  color: c.danger,
                   borderRadius: BorderRadius.circular(c.radius),
-                  boxShadow: c.shadowLg,
+                  boxShadow: c.elevation16,
                 ),
                 child: Text(
                   player.errorMessage!,
@@ -211,7 +211,7 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
                     width: 48,
                     height: 48,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
+                      borderRadius: BorderRadius.circular(c.radius),
                       boxShadow: player.isPlaying
                           ? [
                               BoxShadow(
@@ -234,10 +234,10 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
                   height: 48,
                   decoration: BoxDecoration(
                     color: c.surfaceAlt,
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(c.radius),
                   ),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(c.radius),
                     child: song.pic.isEmpty
                         ? Center(
                             child: AppIcon(AppIcons.music,
@@ -260,7 +260,7 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
                 Container(
                   decoration: BoxDecoration(
                     color: Colors.black.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(c.radius),
                   ),
                   child: const Center(
                     child: SizedBox(
@@ -394,7 +394,7 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: 13,
+                              fontSize: 14,
                               fontWeight: FontWeight.w600,
                               color: c.text,
                             ),
@@ -423,7 +423,7 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
                 song.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 11, color: c.textTertiary),
+                style: TextStyle(fontSize: 12, color: c.textTertiary),
               ),
             ),
           ),
@@ -508,29 +508,17 @@ class _PlayerBarState extends State<PlayerBar> with SingleTickerProviderStateMix
             ),
             const SizedBox(width: 28),
             _ctrlSlot(
-              MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: GestureDetector(
-                  onTap: player.togglePlay,
-                  child: HoverBuilder(
-                    builder: (ctx, hovered) => Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: hovered ? c.accentHover : c.accent,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Center(
-                        child: AppIcon(
-                          player.isPlaying ? AppIcons.pause : AppIcons.play,
-                          size: 20,
-                          color: c.accentText,
-                          filled: true,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
+              // 播放键**只有图标、没有圆底**（千奈要的）：圆形实心底在 Win11 的
+              // 播放器里已经没有对应控件了 —— 整条传输栏就该是一排同风格的图标，
+              // 主次靠**颜色**（主文字色）区分，不靠一个圆。
+              AppIconButton(
+                icon: player.isPlaying ? AppIcons.pause : AppIcons.play,
+                size: 36,
+                iconSize: 20,
+                filled: true,
+                baseColor: c.text,
+                onTap: player.togglePlay,
+                tooltip: player.isPlaying ? '暂停' : '播放',
               ),
             ),
             const SizedBox(width: 28),
@@ -890,7 +878,7 @@ class _VolumeSlider extends StatelessWidget {
                     widthFactor: value.clamp(0.0, 1.0),
                     child: Container(
                       decoration: BoxDecoration(
-                        color: c.accent,
+                        color: c.accentFill,
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),

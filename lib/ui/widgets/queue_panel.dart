@@ -116,8 +116,8 @@ class _QueuePanelState extends State<QueuePanel> {
       width: 360,
       decoration: BoxDecoration(
         color: c.surface,
-        border: Border(left: BorderSide(color: c.border)),
-        boxShadow: c.shadowLg,
+        border: Border(left: BorderSide(color: c.flyoutBorder)),
+        boxShadow: c.elevation28,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -131,8 +131,8 @@ class _QueuePanelState extends State<QueuePanel> {
                 Text(
                   '播放列表',
                   style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
                     color: c.text,
                   ),
                 ),

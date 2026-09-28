@@ -1,16 +1,27 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
+import '../../core/motion.dart';
 import '../../state/app_state.dart';
 import '../../state/toast.dart';
 import '../icons.dart';
 import 'common.dart';
+import 'fluent.dart';
 import 'modal.dart';
 
 // ================================================================ 输入框
 
-/// 通用输入框 —— 对应 `.path-input-row input` / `.save-dialog-body input`
-class AppTextField extends StatelessWidget {
+/// 通用输入框 —— WinUI 的 `TextBox`。
+///
+/// 三处官方细节：
+///  * 高度 **32**（`TextControlThemeMinHeight`），内边距 `10,5,6,6`
+///    （`TextControlThemePadding`）；
+///  * 左/上/右恒定 1px，**聚焦时只有底边加粗到 2px 并变主色**
+///    （`TextControlBorderThemeThicknessFocused = 1,1,1,2`）——
+///    这是 Win11 输入框最显眼的标志，整圈变色反而不像；
+///  * 填充三档：静止 `ControlFillColorDefault` → 聚焦 `ControlFillColorInputActive`
+///    （浅色下是纯白、深色下更深）。
+class AppTextField extends StatefulWidget {
   const AppTextField({
     super.key,
     required this.controller,
@@ -35,58 +46,92 @@ class AppTextField extends StatelessWidget {
   final bool autofocus;
 
   @override
+  State<AppTextField> createState() => _AppTextFieldState();
+}
+
+class _AppTextFieldState extends State<AppTextField> {
+  late final FocusNode _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _focus.addListener(_onFocusChanged);
+  }
+
+  void _onFocusChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _focus.removeListener(_onFocusChanged);
+    _focus.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return Stack(
-      children: [
-        TextField(
-          controller: controller,
-          readOnly: readOnly,
-          obscureText: obscure,
-          autofocus: autofocus,
-          onChanged: onChanged,
-          onSubmitted: onSubmitted,
-          cursorColor: c.accent,
-          style: TextStyle(
-            fontSize: 13,
-            color: c.text,
-            fontFamily: mono ? kMonoFontFamily : kFontFamily,
-            fontFamilyFallback: mono ? kMonoFontFallback : kFontFallback,
-          ),
-          decoration: InputDecoration(
-            isDense: true,
-            hintText: hint,
-            hintStyle: TextStyle(fontSize: 13, color: c.textTertiary),
-            filled: true,
-            fillColor: c.inputBg,
-            contentPadding: EdgeInsets.only(
-              left: 12,
-              top: 10,
-              bottom: 10,
-              right: trailing != null ? 40 : 12,
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(c.radius),
-              borderSide: BorderSide(color: c.inputBorder, width: 1.5),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(c.radius),
-              borderSide: BorderSide(color: c.inputFocus, width: 1.5),
-            ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(c.radius),
-              borderSide: BorderSide(color: c.inputBorder, width: 1.5),
-            ),
-          ),
+    final focused = _focus.hasFocus;
+    final line = focused ? c.inputFocus : c.inputBorder;
+    final mono = widget.mono;
+
+    return AnimatedContainer(
+      duration: kStateFade,
+      curve: Motion.easyEase,
+      constraints: const BoxConstraints(minHeight: 32),
+      decoration: BoxDecoration(
+        color: focused ? c.inputBg : c.controlFill,
+        borderRadius: BorderRadius.circular(c.radius),
+        border: Border(
+          top: BorderSide(color: line),
+          left: BorderSide(color: line),
+          right: BorderSide(color: line),
+          // 聚焦时底边 1 → 2px，WinUI 就是靠这一条表示「光标在这里」
+          bottom: BorderSide(color: line, width: focused ? 2 : 1),
         ),
-        if (trailing != null)
-          Positioned(
-            right: 8,
-            top: 0,
-            bottom: 0,
-            child: Center(child: trailing!),
+      ),
+      child: Stack(
+        children: [
+          TextField(
+            controller: widget.controller,
+            focusNode: _focus,
+            readOnly: widget.readOnly,
+            obscureText: widget.obscure,
+            autofocus: widget.autofocus,
+            onChanged: widget.onChanged,
+            onSubmitted: widget.onSubmitted,
+            cursorColor: c.accent,
+            cursorWidth: 1.5,
+            style: TextStyle(
+              fontSize: 14,
+              color: c.text,
+              fontFamily: mono ? kMonoFontFamily : kFontFamily,
+              fontFamilyFallback: mono ? kMonoFontFallback : kFontFallback,
+            ),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: widget.hint,
+              hintStyle: TextStyle(fontSize: 14, color: c.textTertiary),
+              // 外观完全交给外面那层 Container：这样「底边加粗」才好画
+              border: InputBorder.none,
+              contentPadding: EdgeInsets.only(
+                left: 10,
+                top: 7,
+                bottom: 7,
+                right: widget.trailing != null ? 36 : 8,
+              ),
+            ),
           ),
-      ],
+          if (widget.trailing != null)
+            Positioned(
+              right: 6,
+              top: 0,
+              bottom: 0,
+              child: Center(child: widget.trailing!),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -100,8 +145,8 @@ Future<bool> showConfirmDialog(BuildContext context, String message) async {
     context,
     AppModalCard(
       maxWidth: 360,
-      // 上下对称，内容才是真正居中（原来 32/20 会让内容偏下）
-      padding: const EdgeInsets.fromLTRB(24, 28, 24, 28),
+      // 官方 ContentDialog 的内边距是 24
+      padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -111,22 +156,23 @@ Future<bool> showConfirmDialog(BuildContext context, String message) async {
           Text(
             message,
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 14, color: c.text, height: 1.6),
+            style: TextStyle(fontSize: 14, color: c.text, height: 1.5),
           ),
           const SizedBox(height: 24),
+          // WinUI 的对话框按钮在**右下角**（不是居中）
           Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.end,
             children: [
               SizedBox(
-                width: 80,
+                width: 110,
                 child: AppButton(
                   label: '取消',
                   onPressed: () => Navigator.of(context).pop(false),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               SizedBox(
-                width: 80,
+                width: 110,
                 child: AppButton(
                   label: '确认',
                   variant: AppButtonVariant.primary,

@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 
 import '../../services/api_client.dart';
 import '../../core/app_theme.dart';
+import '../../core/motion.dart';
 import '../icons.dart';
+import 'fluent.dart';
 
 /// 悬停状态构建器
 class HoverBuilder extends StatefulWidget {
@@ -109,8 +111,8 @@ class _ClickRegionState extends State<ClickRegion> {
 
 enum AppButtonVariant { primary, accent, secondary, ghost }
 
-/// 通用按钮 —— 对应 CSS `.btn` / `.btn-primary` / `.btn-accent` / `.btn-secondary` / `.btn-sm`
-class AppButton extends StatelessWidget {
+/// 通用按钮 —— 对应 WinUI 的 `Button` / `AccentButtonStyle` / `SubtleButtonStyle`
+class AppButton extends StatefulWidget {
   const AppButton({
     super.key,
     required this.label,
@@ -129,106 +131,129 @@ class AppButton extends StatelessWidget {
   final double iconSize;
 
   @override
+  State<AppButton> createState() => _AppButtonState();
+}
+
+class _AppButtonState extends State<AppButton> {
+  /// 按下态要单独记：WinUI 的按下底（`ControlFillColorTertiary`）比悬停还淡，
+  /// 而且它在**松手之前**一直保持 —— 光靠 hover 画不出来。
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final variant = widget.variant;
+    final small = widget.small;
+    final icon = widget.icon;
+    final iconSize = widget.iconSize;
+    final label = widget.label;
+    final onPressed = widget.onPressed;
     final enabled = onPressed != null;
 
+    // WinUI 的按钮三态 = 「控件填充」的三档（`ControlFillColorDefault /
+    // Secondary / Tertiary`）外加 1px 描边；只有**强调按钮**才用 accentFill，
+    // 它的悬停/按下走自己那套 0.9 / 0.8 透明度（`AccentFillColorSecondary/Tertiary`）——
+    // 观感是「往背景里淡一点」，不是变深。
     late Color bg;
+    late Color bgHover;
+    late Color bgPressed;
     late Color fg;
-    BoxBorder? border;
+    Color? border;
 
     switch (variant) {
       case AppButtonVariant.primary:
-        bg = c.accent;
+        bg = c.accentFill;
+        bgHover = c.accentFillHover;
+        bgPressed = c.accentFillPressed;
         fg = c.accentText;
         break;
       case AppButtonVariant.accent:
+        // 「主色淡底」：Win11 里对应 NavigationView 那种选中态，不是实心按钮
         bg = c.accentLight;
+        bgHover = c.accent.withValues(alpha: 0.20);
+        bgPressed = c.accent.withValues(alpha: 0.26);
         fg = c.accent;
+        border = c.accent.withValues(alpha: 0.32);
         break;
       case AppButtonVariant.secondary:
-        bg = c.surfaceAlt;
-        fg = c.textSecondary;
-        border = Border.all(color: c.border);
+        bg = c.controlFill;
+        bgHover = c.controlFillHover;
+        bgPressed = c.controlFillPressed;
+        fg = c.text;
+        border = c.border;
         break;
       case AppButtonVariant.ghost:
         // 用「hover 色 + alpha 0」而不是 Colors.transparent：
         // 后者是透明的黑，AnimatedContainer 插值时会先闪一下暗色。
         bg = c.hover.withValues(alpha: 0);
+        bgHover = c.hover;
+        bgPressed = c.active;
         fg = c.textSecondary;
         break;
     }
 
+    // 高度按 WinUI：正文按钮 32（`ControlThemeMinHeight`），工具条里的紧凑档 28。
+    final height = small ? 28.0 : 32.0;
+
     // GestureDetector 是必需的：早期版本只写了 HoverBuilder（hover 样式），
     // 忘了接点击处理，导致全应用的按钮都点不动。
-    return GestureDetector(
-      onTap: enabled ? onPressed : null,
-      child: HoverBuilder(
-        cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
-        builder: (ctx, hovered) {
-          var hoverBg = bg;
-          var hoverFg = fg;
-          if (enabled && hovered) {
-            switch (variant) {
-              case AppButtonVariant.primary:
-                hoverBg = c.accentHover;
-                break;
-              case AppButtonVariant.accent:
-                hoverBg = c.accent;
-                hoverFg = c.accentText;
-                break;
-              case AppButtonVariant.secondary:
-              case AppButtonVariant.ghost:
-                hoverBg = c.hover;
-                hoverFg = c.text;
-                break;
-            }
-          }
-          // 进入用 120ms 淡入、**退出瞬时**：
-          // 若进出都用 120ms，鼠标从按钮 A 划到 B 时，A 还在淡出、B 已淡入 ——
-          // 那 120ms 里两个按钮同时高亮（和歌单「两行同时高亮」是同一个坑）。
-          return AnimatedContainer(
-            duration: hovered
-                ? const Duration(milliseconds: 120)
-                : Duration.zero,
-            padding:
-                EdgeInsets.symmetric(horizontal: small ? 10 : 16, vertical: small ? 4 : 6),
-            decoration: BoxDecoration(
-              color: hoverBg,
-              borderRadius: BorderRadius.circular(c.radius),
-              border: border,
-            ),
-          child: Opacity(
-            opacity: enabled ? 1 : 0.5,
-            // 必须用 Center 包住：
-            // Row 是 mainAxisSize.min（只包住内容），放在固定宽度的按钮里
-            // （如确认弹窗的 SizedBox(width:80)）会**靠左**，字就不居中了。
-            // 等价 CSS 的 `justify-content: center` + `align-items: center`。
-            // 用 Center 而不是给 Row 加 mainAxisAlignment.center：
-            // Row 在 min 尺寸下没有多余空间，对齐参数不起作用。
-            child: Center(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (icon != null) ...[
-                    AppIcon(icon!, size: iconSize, color: hoverFg),
-                    const SizedBox(width: 6),
-                  ],
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: small ? 12 : 13,
-                      fontWeight: FontWeight.w500,
-                      color: hoverFg,
-                      height: 1.2,
-                    ),
-                  ),
-                ],
+    return FluentFocus(
+      enabled: enabled,
+      radius: c.radius,
+      child: GestureDetector(
+        onTap: enabled ? onPressed : null,
+        onTapDown: enabled ? (_) => setState(() => _pressed = true) : null,
+        onTapUp: enabled ? (_) => setState(() => _pressed = false) : null,
+        onTapCancel: () => setState(() => _pressed = false),
+        child: HoverBuilder(
+          cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+          builder: (ctx, hovered) {
+            final fill = !enabled
+                ? c.controlFillDisabled
+                : (_pressed ? bgPressed : (hovered ? bgHover : bg));
+            return AnimatedContainer(
+              duration: kStateFade,
+              curve: Motion.easyEase,
+              height: height,
+              padding: EdgeInsets.symmetric(horizontal: small ? 9 : 11),
+              decoration: BoxDecoration(
+                color: fill,
+                borderRadius: BorderRadius.circular(c.radius),
+                border: border == null ? null : Border.all(color: border),
               ),
-            ),
-          ),
-          );
-        },
+              child: Opacity(
+                opacity: enabled ? 1 : 0.5,
+                // 必须用 Center 包住：
+                // Row 是 mainAxisSize.min（只包住内容），放在固定宽度的按钮里
+                // （如确认弹窗的 SizedBox(width:80)）会**靠左**，字就不居中了。
+                // 等价 CSS 的 `justify-content: center` + `align-items: center`。
+                // 用 Center 而不是给 Row 加 mainAxisAlignment.center：
+                // Row 在 min 尺寸下没有多余空间，对齐参数不起作用。
+                child: Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (icon != null) ...[
+                        AppIcon(icon, size: iconSize, color: fg),
+                        const SizedBox(width: 6),
+                      ],
+                      Text(
+                        label,
+                        style: TextStyle(
+                          // `ControlContentThemeFontSize` = 14；紧凑档降到 12.5
+                          fontSize: small ? 12.5 : 14,
+                          fontWeight: FontWeight.w400,
+                          color: fg,
+                          height: 1.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -276,39 +301,39 @@ class AppIconButton extends StatelessWidget {
 
     // GestureDetector 是必需的：早期版本只写了 HoverBuilder（hover 样式），
     // 忘了接点击处理，导致全应用的图标按钮（试听/下载/歌词/删除等）都点不动。
-    Widget child = GestureDetector(
-      onTap: onTap,
-      child: HoverBuilder(
-        cursor: onTap == null
-            ? SystemMouseCursors.basic
-            : SystemMouseCursors.click,
-        builder: (ctx, hovered) {
-          final fg = hovered ? (hoverColor ?? (accentHover ? c.accent : c.text)) : base;
-          // 同上：进入淡入、退出瞬时，避免相邻按钮同时高亮
-          return AnimatedContainer(
-            duration: hovered
-                ? const Duration(milliseconds: 120)
-                : Duration.zero,
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              // 非悬浮态不能用 Colors.transparent（透明的黑）：
-              // AnimatedContainer 会在两者之间插值，悬浮瞬间先「黑」一下。
-              // 用同色 + alpha 0，插值才在同一色相内。
-              color: hovered
-                  ? (hoverBg ?? (accentHover ? c.accentLight : c.hover))
-                  : (hoverBg ?? (accentHover ? c.accentLight : c.hover))
-                      .withValues(alpha: 0),
-              borderRadius: BorderRadius.circular(6),
-              border: bordered
-                  ? Border.all(color: hovered && accentHover ? c.accent : c.borderSubtle)
-                  : null,
-            ),
-            child: Center(
-              child: AppIcon(icon, size: iconSize, color: fg, filled: filled, viewBox: viewBox),
-            ),
-          );
-        },
+    Widget child = FluentFocus(
+      enabled: onTap != null,
+      radius: c.radius,
+      child: GestureDetector(
+        onTap: onTap,
+        child: HoverBuilder(
+          cursor: onTap == null
+              ? SystemMouseCursors.basic
+              : SystemMouseCursors.click,
+          builder: (ctx, hovered) {
+            final fg = hovered ? (hoverColor ?? (accentHover ? c.accent : c.text)) : base;
+            // 非悬浮态不能用 Colors.transparent（透明的黑）：
+            // AnimatedContainer 会在两者之间插值，悬浮瞬间先「黑」一下。
+            // 用同色 + alpha 0，插值才在同一色相内。
+            final idleBg = hoverBg ?? (accentHover ? c.accentLight : c.hover);
+            return AnimatedContainer(
+              duration: kStateFade,
+              curve: Motion.easyEase,
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                color: hovered ? idleBg : idleBg.withValues(alpha: 0),
+                borderRadius: BorderRadius.circular(c.radius),
+                border: bordered
+                    ? Border.all(color: hovered && accentHover ? c.accent : c.border)
+                    : null,
+              ),
+              child: Center(
+                child: AppIcon(icon, size: iconSize, color: fg, filled: filled, viewBox: viewBox),
+              ),
+            );
+          },
+        ),
       ),
     );
 
@@ -319,37 +344,93 @@ class AppIconButton extends StatelessWidget {
   }
 }
 
-/// 开关 —— 对应 `.toggle-switch`（40×20）
-class AppToggle extends StatelessWidget {
+/// 开关 —— WinUI 的 `ToggleSwitch`。
+///
+/// 官方几何（`controls/dev/CommonStyles/ToggleSwitch_themeresources.xaml`）：
+/// 轨道 **40×20、圆角 10**，旋钮 **12×12、圆角 7**，位移 **0 → 20**，
+/// 状态色补间 **83ms**（`ControlFasterAnimationDuration`）。四个独立实现
+/// （wpfui / ModernWpf / Qt FluentUI / Sun-Valley）的取值完全一致。
+///
+/// 两种状态的观感差别不只是颜色：
+///  * **关** = 很淡的底（`ControlAltFillColorSecondary`）+ **明显的 1px 描边**
+///    （`ControlStrongStrokeColorDefault`），旋钮是深灰；
+///  * **开** = 实心主色填充（`accentFill`）+ 几乎看不见的描边，旋钮是反色白。
+class AppToggle extends StatefulWidget {
   const AppToggle({super.key, required this.value, required this.onChanged});
 
   final bool value;
   final ValueChanged<bool> onChanged;
 
+  /// 轨道尺寸与旋钮位移（官方值，别改）
+  static const double trackWidth = 40;
+  static const double trackHeight = 20;
+  static const double knobSize = 12;
+  static const double knobTravel = 20;
+
+  @override
+  State<AppToggle> createState() => _AppToggleState();
+}
+
+class _AppToggleState extends State<AppToggle> {
+  bool _hovered = false;
+  bool _pressed = false;
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return GestureDetector(
-      onTap: () => onChanged(!value),
+    final on = widget.value;
+
+    // 轨道底：开 = 主色（悬停/按下分别降到 0.9 / 0.8），关 = 淡底三档
+    final track = on
+        ? (_pressed
+            ? c.accentFillPressed
+            : (_hovered ? c.accentFillHover : c.accentFill))
+        : (_pressed
+            ? c.altFillPressed
+            : (_hovered ? c.altFillHover : c.altFill));
+    final stroke = on ? c.accentFill.withValues(alpha: 0.08) : c.strokeStrong;
+    final knob = on ? c.accentText : c.textSecondary;
+
+    return FluentFocus(
+      radius: AppToggle.trackHeight / 2,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          width: 40,
-          height: 20,
-          decoration: BoxDecoration(
-            color: value ? c.accent : c.textTertiary,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: AnimatedAlign(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeInOut,
-            alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-            child: Container(
-              margin: const EdgeInsets.all(2),
-              width: 16,
-              height: 16,
-              decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) {
+          setState(() {
+            _hovered = false;
+            _pressed = false;
+          });
+        },
+        child: GestureDetector(
+          onTap: () => widget.onChanged(!on),
+          onTapDown: (_) => setState(() => _pressed = true),
+          onTapUp: (_) => setState(() => _pressed = false),
+          onTapCancel: () => setState(() => _pressed = false),
+          child: AnimatedContainer(
+            duration: kStateFade,
+            curve: Motion.easyEase,
+            width: AppToggle.trackWidth,
+            height: AppToggle.trackHeight,
+            decoration: BoxDecoration(
+              color: track,
+              border: Border.all(color: stroke),
+              borderRadius: BorderRadius.circular(AppToggle.trackHeight / 2),
+            ),
+            child: AnimatedAlign(
+              duration: kStateFade,
+              curve: Motion.easyEase,
+              alignment: on ? Alignment.centerRight : Alignment.centerLeft,
+              child: Container(
+                // 旋钮自己是「轨道内缩 4」的圆 —— 4 + 12 + 4 = 20 正好是轨道高
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                width: AppToggle.knobSize,
+                height: AppToggle.knobSize,
+                decoration: BoxDecoration(
+                  color: knob,
+                  borderRadius: BorderRadius.circular(7),
+                ),
+              ),
             ),
           ),
         ),
@@ -358,12 +439,18 @@ class AppToggle extends StatelessWidget {
   }
 }
 
-/// 复选框 —— 对应 `.playlist-item input[type=checkbox]`（18×18，选中态主色 + 白勾）
+/// 复选框 —— WinUI 的 `CheckBox`：**20×20、圆角 4**、1.5px 描边。
+///
+/// 选中态就是 `AccentFillColorDefault`（=`accentFill`）+ 反色对勾；
+/// 悬停/按下按官方的 0.9 / 0.8 透明度走。未选中的底是
+/// `ControlAltFillColorSecondary`、描边是 `ControlStrongStrokeColorDefault`。
 class AppCheckbox extends StatelessWidget {
   const AppCheckbox({super.key, required this.checked, this.onChanged});
 
   final bool checked;
   final ValueChanged<bool>? onChanged;
+
+  static const double size = 20;
 
   @override
   Widget build(BuildContext context) {
@@ -373,26 +460,35 @@ class AppCheckbox extends StatelessWidget {
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         child: HoverBuilder(
-          builder: (ctx, hovered) => AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            width: 18,
-            height: 18,
-            decoration: BoxDecoration(
-              color: checked ? c.accent : c.surface,
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(
-                color: checked ? c.accent : (hovered ? c.accent : c.border),
-                width: 1.5,
+          builder: (ctx, hovered) => FluentFocus(
+            enabled: onChanged != null,
+            radius: c.radius,
+            child: AnimatedContainer(
+              duration: kStateFade,
+              curve: Motion.easyEase,
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                color: checked
+                    ? (hovered ? c.accentFillHover : c.accentFill)
+                    : (hovered ? c.altFillHover : c.altFill),
+                borderRadius: BorderRadius.circular(c.radius),
+                border: Border.all(
+                  color: checked
+                      ? c.accentFill.withValues(alpha: hovered ? 0.08 : 0.12)
+                      : (hovered ? c.accent : c.strokeStrong),
+                  width: 1.5,
+                ),
               ),
+              child: checked
+                  ? Center(
+                      child: CustomPaint(
+                        size: const Size(5, 9),
+                        painter: _CheckPainter(c.accentText),
+                      ),
+                    )
+                  : null,
             ),
-            child: checked
-                ? Center(
-                    child: CustomPaint(
-                      size: const Size(5, 9),
-                      painter: _CheckPainter(),
-                    ),
-                  )
-                : null,
           ),
         ),
       ),
@@ -401,22 +497,28 @@ class AppCheckbox extends StatelessWidget {
 }
 
 class _CheckPainter extends CustomPainter {
+  _CheckPainter(this.color);
+
+  final Color color;
+
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = Colors.white
+      ..color = color
       ..strokeWidth = 2
-      ..strokeCap = StrokeCap.square
+      ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
+    // 对勾的折点比原来低一点、两臂更收 —— 对齐 Segoe Fluent Icons 里那个
+    // `CheckMark` 的形态（原来那版太「尖」，20px 下会显得头重脚轻）
     final path = Path()
-      ..moveTo(0, size.height * 0.45)
-      ..lineTo(size.width * 0.4, size.height * 0.9)
-      ..lineTo(size.width, 0);
+      ..moveTo(0, size.height * 0.5)
+      ..lineTo(size.width * 0.38, size.height * 0.86)
+      ..lineTo(size.width, size.height * 0.08);
     canvas.drawPath(path, paint);
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _CheckPainter old) => old.color != color;
 }
 
 /// 进度条 —— 对应 `.player-progress` / `.batch-progress`
@@ -497,7 +599,7 @@ class AppProgressBar extends StatelessWidget {
                     widthFactor: value.clamp(0.0, 1.0),
                     child: Container(
                       decoration: BoxDecoration(
-                        color: fillColor ?? c.accent,
+                        color: fillColor ?? c.accentFill,
                         borderRadius: BorderRadius.circular(height / 2),
                       ),
                     ),
@@ -539,7 +641,7 @@ class SongCover extends StatelessWidget {
     super.key,
     this.pic,
     this.size = 44,
-    this.radius = 6,
+    this.radius = 4,
     this.px,
   });
 
@@ -647,7 +749,7 @@ class SourceIcon extends StatelessWidget {
         letter,
         style: TextStyle(
           fontSize: size * 0.75,
-          fontWeight: FontWeight.w700,
+          fontWeight: FontWeight.w600,
           color: color,
           height: 1,
         ),
@@ -689,12 +791,14 @@ class EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          AppIcon(icon, size: 48, color: c.textTertiary.withValues(alpha: 0.3), strokeWidth: 1.5),
+          AppIcon(icon, size: 48, color: c.textTertiary.withValues(alpha: 0.35), strokeWidth: 1.5),
           const SizedBox(height: 12),
-          Text(title, style: TextStyle(fontSize: 15, color: c.textTertiary)),
+          // WinUI 的空状态：标题走 Body（14）、说明走 Caption（12），
+          // 两级都用次级/三级文字色 —— 以前是 15 + 13，比正文还大。
+          Text(title, style: TextStyle(fontSize: 14, color: c.textSecondary)),
           if (hint != null) ...[
             const SizedBox(height: 4),
-            Text(hint!, style: TextStyle(fontSize: 13, color: c.textTertiary)),
+            Text(hint!, style: TextStyle(fontSize: 12, color: c.textTertiary)),
           ],
         ],
       ),

@@ -20,6 +20,7 @@ import 'sidebar.dart';
 import 'titlebar.dart';
 import 'toast_overlay.dart';
 import 'widgets/modal.dart';
+import 'widgets/fluent.dart';
 import 'widgets/queue_panel.dart';
 import 'widgets/smooth_scroll.dart';
 import 'widgets/keyboard_scroll.dart';
@@ -492,6 +493,9 @@ class _AppShellState extends State<AppShell>
 /// 页面槽位 —— 等价 CSS `.page.active` 的入场过渡
 /// （`translateX(30px) → 0` + `opacity 0 → 1`，250ms）
 ///
+/// 过渡本体在 [AppPageTransition]（设置页切分栏复用同一份，两处观感一致），
+/// 这里只负责把它按「铺满整个内容区」摆好。
+///
 /// 注意：**只挂载当前页**，与原始实现的 `.page{display:none}` 一致。
 /// 早期版本为了让滚动位置自然保留而把 4 个页面全部常驻挂载，
 /// 会让渲染树与无障碍语义树大出数倍（并伴随 Windows 无障碍桥报错）。
@@ -509,19 +513,7 @@ class _PageSlot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Positioned.fill(
-      child: TweenAnimationBuilder<double>(
-        tween: Tween(begin: direction * 30.0, end: 0),
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
-        builder: (ctx, x, inner) => Transform.translate(
-          offset: Offset(x, 0),
-          child: Opacity(
-            opacity: (1 - (x.abs() / 30.0)).clamp(0.0, 1.0),
-            child: inner,
-          ),
-        ),
-        child: child,
-      ),
+      child: AppPageTransition(direction: direction, child: child),
     );
   }
 }

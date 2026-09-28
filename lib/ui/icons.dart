@@ -9,9 +9,6 @@ class AppIcons {
   static const music =
       '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>';
 
-  // 窗口按钮（viewBox 0 0 12 12）
-  static const minimize = '<line x1="1" y1="6" x2="11" y2="6"/>';
-  static const maximize = '<rect x="1.5" y="1.5" width="9" height="9" rx="1"/>';
   // 本图标是 **12 见方**坐标系，与标题栏的 minimize / maximize 同族
   // （标题栏的 _TitlebarButton 显式传 viewBox: 12）。
   // 在 24 坐标系的地方用它，必须显式传 viewBox: 12 ——
@@ -70,10 +67,6 @@ class AppIcons {
   static const folder =
       '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>';
   static const check = '<path d="M20 6L9 17l-5-5"/>';
-  /// 还原（窗口已经最大化了）：两个错开的方框，说明「点一下会变小」
-  static const restore =
-      '<rect x="8" y="8" width="13" height="13" rx="2"/>'
-      '<path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>';
   /// 恢复/重取（逆时针箭头）
   static const refresh =
       '<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>';

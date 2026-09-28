@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../core/app_theme.dart';
+import '../core/motion.dart';
 import '../state/toast.dart';
 import 'icons.dart';
 
@@ -63,19 +64,22 @@ class _ToastCard extends StatelessWidget {
     }
 
     return AnimatedSlide(
-      duration: const Duration(milliseconds: 200),
+      // 出入场时长：进 250 / 退 300（官方的通知是「进得略快、退得更从容」）
+      duration: item.leaving ? Motion.slow : Motion.controlNormal,
+      curve: item.leaving ? Motion.accelerate : Motion.decelerate,
       offset: item.leaving ? const Offset(0.3, 0) : Offset.zero,
       child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 200),
+        duration: item.leaving ? Motion.slow : Motion.controlNormal,
         opacity: item.leaving ? 0 : 1,
         child: Container(
-          constraints: const BoxConstraints(maxWidth: 360),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          constraints: const BoxConstraints(maxWidth: 360, minHeight: 48),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
             color: c.toastBg,
             border: Border.all(color: c.toastBorder),
+            // 通知是控件档圆角（4），不是弹层档
             borderRadius: BorderRadius.circular(c.radius),
-            boxShadow: c.shadowLg,
+            boxShadow: c.elevation16,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,

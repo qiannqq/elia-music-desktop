@@ -22,7 +22,6 @@ import '../state/app_state.dart';
 import '../state/toast.dart';
 import 'icons.dart';
 import 'player_bar.dart';
-import 'titlebar.dart';
 import 'widgets/common.dart';
 import 'widgets/context_menu.dart';
 import 'widgets/song_actions.dart';
@@ -635,32 +634,23 @@ class _NowPlayingPageState extends State<NowPlayingPage>
     );
   }
 
-  /// 播放键：白圆 + 深色图标（和参考图一致，主题色在这页上会跟封面打架）
+  /// 播放键：**只有图标，没有圆底**（与播放栏那边一致）。
+  ///
+  /// 槽位仍是 52×52 —— 这一行五个控件是等间距的（`spaceBetween`），
+  /// 改尺寸会把间距带歪；主次靠图标更大（28）与更亮的白来区分。
+  /// 【key 给测试用】：以前它是靠「圆形白底」被测试找到的，圆底去掉之后
+  /// 那个判据不再成立，`now_playing_test.dart` 改成按这个 key 找。
   Widget _buildPlayButton() {
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: player.togglePlay,
-        child: HoverBuilder(
-          builder: (ctx, hovered) => AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: hovered ? Colors.white : Colors.white.withValues(alpha: 0.92),
-              shape: BoxShape.circle,
-            ),
-            child: Center(
-              child: AppIcon(
-                player.isPlaying ? AppIcons.pause : AppIcons.play,
-                size: 24,
-                color: const Color(0xFF14141A),
-                filled: true,
-              ),
-            ),
-          ),
-        ),
-      ),
+    return AppIconButton(
+      key: const Key('now-playing-play'),
+      icon: player.isPlaying ? AppIcons.pause : AppIcons.play,
+      size: 52,
+      iconSize: 28,
+      filled: true,
+      baseColor: Colors.white.withValues(alpha: 0.92),
+      hoverColor: Colors.white,
+      hoverBg: Colors.white.withValues(alpha: 0.12),
+      onTap: player.togglePlay,
     );
   }
 

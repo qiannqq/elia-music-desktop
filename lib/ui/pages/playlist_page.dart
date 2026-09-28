@@ -464,7 +464,7 @@ class _PlaylistPageState extends State<PlaylistPage>
   /// 还只是空行）。用真实的一行当原型（它只被量高度，不参与绘制），
   /// 字体、文字缩放怎么变都自动跟上，不必手写行高公式。
   Widget _songList(AppState state, List<Song> visible) {
-    const padding = EdgeInsets.symmetric(horizontal: 32);
+    const padding = EdgeInsets.symmetric(horizontal: AppSpace.page);
 
     // 歌单内搜索过滤中退回普通列表：那会儿下标指的是**过滤后**的列表，
     // 拖到哪里都会挪错位置。清掉关键词就能拖。
@@ -509,7 +509,8 @@ class _PlaylistPageState extends State<PlaylistPage>
       children: [
         // ---- 页头 ----
         Padding(
-          padding: const EdgeInsets.fromLTRB(32, 24, 32, 20),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpace.page, AppSpace.pageTop, AppSpace.page, AppSpace.pageHeaderBottom),
           child: Row(
             children: [
               Text(
@@ -517,7 +518,7 @@ class _PlaylistPageState extends State<PlaylistPage>
                 state.currentPlaylist.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: c.text),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: c.text),
               ),
               const SizedBox(width: 10),
               // 放大镜：点一下从它右侧划出一条线，就地搜歌单；再点一下连输入
@@ -620,13 +621,14 @@ class _PlaylistPageState extends State<PlaylistPage>
         // ---- 批量操作栏 ----
         if (state.selectedMids.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.fromLTRB(32, 16, 32, 16),
+            padding: const EdgeInsets.fromLTRB(
+                AppSpace.page, AppSpace.line, AppSpace.page, AppSpace.line),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
-                color: c.surface,
-                border: Border.all(color: c.border),
-                borderRadius: BorderRadius.circular(c.radius),
+                color: c.card,
+                border: Border.all(color: c.cardStroke),
+                borderRadius: BorderRadius.circular(c.radiusLg),
               ),
               child: Row(
                 children: [
@@ -891,6 +893,9 @@ class _PlaylistItemState extends State<_PlaylistItem> {
         decoration: BoxDecoration(
           color: isPlaying ? c.accentLight : (_hovered ? c.hover : Colors.transparent),
           borderRadius: BorderRadius.circular(c.radius),
+          // 「正在播放」那圈光晕**留着**：它不只是装饰 ——
+          // `playlist_drag_test` 靠它数「同一帧里有几张卡片」来盯拖动交接
+          // （两张叠一帧会让 alpha 从 0.3 合成到 0.51，观感是归位后突然亮一下）。
           boxShadow: isPlaying
               ? [
                   BoxShadow(

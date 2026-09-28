@@ -1,13 +1,17 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
+import '../../core/motion.dart';
+import 'fluent.dart';
 
-/// 模态框容器 —— 对应 `.modal-overlay` + `.modal`
+/// 模态框容器 —— WinUI 的 `ContentDialog`。
 ///
-/// 入场动画：`translateY(20px) scale(0.96)` → `translateY(0) scale(1)`，
-/// 250ms，缓动 `cubic-bezier(0.25,0.1,0.25,1)`，与 CSS 一致。
+/// 入场：`scale 0.96 → 1` + 淡入，250ms（`ControlNormalAnimationDuration`），
+/// 曲线走官方的 `cubic-bezier(0,0,0,1)` —— 起步快、末端极缓。
+///
+/// ⚠️ 遮罩用的是 **Smoke**（纯色 40% 黑），不是模糊：Win11 的对话框背后是一层
+/// 压暗的烟，内容本身不糊。原来那版套了 `BackdropFilter(blur 4)`，
+/// 既不像 Windows，又每帧多一次离屏合成 —— 拿掉了。
 Future<T?> showAppModal<T>(
   BuildContext context,
   Widget child, {
@@ -20,36 +24,26 @@ Future<T?> showAppModal<T>(
     barrierDismissible: barrierDismissible,
     barrierLabel: 'modal',
     barrierColor: c.modalOverlay,
-    transitionDuration: const Duration(milliseconds: 250),
+    transitionDuration: Motion.controlNormal,
     pageBuilder: (ctx, _, _) => const SizedBox.shrink(),
     transitionBuilder: (ctx, animation, _, _) {
-      final curved = CurvedAnimation(
-        parent: animation,
-        curve: const Cubic(0.25, 0.1, 0.25, 1),
-      );
-      return BackdropFilter(
-        filter: ImageFilter.blur(
-          sigmaX: 4 * animation.value,
-          sigmaY: 4 * animation.value,
-        ),
-        child: FadeTransition(
-          opacity: animation,
-          child: Center(
-            child: Transform.translate(
-              offset: Offset(0, 20 * (1 - curved.value)),
-              child: Transform.scale(
-                scale: 0.96 + 0.04 * curved.value,
-                child: child,
-              ),
-            ),
-          ),
+      final curved = CurvedAnimation(parent: animation, curve: Motion.decelerate);
+      return FadeTransition(
+        opacity: animation,
+        child: Transform.scale(
+          scale: 0.96 + 0.04 * curved.value,
+          child: child,
         ),
       );
     },
   );
 }
 
-/// 模态框外壳 —— 对应 `.modal`（surface 背景、12 圆角、最大高 80vh）
+/// 模态框外壳 —— WinUI 的 ContentDialog：**弹层圆角 8** + 1px 描边 + 大投影。
+///
+/// 底色用 `SolidBackgroundFillColorTertiary`（浅 #F9F9F9 / 深 #282828）而不是
+/// 官方的 `SolidBackgroundFillColorBase`：后者是**窗口底**色，深色主题下它
+/// 比云母上的内容层还暗，压上去像一个洞。
 class AppModalCard extends StatelessWidget {
   const AppModalCard({
     super.key,
@@ -85,15 +79,15 @@ class AppModalCard extends StatelessWidget {
         ),
         // Material 祖先：模态框内的 TextField / 涟漪等需要它
         child: Material(
-          color: Colors.transparent,
+          type: MaterialType.transparency,
           child: Container(
             width: maxWidth,
             height: height,
             decoration: BoxDecoration(
               color: c.surface,
-              border: Border.all(color: c.border),
+              border: Border.all(color: c.flyoutBorder),
               borderRadius: BorderRadius.circular(c.radiusLg),
-              boxShadow: c.shadowLg,
+              boxShadow: c.elevation64,
             ),
             child: Padding(padding: padding, child: child),
           ),
@@ -103,7 +97,7 @@ class AppModalCard extends StatelessWidget {
   }
 }
 
-/// 模态框标题栏 —— 对应 `.modal-header`
+/// 模态框标题栏 —— 标题走 `Subtitle` 档（20 / semibold），内边距 24。
 class AppModalHeader extends StatelessWidget {
   const AppModalHeader({
     super.key,
@@ -120,7 +114,7 @@ class AppModalHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.c;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      padding: const EdgeInsets.fromLTRB(24, 20, 12, 16),
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: c.borderSubtle)),
       ),
@@ -134,7 +128,7 @@ class AppModalHeader extends StatelessWidget {
                     title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: c.text),
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: c.text),
                   ),
                 ),
                 if (left != null) ...[const SizedBox(width: 12), left!],
@@ -163,23 +157,26 @@ class _CloseButtonState extends State<_CloseButton> {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: Container(
-          width: 28,
-          height: 28,
-          decoration: BoxDecoration(
-            color: _hovered ? c.hover : c.hover.withValues(alpha: 0),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Center(
-            child: CustomPaint(
-              size: const Size(14, 14),
-              painter: _XPainter(_hovered ? c.text : c.textSecondary),
+    return FluentFocus(
+      radius: c.radius,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: _hovered ? c.hover : c.hover.withValues(alpha: 0),
+              borderRadius: BorderRadius.circular(c.radius),
+            ),
+            child: Center(
+              child: CustomPaint(
+                size: const Size(14, 14),
+                painter: _XPainter(_hovered ? c.text : c.textSecondary),
+              ),
             ),
           ),
         ),

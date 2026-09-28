@@ -102,3 +102,15 @@ Future<void> syncWindowFxState() async {
     // 通道还没就绪之类，忽略
   }
 }
+
+/// 让 DWM 按深色 / 浅色画窗口的边框与投影。
+///
+/// 自己画的标题栏不受它影响；它管的是窗口最外面那圈 —— 深色主题下不改的话，
+/// 窗口边缘会留一圈浅色的边。
+Future<void> setDarkWindow(bool dark) async {
+  try {
+    await _channel.invokeMethod('setDarkWindow', {'value': dark});
+  } catch (_) {
+    // 老系统上这个属性不存在，忽略
+  }
+}

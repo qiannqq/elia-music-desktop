@@ -72,7 +72,7 @@ class _DownloadButtonState extends State<DownloadButton> {
         child: Center(
           child: Text(
             '✗',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: c.danger),
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: c.danger),
           ),
         ),
       );
@@ -402,20 +402,15 @@ class _PopupState extends State<_Popup> {
         ),
       ),
       child: Material(
-        color: Colors.transparent,
+        type: MaterialType.transparency,
         child: Container(
           width: 168,
           decoration: BoxDecoration(
-            color: c.card,
-            border: Border.all(color: c.border),
-            borderRadius: BorderRadius.circular(8),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.15),
-                blurRadius: 16,
-                offset: const Offset(0, 4),
-              ),
-            ],
+            // 这是一个飞出层：底与描边都跟右键菜单同一套
+            color: c.flyoutBg,
+            border: Border.all(color: c.flyoutBorder),
+            borderRadius: BorderRadius.circular(c.radiusLg),
+            boxShadow: c.elevation16,
           ),
           // Stack 放在 padding 外层：原版的 `.add-btn-popup-header` 是相对弹窗
           // 左上角（0,0）定位的，不在 36px 留白之内。
@@ -517,20 +512,23 @@ class _PopupItemState extends State<_PopupItem> {
         onTap: on ? widget.onTap : null,
         child: Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: 11),
           decoration: BoxDecoration(
-            color: (on && _hovered)
-                ? c.accentLight
-                : c.accentLight.withValues(alpha: 0),
-            borderRadius: BorderRadius.circular(6),
+            // 与右键菜单同一档悬停底（不是主色淡底）
+            color: (on && _hovered) ? c.hover : c.hover.withValues(alpha: 0),
+            borderRadius: BorderRadius.circular(c.radius),
           ),
-          child: Text(
-            widget.label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              // 灰着就得一直是灰的，不能跟着悬停变色
-              color: on ? (_hovered ? c.accent : c.text) : c.textTertiary,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              widget.label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+                // 灰着就得一直是灰的，不能跟着悬停变色
+                color: on ? c.text : c.textDisabled,
+              ),
             ),
           ),
         ),

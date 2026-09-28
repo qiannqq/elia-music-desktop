@@ -815,13 +815,12 @@ void main() {
       final prev = tester.getCenter(inPage(find.byTooltip('上一首')));
       final next = tester.getCenter(inPage(find.byTooltip('下一首')));
       final full = tester.getCenter(inPage(find.byTooltip('全屏')));
-      // 播放键没有 tooltip，用「圆形白底」那个容器找
-      final play = tester.getCenter(inPage(find.byWidgetPredicate(
-        (w) =>
-            w is AnimatedContainer &&
-            w.decoration is BoxDecoration &&
-            (w.decoration! as BoxDecoration).shape == BoxShape.circle,
-      )));
+      // 播放键没有 tooltip，用它的 key 找。
+      // （以前是靠「圆形白底」那个 AnimatedContainer 找的 —— 圆底按需求去掉了，
+      //   改成只有图标，所以判据换成 widget 自带的 key。）
+      final play = tester.getCenter(
+        inPage(find.byKey(const Key('now-playing-play'))),
+      );
       return [mode.dx, prev.dx, play.dx, next.dx, full.dx];
     }
 

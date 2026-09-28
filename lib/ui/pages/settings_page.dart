@@ -14,8 +14,14 @@ import '../../state/theme_controller.dart';
 import '../../state/toast.dart';
 import '../icons.dart';
 import '../widgets/common.dart';
+import '../widgets/fluent.dart';
 import '../widgets/smooth_scroll.dart';
 import '../widgets/dialogs.dart';
+
+/// 字段组之间的间距 —— 一个常量，别在各处写 12 / 16 / 20 各自为政。
+///
+/// 这个值就是「Cookie 状态 → 账号信息」之间那段（千奈指定的基准）。
+const Widget _fieldGap = SizedBox(height: AppSpace.line);
 
 /// 设置页的分栏。顺序就是分栏条上从左到右的顺序。
 enum SettingsTab {
@@ -81,6 +87,10 @@ class _SettingsPageState extends State<SettingsPage> {
   /// 当前分栏。切到别的页面再回来会停在原来那一栏 —— 设置项位置固定，
   /// 用户回来多半还是接着调同一处。
   SettingsTab _tab = SettingsTab.playback;
+
+  /// 换栏时内容从哪边进来（1 = 从右、-1 = 从左）。
+  /// 跟侧边栏切页面同一个语义：往右换栏就从右边滑进来。
+  int _tabDirection = 1;
 
   Future<void> _applyLimit(double gb) async {
     final value = gb.round();
@@ -157,19 +167,22 @@ class _SettingsPageState extends State<SettingsPage> {
       children: [
         // ---- 页头 + 分栏。固定在顶部，不跟着内容滚 ----
         Padding(
-          padding: const EdgeInsets.fromLTRB(32, 24, 32, 16),
+          padding: const EdgeInsets.fromLTRB(
+            AppSpace.page, AppSpace.pageTop, AppSpace.page, AppSpace.pageHeaderBottom),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
                 '设置',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: c.text),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: c.text),
               ),
               const SizedBox(height: 16),
               _TabBar(
                 current: _tab,
                 onSelect: (t) {
                   if (t == _tab) return;
+                  // 往右换栏（序号变大）就让新内容从右边滑进来
+                  _tabDirection = t.index > _tab.index ? 1 : -1;
                   setState(() => _tab = t);
                   // 换栏后内容整块换掉，停在半截的滚动位置没有意义
                   if (widget.scrollController.hasClients) {
@@ -187,10 +200,17 @@ class _SettingsPageState extends State<SettingsPage> {
             controller: widget.scrollController,
             child: SingleChildScrollView(
               controller: widget.scrollController,
-              padding: const EdgeInsets.fromLTRB(32, 4, 32, 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: _sectionsOf(_tab, c, state),
+              padding: const EdgeInsets.fromLTRB(
+                  AppSpace.page, AppSpace.xxs, AppSpace.page, AppSpace.page),
+              // 换栏过场：**复用侧边栏切主页面那一条**（横滑 30px + 淡入，250ms）。
+              // key 每次换栏都要变，动画才重播（见 AppPageTransition 的说明）。
+              child: AppPageTransition(
+                key: ValueKey(_tab),
+                direction: _tabDirection,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: _sectionsOf(_tab, c, state),
+                ),
               ),
             ),
           ),
@@ -227,7 +247,7 @@ class _SettingsPageState extends State<SettingsPage> {
     };
     return [
       for (var i = 0; i < sections.length; i++) ...[
-        if (i > 0) const SizedBox(height: 16),
+        if (i > 0) const SizedBox(height: AppSpace.gap),
         sections[i],
       ],
     ];
@@ -244,7 +264,7 @@ class _SettingsPageState extends State<SettingsPage> {
           status: state.qqCookieStatus,
         ),
         if (state.qqNickname.isNotEmpty) ...[
-          const SizedBox(height: 16),
+          _fieldGap,
           _FieldLabel('账号信息', c),
           _AccountTags(
             nickname: state.qqNickname,
@@ -254,6 +274,7 @@ class _SettingsPageState extends State<SettingsPage> {
             vipColor: _qqVipColor,
           ),
         ],
+        _fieldGap,
         _FieldLabel('Cookie 字符串', c),
         AppTextField(
           controller: _qqCookie,
@@ -268,7 +289,7 @@ class _SettingsPageState extends State<SettingsPage> {
             onTap: () => setState(() => _showQqCookie = !_showQqCookie),
           ),
         ),
-        const SizedBox(height: 12),
+        _fieldGap,
         Row(
           children: [
             AppButton(
@@ -305,7 +326,7 @@ class _SettingsPageState extends State<SettingsPage> {
           status: state.neteaseCookieStatus,
         ),
         if (state.neNickname.isNotEmpty) ...[
-          const SizedBox(height: 16),
+          _fieldGap,
           _FieldLabel('账号信息', c),
           _AccountTags(
             nickname: state.neNickname,
@@ -316,6 +337,7 @@ class _SettingsPageState extends State<SettingsPage> {
             vipColor: _neVipColor,
           ),
         ],
+        _fieldGap,
         _FieldLabel('Cookie 字符串 / MUSIC_U', c),
         AppTextField(
           controller: _neteaseCookie,
@@ -330,7 +352,7 @@ class _SettingsPageState extends State<SettingsPage> {
             onTap: () => setState(() => _showNeteaseCookie = !_showNeteaseCookie),
           ),
         ),
-        const SizedBox(height: 12),
+        _fieldGap,
         Row(
           children: [
             AppButton(
@@ -368,7 +390,7 @@ class _SettingsPageState extends State<SettingsPage> {
           status: state.biliCookieStatus,
         ),
         if (state.biliNickname.isNotEmpty) ...[
-          const SizedBox(height: 16),
+          _fieldGap,
           _FieldLabel('账号信息', c),
           _AccountTags(
             nickname: state.biliNickname,
@@ -379,6 +401,7 @@ class _SettingsPageState extends State<SettingsPage> {
             vipColor: _biliVipColor,
           ),
         ],
+        _fieldGap,
         _FieldLabel('Cookie 字符串 / SESSDATA', c),
         AppTextField(
           controller: _biliCookie,
@@ -393,7 +416,7 @@ class _SettingsPageState extends State<SettingsPage> {
             onTap: () => setState(() => _showBiliCookie = !_showBiliCookie),
           ),
         ),
-        const SizedBox(height: 12),
+        _fieldGap,
         Row(
           children: [
             AppButton(
@@ -538,7 +561,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       'HQ',
                       style: TextStyle(
                         fontSize: 11,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w600,
                         color: c.accent,
                       ),
                     ),
@@ -714,11 +737,11 @@ class _SettingsPageState extends State<SettingsPage> {
       child: SliderTheme(
         data: SliderTheme.of(context).copyWith(
           trackHeight: 4,
-          activeTrackColor: c.accent,
+          activeTrackColor: c.accentFill,
           inactiveTrackColor: c.progressBg,
-          thumbColor: c.accent,
+          thumbColor: c.accentFill,
           overlayColor: c.accentLight,
-          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 9),
           overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
         ),
         child: Slider(
@@ -770,11 +793,11 @@ class _SettingsPageState extends State<SettingsPage> {
               child: SliderTheme(
                 data: SliderTheme.of(context).copyWith(
                   trackHeight: 4,
-                  activeTrackColor: c.accent,
+                  activeTrackColor: c.accentFill,
                   inactiveTrackColor: c.progressBg,
-                  thumbColor: c.accent,
+                  thumbColor: c.accentFill,
                   overlayColor: c.accentLight,
-                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 9),
                   overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
                 ),
                 child: Slider(
@@ -985,11 +1008,11 @@ class _SettingsPageState extends State<SettingsPage> {
             child: SliderTheme(
               data: SliderTheme.of(context).copyWith(
                 trackHeight: 4,
-                activeTrackColor: c.accent,
+                activeTrackColor: c.accentFill,
                 inactiveTrackColor: c.progressBg,
-                thumbColor: c.accent,
+                thumbColor: c.accentFill,
                 overlayColor: c.accentLight,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 9),
                 overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
               ),
               child: Slider(
@@ -1160,13 +1183,24 @@ class _SettingsPageState extends State<SettingsPage> {
 
 /// 分栏条 —— 设置页最上面那一排。
 ///
-/// 用「胶囊 + 图标」而不是下划线 Tab：这个应用里所有「选中」都是
-/// `accentLight` 底 + `accent` 描边（见 `_ThemeOption`），保持一致。
+/// 观感按 WinUI 的 `Pivot` / `TabView` 表头来：
+///  * **不画任何底**（悬浮也好、选中也好）—— 高亮只体现在文字与图标上；
+///  * 三档亮度：默认 `textSecondary` → 悬浮 `text`（一级）→ 选中 `accent`（二级）；
+///  * 选中的那一条，紧贴着**图标 + 文字**底下画一条 3px 主色下划线
+///    （不是横贯整个表头 —— 那会显得下划线和内容没关系）。
+///
+/// ⚠️ **能悬浮的地方就得能点**：`GestureDetector` 默认是 `deferToChild`，
+/// 而里面套的是 `Center` —— 命中区域会缩到文字那么宽，
+/// 于是「鼠标划过去会变色、点下去却没反应」。
+/// 这里显式 `HitTestBehavior.opaque`，让整个表头格子都可点。
 class _TabBar extends StatelessWidget {
   const _TabBar({required this.current, required this.onSelect});
 
   final SettingsTab current;
   final ValueChanged<SettingsTab> onSelect;
+
+  /// 表头高度
+  static const double _height = 36;
 
   @override
   Widget build(BuildContext context) {
@@ -1178,43 +1212,65 @@ class _TabBar extends StatelessWidget {
             child: HoverBuilder(
               builder: (_, hovered) {
                 final selected = tab == current;
-                return GestureDetector(
-                  onTap: () => onSelect(tab),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    decoration: BoxDecoration(
-                      color: selected
-                          ? c.accentLight
-                          : (hovered ? c.hover : c.hover.withValues(alpha: 0)),
-                      border: Border.all(
-                        color: selected ? c.accent : (hovered ? c.textTertiary : c.border),
-                        width: 1.5,
-                      ),
-                      borderRadius: BorderRadius.circular(c.radius),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        AppIcon(tab.icon,
-                            size: 15, color: selected ? c.accent : c.textSecondary),
-                        const SizedBox(width: 7),
-                        Text(
-                          tab.label,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                            color: selected ? c.accent : c.textSecondary,
+                final fg = selected
+                    ? c.accent
+                    : (hovered ? c.text : c.textSecondary);
+                return FluentFocus(
+                  radius: c.radius,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => onSelect(tab),
+                    child: SizedBox(
+                      height: _height,
+                      child: Center(
+                        // IntrinsicWidth：让下划线的宽度**跟着图标+文字走**，
+                        // 正好盖住它们（stretch 才撑得满那个固有宽度）。
+                        child: IntrinsicWidth(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  AppIcon(tab.icon, size: 16, color: fg),
+                                  const SizedBox(width: AppSpace.inline),
+                                  Text(
+                                    tab.label,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      // 选中只换颜色，不加粗（字重一变宽度就变）
+                                      fontWeight: FontWeight.w400,
+                                      color: fg,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              // 未选中时不画线，但**占同样的高**，
+                              // 否则文字会在选中的一瞬间上下跳一格。
+                              const SizedBox(height: 3),
+                              SizedBox(
+                                height: 3,
+                                child: selected
+                                    ? DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          color: c.accent,
+                                          borderRadius: BorderRadius.circular(1.5),
+                                        ),
+                                      )
+                                    : null,
+                              ),
+                            ],
                           ),
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 );
               },
             ),
           ),
-          if (tab != SettingsTab.values.last) const SizedBox(width: 8),
+          if (tab != SettingsTab.values.last) const SizedBox(width: AppSpace.inline),
         ],
       ],
     );
@@ -1305,11 +1361,11 @@ class _AccentSlider extends StatelessWidget {
           child: SliderTheme(
             data: SliderTheme.of(context).copyWith(
               trackHeight: 4,
-              activeTrackColor: c.accent,
+              activeTrackColor: c.accentFill,
               inactiveTrackColor: c.progressBg,
-              thumbColor: c.accent,
+              thumbColor: c.accentFill,
               overlayColor: c.accentLight,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 9),
               overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
             ),
             child: Slider(
@@ -1348,11 +1404,15 @@ class _Section extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    // Win11 的卡片：`CardBackgroundFillColorDefault`（半透明）+ 1px
+    // `CardStrokeColorDefault`，圆角走**控件档 4**（不是弹层的 8）。
+    // Windows 平台不用投影来分层 —— 官方 Elevation 文档明文：用描边代替。
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      padding: const EdgeInsets.symmetric(
+          horizontal: AppSpace.cardPadH, vertical: AppSpace.cardPadV),
       decoration: BoxDecoration(
-        color: c.surface,
-        border: Border.all(color: c.borderSubtle),
+        color: c.card,
+        border: Border.all(color: c.cardStroke),
         borderRadius: BorderRadius.circular(c.radiusLg),
       ),
       child: Column(
@@ -1360,13 +1420,13 @@ class _Section extends StatelessWidget {
         children: [
           Text(
             title,
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: c.text),
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: c.text),
           ),
           if (desc != null) ...[
             const SizedBox(height: 4),
             Text(
               desc!,
-              style: TextStyle(fontSize: 12, color: c.textTertiary, height: 1.6),
+              style: TextStyle(fontSize: 12, color: c.textTertiary, height: 1.5),
             ),
           ],
           const SizedBox(height: 16),

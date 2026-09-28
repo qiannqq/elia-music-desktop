@@ -23,11 +23,15 @@ class AboutPage extends StatelessWidget {
       child: Center(
         child: Container(
           width: 400,
-          margin: const EdgeInsets.symmetric(vertical: 40, horizontal: 32),
-          padding: const EdgeInsets.fromLTRB(32, 40, 32, 40),
+          margin: const EdgeInsets.symmetric(
+              vertical: AppSpace.page, horizontal: AppSpace.page),
+          padding: const EdgeInsets.fromLTRB(
+              AppSpace.page + AppSpace.inline, AppSpace.page,
+              AppSpace.page + AppSpace.inline, AppSpace.page),
           decoration: BoxDecoration(
-            color: c.surface,
-            border: Border.all(color: c.borderSubtle),
+            // Win11 的卡片：半透明白底 + 1px 描边，圆角走控件档（4），不用投影
+            color: c.card,
+            border: Border.all(color: c.cardStroke),
             borderRadius: BorderRadius.circular(c.radiusLg),
           ),
           child: Column(
@@ -38,7 +42,7 @@ class AboutPage extends StatelessWidget {
                 height: 72,
                 decoration: BoxDecoration(
                   color: c.accentLight,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(c.radiusLg),
                 ),
                 child: Center(
                   child: AppIcon(AppIcons.music, size: 48, color: c.accent, strokeWidth: 1.5),
@@ -47,7 +51,7 @@ class AboutPage extends StatelessWidget {
               const SizedBox(height: 16),
               Text(
                 '伊莉雅音乐播放器',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: c.text),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: c.text),
               ),
               const SizedBox(height: 4),
               Text(

@@ -40,6 +40,19 @@ void SetRoundedCorners(bool round) {
   ::DwmSetWindowAttribute(g_hwnd, kCornerPreferenceAttr, &pref, sizeof(pref));
 }
 
+// 深色窗口（`DWMWA_USE_IMMERSIVE_DARK_MODE`）。
+//
+// 我们自己画标题栏，所以它不影响任何一条字幕 —— 但它决定 **DWM 给窗口画的
+// 那圈边框和投影用哪种色调**：浅色主题下是浅灰边框，深色主题下应该是深灰。
+// 不管的话，深色主题里窗口边缘会有一圈突兀的亮边。
+constexpr DWORD kImmersiveDarkModeAttr = 20;  // DWMWA_USE_IMMERSIVE_DARK_MODE
+
+void SetDarkWindow(bool dark) {
+  if (g_hwnd == nullptr) return;
+  BOOL value = dark ? TRUE : FALSE;
+  ::DwmSetWindowAttribute(g_hwnd, kImmersiveDarkModeAttr, &value, sizeof(value));
+}
+
 /// 让 Flutter 的子窗口跟上新的客户区。
 ///
 /// 常规路径上 `win32_window.cpp` 的 `WM_SIZE` 会做这件事，但改窗口样式
@@ -180,6 +193,26 @@ void HandleCall(const flutter::MethodCall<EncodableValue>& call,
     EncodableMap out = StateMap();
     out[EncodableValue("ok")] = EncodableValue(true);
     result->Success(EncodableValue(out));
+    return;
+  }
+
+  // ---- 窗口色调 ----
+  //
+  // 让 DWM 用深色画窗口边框与投影。⚠️ 试过 `DWMWA_SYSTEMBACKDROP_TYPE` 那套
+  // 「真云母」，结论是**做不出来**：Flutter 的视图是 `SetParent` 出来的不透明
+  // 子窗口，backdrop 画在顶层窗口背后、永远透不出来。曾经改成「自己按窗口背后
+  // 那块壁纸取样、模糊、叠色」自绘云母，观感是对的，但**性能开销偏大**，
+  // 千奈真机看过之后要求去掉 —— 所以这条路现在是关的，别再顺手加回来。
+  if (method == "setDarkWindow") {
+    bool value = false;
+    if (args != nullptr) {
+      const auto it = args->find(EncodableValue("value"));
+      if (it != args->end()) {
+        if (const auto* b = std::get_if<bool>(&it->second)) value = *b;
+      }
+    }
+    SetDarkWindow(value);
+    result->Success(EncodableValue(true));
     return;
   }
 

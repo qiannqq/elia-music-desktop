@@ -99,9 +99,23 @@ Future<void> main() async {
     await windowManager.setAsFrameless();
     await windowManager.show();
     await windowManager.focus();
+    // 窗口就位后再同步一次窗口色调（自绘标题栏不吃它，见 _syncWindowChrome）
+    _syncWindowChrome();
   });
 
+  themeController.addListener(_syncWindowChrome);
+
   runApp(const EliaMusicApp());
+}
+
+/// 窗口色调：让 DWM 给窗口画的边框与投影跟着主题走。
+///
+/// 自己画的标题栏不受深色属性影响；它管的是窗口最外面那圈 ——
+/// 深色主题下不改的话，边缘会留一圈浅色的边。
+void _syncWindowChrome() {
+  final brightness =
+      themeController.resolveBrightness(PlatformDispatcher.instance.platformBrightness);
+  unawaited(setDarkWindow(brightness == Brightness.dark));
 }
 
 /// 窗口关闭时做清理并**强制结束进程**。
