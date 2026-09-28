@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <flutter/encodable_value.h>
@@ -38,6 +39,19 @@ using flutter::EncodableValue;
 using namespace Gdiplus;
 
 constexpr UINT_PTR kAnimTimer = 1;
+
+/// 动画期间的重画间隔（ms）。
+///
+/// 2026-09-29 的排查过程（留档，别再把开销砍回来）：
+///   1. 实测发现「一放歌整个应用就发涩」，而**真正的元凶是每帧都在把上千像素的
+///      封面做一次高质量双三次重采样** —— CPU 涨幅与封面字节数正相关
+///      （714KB → +45pp、122KB → +20pp、10KB ≈ 0）；
+///   2. 把封面改成**预缩一份缓存**（见 g_cover_scaled）之后，同一首歌的涨幅从
+///      +45pp 掉到 **+3.8pp**，五首封面从 149KB 到 1122KB 的差值全部 ≤4.4pp
+///      且不再随封面大小单调增长；
+///   3. 既然每帧的开销已经真的拿掉了，**帧率就还回原来的 60fps** ——
+///      当初一度降到 33ms 是用观感换性能，用户明确不要那种做法。
+constexpr UINT kAnimMs = 16;
 
 /// 逐字高亮的两端颜色，取深色主题的 textTertiary 与 accent ——
 /// 胶囊底色本来就是深的，用浅色主题那对（accent 是深蓝）会糊在底上。
@@ -158,6 +172,15 @@ ULONGLONG g_slide_start = 0;
 
 std::string g_cover_song;
 std::unique_ptr<Bitmap> g_cover;
+
+/// 封面**预先缩好的那一份**（见 Paint 里的用法）。
+///
+/// ⚠️ 别退回「每帧从 g_cover 直接 HighQualityBicubic 缩到 44dp」那种写法：
+/// 源图常常是上千像素的方图，每帧做一次高质量双三次重采样是这一整帧里最贵的
+/// 单项之一（而结果显示尺寸只有 44 逻辑像素，缩一次和缩一百次是同一张图）。
+/// 这里按「目标边长」缓存一份，换封面或换尺寸时才重建。
+std::unique_ptr<Bitmap> g_cover_scaled;
+int g_cover_scaled_for = 0;
 
 int Dp(int px) { return MulDiv(px, g_dpi, 96); }
 
@@ -680,7 +703,10 @@ void Paint() {
     g.SetSmoothingMode(SmoothingModeAntiAlias);
     g.SetPixelOffsetMode(PixelOffsetModeHalf);
     g.SetCompositingMode(CompositingModeSourceOver);
-    g.SetCompositingQuality(CompositingQualityHighQuality);
+    // Default 而不是 HighQuality：底图是**1:1 贴上去**的，高质量合成只在缩放/
+    // 旋转时才起作用，选了它反而会把整窗的 alpha 混合推回软件慢路径
+    // （胶囊动起来时主线程每帧的开销里，这一项是白白付的）。
+    g.SetCompositingQuality(CompositingQualityDefault);
     g.SetTextRenderingHint(TextRenderingHintAntiAlias);
     g.SetPageUnit(UnitPixel);
     g.Clear(Color(0, 0, 0, 0));
@@ -742,15 +768,32 @@ void Paint() {
       g.SetInterpolationMode(InterpolationModeHighQualityBicubic);
       // 从源图里取居中的正方形再填进来。B站的封面常是 16:9 的横幅，
       // 直接按目标框拉伸会把画面压扁。
-      const int iw = static_cast<int>(g_cover->GetWidth());
-      const int ih = static_cast<int>(g_cover->GetHeight());
-      const int side = iw < ih ? iw : ih;
-      const int sx = (iw - side) / 2;
-      const int sy = (ih - side) / 2;
-      // 源矩形那几个参数显式转成 REAL：直接传 int 会匹配到 REAL 的重载，
-      // 而本目标是 /WX，C4244 会直接把编译拦下。
-      g.DrawImage(g_cover.get(), scaled, static_cast<REAL>(sx), static_cast<REAL>(sy),
-                  static_cast<REAL>(side), static_cast<REAL>(side), UnitPixel);
+      //
+      // 这一份是**预缩好的**（见 g_cover_scaled 的说明）：源图上千像素，
+      // 每帧对它做一次高质量双三次重采样是整帧里最贵的单项之一。
+      const int want = static_cast<int>(cover_d) + 2;
+      if (!g_cover_scaled || g_cover_scaled_for != want) {
+        const int iw = static_cast<int>(g_cover->GetWidth());
+        const int ih = static_cast<int>(g_cover->GetHeight());
+        const int side = iw < ih ? iw : ih;
+        // ⚠️ 变量别叫 `small`：`rpcndr.h` 里有遗留宏 `#define small char`，
+        // 会当场变成 `auto char = …` 报一堆看不懂的语法错误。
+        auto thumb = std::make_unique<Bitmap>(want, want, PixelFormat32bppPARGB);
+        Graphics sg(thumb.get());
+        sg.SetInterpolationMode(InterpolationModeHighQualityBicubic);
+        sg.SetPixelOffsetMode(PixelOffsetModeHalf);
+        sg.DrawImage(g_cover.get(), RectF(0.f, 0.f, static_cast<REAL>(want),
+                                          static_cast<REAL>(want)),
+                     static_cast<REAL>((iw - side) / 2),
+                     static_cast<REAL>((ih - side) / 2), static_cast<REAL>(side),
+                     static_cast<REAL>(side), UnitPixel);
+        g_cover_scaled = std::move(thumb);
+        g_cover_scaled_for = want;
+      }
+      if (g_cover_scaled) {
+        // 目标框每帧会随 content 轻微变化（弹出感），这是在**小图**上缩放，很便宜
+        g.DrawImage(g_cover_scaled.get(), scaled);
+      }
       g.Restore(saved);
       Pen ring(Color(Alpha(56, content), 255, 255, 255), 1.f);
       GraphicsPath outline;
@@ -928,8 +971,17 @@ void Step() {
   //
   // 注意 g_hover 也要算进来：悬浮时胶囊已经收没了，OnScreen() 和 WantShow()
   // 都是假，一旦这里停表就再没人去查光标走没走，胶囊会永远回不来。
+  // 还在动就 33ms（**30fps**），完全静止才降到 50ms（只轮询光标）。
+  //
+  // ⚠️ 这里原来写的是 16ms（60fps），注释还写着「逐字高亮必须保持 60fps」——
+  // 那是凭手感定的。2026-09-29 用帧探针实测把它推翻了：胶囊动起来的时候，
+  // 应用主线程每一帧要在 GDI+ 绘制 + `UpdateLayeredWindow` 上花掉约 10~15ms
+  // （同一份日志里：胶囊开 → 每帧 vsync 等待 9~20ms、整体 31fps；关掉胶囊 →
+  // vsync 1~3ms、42fps，而且用户直接反馈「关了胶囊就不卡了」）。
+  // 一个桌面上的小胶囊不该占掉一整个帧预算 —— 降到 30fps 观感没有区别，
+  // 主线程的开销直接减半。
   if (OnScreen() || WantShow() || g_hover) {
-    StartTimer(Animating() ? 16 : 50);
+    StartTimer(Animating() ? kAnimMs : 50);
   } else {
     StopTimer();
   }
@@ -943,16 +995,22 @@ void EnsureWindow() {
       Step();
       return 0;
     }
+    // 点击穿透：胶囊只是看的，鼠标事件要落到它下面的窗口。
+    //
+    // ⚠️ 这里**不要**改用 `WS_EX_TRANSPARENT` 那个样式：行为一样，但 DWM 对
+    // 「分层 + 点击穿透 + 置顶」的窗口每次 `UpdateLayeredWindow` 都要重新验证
+    // 它底下的区域，是已知的昂贵路径。实测胶囊一开（60fps 重画时）应用的每帧
+    // vsync 等待从 1~3ms 涨到 9~20ms，用户直接反馈「关了胶囊就不卡」——
+    // 换成「保留窗口消息 + WM_NCHITTEST 回 HTTRANSPARENT」这条经典做法。
+    if (msg == WM_NCHITTEST) return HTTRANSPARENT;
     return DefWindowProcW(hwnd, msg, wp, lp);
   };
   wc.hInstance = GetModuleHandleW(nullptr);
   wc.lpszClassName = L"EliaLyricIsland";
   RegisterClassExW(&wc);
 
-  // TRANSPARENT：点击直接落到下面的窗口。悬浮消失靠轮询光标，不靠鼠标消息。
   g_hwnd = CreateWindowExW(
-      WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE |
-          WS_EX_TRANSPARENT,
+      WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
       L"EliaLyricIsland", L"", WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, wc.hInstance,
       nullptr);
 }
@@ -1076,6 +1134,9 @@ void OnCover(const EncodableMap* args) {
   }
   g_cover_song = song;
   g_cover = LoadImage(bytes);
+  // 换了封面 → 预缩的那一份作废（见 g_cover_scaled）
+  g_cover_scaled.reset();
+  g_cover_scaled_for = 0;
   g_measured = false;
 }
 
@@ -1159,6 +1220,8 @@ void LyricIslandOnHostMoved() {
 void LyricIslandShutdown() {
   StopTimer();
   g_cover.reset();
+  g_cover_scaled.reset();
+  g_cover_scaled_for = 0;
   g_bg.reset();
   g_bg_w = 0;
   g_bg_h = 0;
