@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../core/app_theme.dart';
 import '../core/local_store.dart';
+import '../services/app_background.dart';
+import '../services/shell_service.dart';
 import '../ui/icons.dart';
 
 /// 主题模式 —— 对应 `theme.js`（浅色 / 深色 / 跟随系统）
@@ -48,6 +52,10 @@ class ThemeController extends ChangeNotifier {
   /// （`test/accent_theme_test.dart` 盯着这条）。
   Color accent = kAccentPresets.first;
 
+  /// 上一次从**系统**取到的强调色（取不到就是 null）。
+  /// 设置页靠它判断「恢复默认」这一项要不要置灰。
+  Color? systemAccent;
+
   void init() {
     mode = AppThemeModeX.fromId(LocalStore.get('qqmusic_theme'));
     final raw = LocalStore.get(_accentKey);
@@ -55,8 +63,29 @@ class ThemeController extends ChangeNotifier {
       final v = int.tryParse(raw, radix: 16);
       // 存坏了就退回默认色，不要拿一个随机值去糊整个界面
       if (v != null) accent = Color(0xFF000000 | v);
+      return;
     }
+
+    // 从来没挑过主题色（第一次启动）→ **跟一次** Windows 的强调色。
+    //
+    // ⚠️ 只做这一次：[_apply] 会把结果写进存储，之后启动就走上面那条分支，
+    // 不再覆盖用户自己挑的颜色。取不到（老系统、注册表里没有）就一直是默认蓝，
+    // 下次启动还会再试一次 —— 这比「试一次失败就永久放弃」合理。
+    unawaited(useSystemAccent());
   }
+
+  /// 取一次 Windows 的强调色并应用（首次启动与设置页的「恢复默认」都走这条）。
+  ///
+  /// 返回是否取到了。
+  Future<bool> useSystemAccent() async {
+    final c = await ShellService.systemAccentColor();
+    if (c == null) return false;
+    systemAccent = c;
+    _apply(c);
+    return true;
+  }
+
+  void setAccent(Color c) => _apply(c);
 
   void setMode(AppThemeMode m) {
     if (mode == m) return;
@@ -65,13 +94,16 @@ class ThemeController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setAccent(Color c) {
+  /// 换主题色。**无条件落盘**（即使颜色没变）——
+  /// 否则「跟系统色」取到一个正好等于默认蓝的值时不会写存储，
+  /// 下次启动又会去取一遍，就变成「每次都跟」了。
+  void _apply(Color c) {
     final next = Color(0xFF000000 | (c.toARGB32() & 0xFFFFFF));
-    if (accent.toARGB32() == next.toARGB32()) return;
+    final changed = accent.toARGB32() != next.toARGB32();
     accent = next;
     LocalStore.set(
         _accentKey, (next.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0'));
-    notifyListeners();
+    if (changed) notifyListeners();
   }
 
   Brightness resolveBrightness(Brightness platform) => switch (mode) {
@@ -82,7 +114,13 @@ class ThemeController extends ChangeNotifier {
 
   ThemeData resolve(Brightness platform) {
     final b = resolveBrightness(platform);
-    return buildTheme(AppColors.themed(accent, dark: b == Brightness.dark), b);
+    final dark = b == Brightness.dark;
+    var colors = AppColors.themed(accent, dark: dark);
+    // 开了整体背景 → 卡片与控件那几层要透一些，否则一排「白块」把背景挡死
+    // （见 `AppColors.immersive` 的说明）。主题跟着背景开关重新解析一次，
+    // 所以 `EliaMusicApp` 那边要同时听 themeController 与 appBackground。
+    if (appBackground.active) colors = colors.immersive(dark: dark);
+    return buildTheme(colors, b);
   }
 }
 

@@ -1,7 +1,8 @@
 #include "system_bridge.h"
 
-#include <windows.h>
+#include <dwmapi.h>
 #include <shellapi.h>
+#include <windows.h>
 
 #include <memory>
 #include <string>
@@ -9,6 +10,8 @@
 #include <flutter/encodable_value.h>
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
+
+#include "accent_color.h"
 
 namespace {
 
@@ -35,6 +38,28 @@ std::wstring GetWide(const EncodableMap* args, const char* key) {
   return s ? Utf8ToWide(*s) : std::wstring();
 }
 
+/// 系统强调色（Windows 设置 → 个性化 → 颜色里的「主题色」），返回 0xFFRRGGBB。
+///
+/// ⚠️ 取值顺序：先走 `accent_color.cpp`（官方 `UISettings.GetColorValue` +
+/// 两条注册表退路），失败再退到窗口着色色。**不要**改用
+/// `DWM\AccentColor` / `DwmGetColorizationColor` 当主题色 —— 那是「窗口玻璃色」
+/// 那一套，实测与用户挑的主题色可以完全不同（本机是紫色 vs 红色）。
+EncodableValue SystemAccent() {
+  uint32_t rgb = 0;
+  if (GetSystemAccentColor(&rgb)) {
+    return EncodableValue(static_cast<int64_t>(rgb));
+  }
+
+  // 最后退到窗口着色色（**这一条是 0xAARRGGBB**，别和上面弄混）。
+  DWORD color = 0;
+  BOOL opaque = FALSE;
+  if (SUCCEEDED(::DwmGetColorizationColor(&color, &opaque))) {
+    return EncodableValue(
+        static_cast<int64_t>(0xFF000000u | (color & 0x00FFFFFFu)));
+  }
+  return EncodableValue();
+}
+
 void HandleCall(const flutter::MethodCall<EncodableValue>& call,
                 std::unique_ptr<flutter::MethodResult<EncodableValue>> result) {
   const auto& method = call.method_name();
@@ -52,6 +77,11 @@ void HandleCall(const flutter::MethodCall<EncodableValue>& call,
                                           nullptr, SW_SHOWNORMAL);
     // ShellExecuteW 的返回值大于 32 才算成功（小于等于 32 是错误码）
     result->Success(EncodableValue(reinterpret_cast<INT_PTR>(opened) > 32));
+    return;
+  }
+
+  if (method == "systemAccent") {
+    result->Success(SystemAccent());
     return;
   }
 

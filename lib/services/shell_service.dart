@@ -23,6 +23,21 @@ class ShellService {
     }
   }
 
+  /// Windows「设置 → 个性化 → 颜色」里那个主题色。取不到返回 null。
+  ///
+  /// 原生那边读的是 `HKCU\...\DWM\AccentColor`（实在没有才退到窗口着色色），
+  /// 原因见 `windows/runner/system_bridge.cpp` 里 `SystemAccent` 的说明。
+  static Future<Color?> systemAccentColor() async {
+    try {
+      final v = await _channel.invokeMethod<num>('systemAccent');
+      if (v == null) return null;
+      return Color(0xFF000000 | (v.toInt() & 0xFFFFFF));
+    } catch (e) {
+      fileLogger.warn('Shell', '读取系统主题色失败：$e');
+      return null;
+    }
+  }
+
   /// 这首歌在 B站的原视频地址。
   ///
   /// B站音源的 mid 就是 BV 号，直接拼即可。

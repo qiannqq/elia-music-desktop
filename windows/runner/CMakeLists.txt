@@ -87,6 +87,20 @@ target_link_libraries(audio_probe PUBLIC
 )
 target_link_libraries(${BINARY_NAME} PRIVATE audio_probe)
 
+# ==== 系统主题色（强调色）====
+#
+# 单开一个静态库的理由同 smtc_bridge：`UISettings.GetColorValue` 是 WinRT，
+# 它的 ABI 头在 /W4 /WX 下警告一堆，混进主目标会被警告即错误卡死。
+# 头目录不用额外加：`Windows.Foundation.h` 这些 ABI 头就在 SDK 的 `winrt/` 下，
+# 而它本来就在 MSVC 的默认 INCLUDE 里（smtc_bridge 引 winrt/… 也没加过路径）。
+add_library(accent_color STATIC "accent_color.cpp")
+target_compile_features(accent_color PUBLIC cxx_std_17)
+target_compile_options(accent_color PRIVATE /W3 /EHsc /utf-8)
+target_include_directories(accent_color PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+# windowsapp.lib：RoInitialize / RoActivateInstance / WindowsCreateString 都在里面
+target_link_libraries(accent_color PUBLIC windowsapp.lib)
+target_link_libraries(${BINARY_NAME} PRIVATE accent_color)
+
 # ==== 窗口全屏桥 ====
 #
 # 全屏必须由原生来做：Dart 那边用 `windowManager.setBounds` 改尺寸会污染
