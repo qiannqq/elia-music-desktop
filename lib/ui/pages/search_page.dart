@@ -98,6 +98,8 @@ class _SearchPageState extends State<SearchPage> {
           AppMenuItem(
             label: p.name,
             icon: AppIcons.playlist,
+            // 「完全单向」的歌单不给往里加：加进去也会被下一次同步清掉
+            enabled: !widget.state.playlistLocked(p.id),
             onTap: () => widget.state.addAllToPlaylist(p.id),
           ),
       ],

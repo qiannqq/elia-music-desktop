@@ -15,7 +15,10 @@ import 'modal.dart';
 ///
 /// 三处官方细节：
 ///  * 高度 **32**（`TextControlThemeMinHeight`），内边距 `10,5,6,6`
-///    （`TextControlThemePadding`）；
+///    （`TextControlThemePadding`）。⚠️ 这 32 是 `minHeight` **兜**出来的：
+///    输入框自己算出来只有 25 高（Windows 的视觉密度会从上下各拿走 4px），
+///    差额由外层容器补出来 —— 外层那层一旦不是居中对齐，文字就会看着靠上
+///    （见 build 里 Stack 上那段注释）；
 ///  * 左/上/右恒定 1px，**聚焦时只有底边加粗到 2px 并变主色**
 ///    （`TextControlBorderThemeThicknessFocused = 1,1,1,2`）——
 ///    这是 Win11 输入框最显眼的标志，整圈变色反而不像；
@@ -90,6 +93,15 @@ class _AppTextFieldState extends State<AppTextField> {
         border: Border.all(color: line, width: focused ? 1.5 : 1),
       ),
       child: Stack(
+        // ⚠️ 这行是「文字在框里垂直居中」的关键，别改回默认值。
+        //
+        // Windows 上 `visualDensity` 是 compact(-2,-2)，`baseSizeAdjustment.dy`
+        // = -8，而 InputDecorator 会把这个值整个算进自己的内容高度：
+        // 7(上) + 19(行) + 7(下) - 8 = **25**，比下面 `minHeight: 32` 少 5px。
+        // 那 5px 由外层容器补出来，而 Stack 默认是 `topStart` —— 补出来的空间
+        // 就全落在文字**下面**，看起来就是「文字靠上了」（下载弹窗与同步设置
+        // 弹窗里都能一眼看出来）。居中对齐让多出来的空间上下均分。
+        alignment: AlignmentDirectional.centerStart,
         children: [
           TextField(
             controller: widget.controller,
@@ -101,6 +113,10 @@ class _AppTextFieldState extends State<AppTextField> {
             onSubmitted: widget.onSubmitted,
             cursorColor: c.accent,
             cursorWidth: 1.5,
+            // 内容比框矮时按中间放（默认是 top）。`isDense` 的输入框平时
+            // 正好贴着内容，用不上它；框被压得比内容还矮时（还有人给
+            // AppTextField 套固定高度），它决定多出来的那截往哪边溢。
+            textAlignVertical: TextAlignVertical.center,
             style: TextStyle(
               fontSize: 14,
               color: c.text,
@@ -113,6 +129,9 @@ class _AppTextFieldState extends State<AppTextField> {
               hintStyle: TextStyle(fontSize: 14, color: c.textTertiary),
               // 外观完全交给外面那层 Container：这样「底边加粗」才好画
               border: InputBorder.none,
+              // ⚠️ **上下必须同值**（这里是 WinUI `TextControlThemePadding` 的
+              // 5/6 那一档换算过来的近似值）。两者一旦不等，文字在框里就是歪的；
+              // 左右不同没关系，右边留的位置要按有没有 trailing 按钮来定。
               contentPadding: EdgeInsets.only(
                 left: 10,
                 top: 7,

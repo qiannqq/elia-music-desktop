@@ -382,7 +382,15 @@ class HttpServerService {
 
   Future<void> _apiPlaylist(HttpRequest req, HttpResponse res, Map<String, String> q) async {
     _qqCookie(req);
-    final data = await qqMusicService.getPlaylist(q['id'] ?? '');
+    // 分页：`begin` 是 offset、`num` 是一页多少首。都不传就是老行为（一次 500 首）——
+    // 搜索页粘链接走的就是这条路，别让它变成多请求。
+    final begin = int.tryParse(q['begin'] ?? '') ?? 0;
+    final count = int.tryParse(q['num'] ?? '') ?? 500;
+    final data = await qqMusicService.getPlaylist(
+      q['id'] ?? '',
+      begin: begin < 0 ? 0 : begin,
+      count: count <= 0 ? 500 : count,
+    );
     _json(res, {
       'code': 0,
       'data': {
@@ -390,6 +398,7 @@ class HttpServerService {
         'name': data.name,
         'desc': data.desc,
         'pic': data.pic,
+        'total': data.total,
       }
     });
   }

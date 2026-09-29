@@ -19,11 +19,39 @@ import '../services/bilibili_service.dart';
 import '../services/lyric_cache.dart';
 import '../services/netease_service.dart';
 import '../services/player_controller.dart';
+import '../services/playlist_pull.dart';
+import '../services/playlist_sync.dart';
 import '../services/qqmusic_service.dart';
 import '../services/silence_probe.dart';
 import 'toast.dart';
 
 enum DownloadStatus { idle, running, done, fail }
+
+/// 拉远端歌单的函数签名。默认走本地 API（Cookie 由 `ApiClient._headers` 自动带），
+/// 测试里换成假的就能把「拉取」这一层摘掉。
+typedef PlaylistRemoteFetch = Future<({List<Song> list, int total})> Function(
+  String source,
+  String id,
+);
+
+/// 一次同步跑完的结果。谁触发的不重要，界面（弹窗里的「立即同步」）拿它显示一行字。
+class PlaylistSyncRun {
+  const PlaylistSyncRun({
+    required this.ok,
+    required this.added,
+    required this.removed,
+    required this.reason,
+  });
+
+  /// 跑通了（音源返回空也算跑通 —— 只是什么都没改）
+  final bool ok;
+
+  final int added;
+  final int removed;
+
+  /// 'ok' | 'empty' | 'fail' | 'skip'（skip = 冷却/去重/配置不全，压根没拉）
+  final String reason;
+}
 
 /// 全局应用状态 —— `public/dist/js/app.js` 中 `state` + `App` 对象的 Dart 移植。
 class AppState extends ChangeNotifier {
@@ -134,6 +162,9 @@ class AppState extends ChangeNotifier {
     selectedMids.clear();
     LocalStore.set('qqmusic_current_playlist', id);
     notifyListeners();
+    // 切到哪个歌单就静默拉哪个（开同步、有链接才真的拉，冷却归 syncPlaylist）。
+    // 面向上面的早退：点已经在用的那个歌单不经过这里，正好符合口径。
+    unawaited(syncPlaylist(id, trigger: 'switch'));
   }
 
   void renamePlaylist(String id, String name) {
@@ -455,6 +486,319 @@ class AppState extends ChangeNotifier {
     LocalStore.writeJson('qqmusic_downloaded_paths', downloadedPaths);
   }
 
+  // ============================================================ 歌单同步
+  //
+  // 引擎（合并规则）在 `services/playlist_sync.dart`，这里只负责
+  // 「拉远端 → 喂给引擎 → 变了就写回 → 落盘 → 通知」这一段。
+  //
+  // 一条硬规矩：**四个自动触发点全程静默**。用户没按任何东西的时候，
+  // 拉取失败、音源返回空，都只写 `fileLogger` 日志 —— 不弹 toast、不抢焦点、
+  // 不改页面。弹一个错框出去只会让他以为程序抽风。
+
+  /// 自动触发之间的最小间隔。
+  ///
+  /// 切歌单 / 切歌 / F5 / 窗口重新聚焦这四种**自动**触发共用这一个窗口 ——
+  /// 它们全由界面事件带起来，用户并没有要拉。按秒级放行的话，随手点几下歌单、
+  /// 按一次 F5 就会连着打好几轮请求（QQ 那边有频控，越打越慢）。
+  /// 只有弹窗里的「立即同步」不受它管：那是用户明确按下去的。
+  static const Duration kSyncAutoCooldown = Duration(minutes: 1);
+
+  /// 正在拉的歌单（并发去重：同一个歌单的拉取不能叠起来）
+  final Set<String> _syncingIds = {};
+
+  /// 每个歌单上一次**跑完**同步的时刻（成功失败都算）
+  final Map<String, DateTime> _lastSyncAt = {};
+
+  /// 每个歌单连续失败了几次（成功就清零）
+  final Map<String, int> _syncFails = {};
+
+  /// 拉取远端歌单。测试里替换成假的，免得真打网络。
+  PlaylistRemoteFetch? syncFetcher;
+
+  /// 真的发起过几次拉取。被冷却/去重拦掉的不算 —— 测试靠它数「触发了几次」。
+  int syncRunCount = 0;
+
+  /// 最近一次同步的触发来源（'switch' / 'song' / 'f5' / 'focus' / 'manual'）
+  String syncLastTrigger = '';
+
+  /// 把冷却记录、失败计数与次数清空。
+  ///
+  /// 这是给测试用的：那几张表是按歌单 id 记的，跨用例留着的话第二个用例
+  /// 一上手就被上一个的冷却窗口拦住。
+  @visibleForTesting
+  void resetSyncState() {
+    _lastSyncAt.clear();
+    _syncFails.clear();
+    _syncingIds.clear();
+    syncRunCount = 0;
+    syncLastTrigger = '';
+  }
+
+  /// 同步一个歌单：拉音源 → 合并 → 变了才写回。
+  ///
+  /// [trigger] 决定冷却与开关：'switch' / 'song' / 'focus' / 'f5' 四个自动触发
+  /// 都看歌单的同步开关，也共用 [kSyncAutoCooldown] 那一个冷却窗口（拉取失败
+  /// 也一样按它冷却 —— 失败之后本来就更不该连着再打）。
+  /// 'manual'（弹窗里的「立即同步」）连开关与冷却都不看：用户就是按着它要拉一次。
+  ///
+  /// [silent] 为真时**一个提示都不弹**（成功也不弹）。
+  Future<PlaylistSyncRun?> syncPlaylist(
+    String id, {
+    required String trigger,
+    bool silent = true,
+  }) async {
+    final at = playlists.indexWhere((p) => p.id == id);
+    if (at < 0) return null;
+    final target = playlists[at];
+
+    final manual = trigger == 'manual';
+    if (!target.syncEnabled && !manual) return null;
+    if (target.syncSource.isEmpty || target.syncPlaylistId.isEmpty) return null;
+
+    // 同一个歌单正在拉：直接返回（连按 F5 不该叠成一串请求）
+    if (_syncingIds.contains(id)) return null;
+
+    final last = _lastSyncAt[id];
+    if (!manual && last != null) {
+      if (DateTime.now().difference(last) < kSyncAutoCooldown) return null;
+    }
+
+    _syncingIds.add(id);
+    syncRunCount++;
+    syncLastTrigger = trigger;
+    final sw = Stopwatch()..start();
+    final source = target.syncSource;
+    final remoteId = target.syncPlaylistId;
+
+    try {
+      final remote = await _fetchRemote(source, remoteId);
+
+      // 拉取期间歌单可能被删了、或者用户改了音源/链接 —— 那就丢弃这次结果。
+      // 拿旧音源的歌去覆盖按新配置配好的歌单，比不同步更糟。
+      final cur = playlists.indexWhere((p) => p.id == id);
+      if (cur < 0) return null;
+      final p = playlists[cur];
+      if (p.syncSource != source || p.syncPlaylistId != remoteId) {
+        fileLogger.info('PlaylistSync', '「${p.name}」的同步配置在拉取期间变了，丢弃这次结果');
+        return null;
+      }
+
+      // 只信这个音源的歌，并丢掉没有 mid 的幽灵条目（引擎不再动这两件事）
+      final list = remote.list
+          .where((s) => s.hasMid && s.source == source)
+          .toList(growable: false);
+
+      final result = mergeSyncedPlaylist(SyncInput(
+        local: p.songs,
+        remote: list,
+        mode: p.syncMode,
+        source: source,
+        blacklist: p.syncBlacklist,
+        whitelist: p.syncWhitelist,
+        userTouched: p.syncUserTouched,
+      ));
+
+      final empty = result.skipReason == 'empty';
+      p.syncLastAt = DateTime.now().millisecondsSinceEpoch;
+      p.syncLastResult = empty ? 'empty' : 'ok';
+      // changed == false 时**什么都不写**：不写盘、不通知 —— 这几个触发点里
+      // 三个都是高频的，每回都重建整页只会白掉帧。
+      if (result.changed) {
+        p.songs = result.songs;
+        p.syncBlacklist = result.blacklist;
+        p.syncWhitelist = result.whitelist;
+        p.syncUserTouched = result.userTouched;
+        _savePlaylists();
+      }
+
+      _syncFails.remove(id);
+      fileLogger.info(
+          'PlaylistSync',
+          '「${p.name}」← $source:$remoteId 远端 ${list.length} 首'
+          '（音源报 ${remote.total} 首${remote.truncated ? '，已截断' : ''}）'
+          ' → 新增 ${result.added}、移除 ${result.removed}'
+          '${empty ? '，音源返回空：本地未改动' : ''}'
+          '（${sw.elapsedMilliseconds}ms, trigger=$trigger）');
+
+      if (!silent) {
+        notifyListeners();
+        if (empty) {
+          showInfo('「${p.name}」音源返回空，本地未改动');
+        } else {
+          showSuccess('已同步「${p.name}」，新增 ${result.added} 首');
+        }
+      }
+      return PlaylistSyncRun(
+        ok: !empty,
+        added: result.added,
+        removed: result.removed,
+        reason: empty ? 'empty' : 'ok',
+      );
+    } catch (e) {
+      _syncFails[id] = (_syncFails[id] ?? 0) + 1;
+      // 失败只留下状态与日志：歌单本身一个字都不动。
+      final cur = playlists.indexWhere((p) => p.id == id);
+      if (cur >= 0) {
+        playlists[cur].syncLastAt = DateTime.now().millisecondsSinceEpoch;
+        playlists[cur].syncLastResult = 'fail';
+        _savePlaylists();
+      }
+      fileLogger.warn(
+          'PlaylistSync',
+          '「${cur >= 0 ? playlists[cur].name : id}」同步失败'
+          '（连续第 ${_syncFails[id]} 次，trigger=$trigger）：$e');
+      if (!silent) {
+        notifyListeners();
+        showError('同步失败: $e');
+      }
+      return const PlaylistSyncRun(ok: false, added: 0, removed: 0, reason: 'fail');
+    } finally {
+      _lastSyncAt[id] = DateTime.now();
+      _syncingIds.remove(id);
+    }
+  }
+
+  /// 拉「**当前播放的那首歌**所属的那个歌单」。
+  ///
+  /// 切歌时既不拉所有开了同步的歌单（那是几倍的开销），也不拉界面上正开着的
+  /// 那个（用户可能正停在别的歌单页上）—— 就认正在唱的这首。
+  Future<PlaylistSyncRun?> syncCurrentPlaylist({
+    required String trigger,
+    bool silent = true,
+  }) {
+    final song = player.currentSong;
+    if (song == null) return Future.value(null);
+    final p = playlistOfSong(song.mid);
+    if (p == null) return Future.value(null);
+    return syncPlaylist(p.id, trigger: trigger, silent: silent);
+  }
+
+  /// 这首歌在哪个歌单里：**当前歌单优先**，其次任意一个（顺序同 `findSong`）。
+  Playlist? playlistOfSong(String mid) {
+    final cur = currentPlaylist;
+    if (cur.songs.any((s) => s.mid == mid)) return cur;
+    for (final p in playlists) {
+      if (p.songs.any((s) => s.mid == mid)) return p;
+    }
+    return null;
+  }
+
+  /// 拼起来拉：测试注入假拉取、真跑走本地 API。
+  Future<({List<Song> list, int total, bool truncated})> _fetchRemote(
+    String source,
+    String id,
+  ) async {
+    final fake = syncFetcher;
+    if (fake != null) {
+      final r = await fake(source, id);
+      return (list: r.list, total: r.total, truncated: false);
+    }
+
+    if (source == 'netease') {
+      // 网易云服务端一把梭（`n=100000`，`trackIds` 与实际条数不符时再按 100 一批
+      // 补齐），客户端不翻页。
+      final r = await ApiClient.nePlaylist(id);
+      return (list: r.list, total: r.list.length, truncated: false);
+    }
+
+    // QQ：一次最多 500 首且**接口自己不分页**，必须翻到底（见 playlist_pull.dart）。
+    return pullAllPlaylistSongs(
+      label: 'QQ:$id',
+      fetchPage: (begin, count) =>
+          ApiClient.getPlaylist(id, begin: begin, count: count)
+              .then((r) => (list: r.list, total: r.total)),
+    );
+  }
+
+  Playlist? playlistById(String id) {
+    for (final p in playlists) {
+      if (p.id == id) return p;
+    }
+    return null;
+  }
+
+  /// 写同步配置（右键菜单与同步设置弹窗都走它）。只写字段、落盘、通知 ——
+  /// 真正的拉取归 [syncPlaylist]。
+  void setPlaylistSync(
+    String id, {
+    bool? enabled,
+    String? source,
+    String? playlistId,
+    String? link,
+    PlaylistSyncMode? mode,
+  }) {
+    final p = playlistById(id);
+    if (p == null) return;
+    var dirty = false;
+    if (enabled != null && p.syncEnabled != enabled) {
+      p.syncEnabled = enabled;
+      dirty = true;
+    }
+    if (source != null && p.syncSource != source) {
+      p.syncSource = source;
+      dirty = true;
+    }
+    if (playlistId != null && p.syncPlaylistId != playlistId) {
+      p.syncPlaylistId = playlistId;
+      dirty = true;
+    }
+    if (link != null && p.syncLink != link) {
+      p.syncLink = link;
+      dirty = true;
+    }
+    if (mode != null && p.syncMode != mode) {
+      p.syncMode = mode;
+      dirty = true;
+    }
+    if (!dirty) return;
+    // 换了音源或歌单：上一次的同步时刻不再代表「这个远端」拉过，清掉冷却记录
+    if (source != null || playlistId != null) _lastSyncAt.remove(id);
+    _savePlaylists();
+    notifyListeners();
+  }
+
+  /// 清空这个歌单的「已忽略」名单。
+  ///
+  /// 只提供手动清空，不自动过期：过期就等于把用户明确移出的歌又加回来。
+  void clearPlaylistSyncBlacklist(String id) {
+    final p = playlistById(id);
+    if (p == null || p.syncBlacklist.isEmpty) return;
+    p.syncBlacklist = {};
+    _savePlaylists();
+    notifyListeners();
+  }
+
+  /// 「完全单向」锁：不能增、不能删、不能排序（改歌名/歌词/封面等元数据照旧）。
+  ///
+  /// 判据必须挂在状态层：界面拦得住鼠标，拦不住测试与其它代码路径。
+  bool get songsLocked {
+    final p = currentPlaylist;
+    return p.syncEnabled && p.syncMode == PlaylistSyncMode.frozen;
+  }
+
+  /// 指定歌单是否被锁（菜单里给**别的**歌单置灰时用它）
+  bool playlistLocked(String playlistId) {
+    final p = playlistById(playlistId);
+    return p != null && p.syncEnabled && p.syncMode == PlaylistSyncMode.frozen;
+  }
+
+  /// 用户手动加进来的歌：记进白名单，同步时不会被当成「本地多出来的」删掉。
+  void _markUserAdded(Playlist p, Song song) {
+    if (!p.syncEnabled || p.syncMode == PlaylistSyncMode.frozen) return;
+    final k = syncKey(song);
+    p.syncUserTouched.add(k);
+    p.syncWhitelist.add(k);
+  }
+
+  /// 用户手动移出的歌：记进黑名单，下次拉取不再加回来。
+  void _markUserRemoved(Playlist p, Song song) {
+    if (!p.syncEnabled || p.syncMode == PlaylistSyncMode.frozen) return;
+    final k = syncKey(song);
+    p.syncBlacklist.add(k);
+    p.syncWhitelist.remove(k);
+    p.syncUserTouched.remove(k);
+  }
+
   // ============================================================ 导航
 
   static const List<String> _pageOrder = ['search', 'playlist', 'settings', 'about'];
@@ -484,18 +828,22 @@ class AppState extends ChangeNotifier {
   bool isAdded(String mid) => songs.any((s) => s.mid == mid);
 
   bool addToList(Song song) {
+    if (songsLocked) return false;
     if (!song.hasMid) return false;
     if (isAdded(song.mid)) return false;
     songs.add(song);
+    _markUserAdded(currentPlaylist, song);
     _saveSongs();
     notifyListeners();
     return true;
   }
 
   void addToTop(Song song) {
+    if (songsLocked) return;
     if (!song.hasMid) return;
     if (isAdded(song.mid)) return;
     songs.insert(0, song);
+    _markUserAdded(currentPlaylist, song);
     _saveSongs();
     notifyListeners();
   }
@@ -509,11 +857,13 @@ class AppState extends ChangeNotifier {
 
   /// 加进**指定歌单**的顶部。搜索页让用户选歌单之后走这里。
   void addToPlaylist(String playlistId, Song song) {
+    if (playlistLocked(playlistId)) return;
     if (!song.hasMid) return;
     final i = playlists.indexWhere((p) => p.id == playlistId);
     if (i < 0) return;
     if (playlists[i].songs.any((s) => s.mid == song.mid)) return;
     playlists[i].songs.insert(0, song);
+    _markUserAdded(playlists[i], song);
     _savePlaylists();
     notifyListeners();
     toast.show('已加入「${playlists[i].name}」', type: ToastType.success);
@@ -522,6 +872,7 @@ class AppState extends ChangeNotifier {
   /// 把当前搜索结果里**还没有的**加进指定歌单。
   /// 已经在里面的不动 —— 重复添加会把顺序搞乱，也会出现两首一样的。
   void addAllToPlaylist(String playlistId) {
+    if (playlistLocked(playlistId)) return;
     final i = playlists.indexWhere((p) => p.id == playlistId);
     if (i < 0) return;
     final p = playlists[i];
@@ -533,6 +884,9 @@ class AppState extends ChangeNotifier {
       return;
     }
     p.songs.insertAll(0, toAdd);
+    for (final s in toAdd) {
+      _markUserAdded(p, s);
+    }
     _savePlaylists();
     notifyListeners();
     showSuccess('已加入 ${toAdd.length} 首到「${p.name}」');
@@ -540,6 +894,7 @@ class AppState extends ChangeNotifier {
 
   /// 整个歌单倒序。顺序变了要落盘，不然重启就复原。
   void reversePlaylist() {
+    if (songsLocked) return;
     if (songs.length < 2) return;
     songs = songs.reversed.toList();
     _saveSongs();
@@ -554,6 +909,7 @@ class AppState extends ChangeNotifier {
   /// 落点由框架算好：`ReorderableListView` 传过来的 to 已经扣掉了
   /// 「被拖走的那一格」，这里不用再 `if (to > from) to--`。
   void moveSong(int from, int to) {
+    if (songsLocked) return;
     if (from == to) return;
     if (from < 0 || from >= songs.length) return;
     if (to < 0 || to >= songs.length) return;
@@ -567,6 +923,7 @@ class AppState extends ChangeNotifier {
   ///
   /// 与 [addToTop] 不同：那个是「加进来」，已经在歌单里就直接返回、挪不动。
   void moveToTop(String mid) {
+    if (songsLocked) return;
     final i = songs.indexWhere((s) => s.mid == mid);
     if (i <= 0) return;
     final song = songs.removeAt(i);
@@ -578,6 +935,7 @@ class AppState extends ChangeNotifier {
 
   /// 把已经在歌单里的一首挪到最后
   void moveToBottom(String mid) {
+    if (songsLocked) return;
     final i = songs.indexWhere((s) => s.mid == mid);
     if (i < 0 || i == songs.length - 1) return;
     final song = songs.removeAt(i);
@@ -599,16 +957,30 @@ class AppState extends ChangeNotifier {
   }
 
   void removeFromList(String mid) {
+    if (songsLocked) return;
+    Song? removed;
+    for (final s in songs) {
+      if (s.mid == mid) {
+        removed = s;
+        break;
+      }
+    }
     songs.removeWhere((s) => s.mid == mid);
+    // 用户手动移出的要留痕，否则下次拉取又把它加回来
+    if (removed != null) _markUserRemoved(currentPlaylist, removed);
     selectedMids.remove(mid);
     _saveSongs();
     notifyListeners();
   }
 
   void addAllResults() {
+    if (songsLocked) return;
     final toAdd = searchResults.where((s) => !isAdded(s.mid)).toList();
     if (toAdd.isEmpty) return;
     songs.insertAll(0, toAdd);
+    for (final s in toAdd) {
+      _markUserAdded(currentPlaylist, s);
+    }
     _saveSongs();
     notifyListeners();
     toast.show('已置顶 ${toAdd.length} 首', type: ToastType.success);
@@ -677,7 +1049,13 @@ class AppState extends ChangeNotifier {
   }
 
   void deleteSelected() {
+    if (songsLocked) return;
     if (selectedMids.isEmpty) return;
+    // 被删掉的那些要记黑名单（add/compat 机制下不记的话下次拉取就回来了）
+    final p = currentPlaylist;
+    for (final s in songs) {
+      if (selectedMids.contains(s.mid)) _markUserRemoved(p, s);
+    }
     songs.removeWhere((s) => selectedMids.contains(s.mid));
     selectedMids.clear();
     _saveSongs();

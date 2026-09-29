@@ -186,17 +186,37 @@ class ApiClient {
     );
   }
 
-  static Future<({List<Song> list, String name, String desc, String pic})> getPlaylist(
-    String id,
-  ) async {
+  /// 取 QQ 音乐歌单。
+  ///
+  /// [begin] / [count] 用于分页：接口一次最多给 500 首（服务端那个 `song_num` 是
+  /// 写死的），**超过 500 首的歌单不分页就会被静默截断**。同步走
+  /// `pullAllPlaylistSongs` 一页页翻，搜索页不传参数（一次取够，与旧行为一致）。
+  ///
+  /// 参数叫 `count` 而不是 `num`：后者会遮住 Dart 的 `num` 类型（下面要 `as num`）。
+  static Future<
+      ({
+        List<Song> list,
+        String name,
+        String desc,
+        String pic,
+        int total,
+      })> getPlaylist(
+    String id, {
+    int begin = 0,
+    int count = 0,
+  }) async {
     if (id.isEmpty) throw Exception('id 不能为空');
-    final res = await _request('$apiBase/api/playlist?id=${_enc(id)}');
+    var url = '$apiBase/api/playlist?id=${_enc(id)}';
+    if (begin > 0) url += '&begin=$begin';
+    if (count > 0) url += '&num=$count';
+    final res = await _request(url);
     final data = res['data'] as Map?;
     return (
       list: parseSongsFull(data?['list']),
       name: (data?['name'] ?? '').toString(),
       desc: (data?['desc'] ?? '').toString(),
       pic: (data?['pic'] ?? '').toString(),
+      total: (data?['total'] as num?)?.toInt() ?? 0,
     );
   }
 

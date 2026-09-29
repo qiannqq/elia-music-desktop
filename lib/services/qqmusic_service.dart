@@ -931,7 +931,15 @@ class QQMusicService {
 
   // ------------------------------------------------------------ 歌单
 
-  Future<PlaylistInfo> getPlaylist(String id) async {
+  /// 取歌单。
+  ///
+  /// ⚠️ `CgiGetDiss` 一次只给 `song_num` 首，**接口自己不分页** —— 原来这里写死
+  /// `song_num: 500`，超过 500 首的歌单会被静默截断（不报错、也看不出来）。
+  /// 所以 `begin` / `count` 交给调用方：搜索页粘链接那种「看一眼」的用法一次取够，
+  /// 同步那条路按 offset 一页页翻到底（见 `playlist_pull.dart`）。
+  ///
+  /// 参数叫 `count` 而不是 `num`：后者会遮住 Dart 的 `num` 类型，`as num` 就写不了了。
+  Future<PlaylistInfo> getPlaylist(String id, {int begin = 0, int count = 500}) async {
     final body = {
       'comm': {'uin': '0', 'authst': '', 'ct': 29},
       'req_0': {
@@ -941,8 +949,8 @@ class QQMusicService {
           'disstid': int.tryParse(id) ?? 0,
           'dirid': 0,
           'onlysonglist': 0,
-          'song_begin': 0,
-          'song_num': 500,
+          'song_begin': begin,
+          'song_num': count,
           'userinfo': 1,
           'pic_dpi': 800,
           'orderlist': 1,
@@ -975,6 +983,8 @@ class QQMusicService {
       name: (info['dirname'] ?? '').toString(),
       desc: (info['desc'] ?? '').toString(),
       pic: (info['dir_pic_url2'] ?? '').toString(),
+      // 音源报的总数：翻页要靠它收尾（0 = 没给，调用方按「短页就停」收敛）
+      total: (info['total_song_num'] as num?)?.toInt() ?? 0,
     );
   }
 

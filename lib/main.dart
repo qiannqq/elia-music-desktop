@@ -150,6 +150,17 @@ class _AppLifecycle with WindowListener {
   @override
   void onWindowRestore() => _syncWindowState(false);
 
+  /// 窗口重新拿到焦点（从别的程序切回来、最小化恢复、点任务栏）。
+  ///
+  /// 静默：不弹任何提示，冷却归 `AppState` 那边（聚焦事件来得比想象的勤）。
+  /// ⚠️ 我们自己切全屏 / 最大化也会收到这个事件，那不是「用户回来了」——
+  /// 跟 [_syncWindowState] 一样靠 [windowFxBusy] 过滤。
+  @override
+  void onWindowFocus() {
+    if (windowFxBusy) return;
+    unawaited(app.syncCurrentPlaylist(trigger: 'focus'));
+  }
+
   @override
   void onWindowClose() {
     fileLogger.info('App', 'window close requested, shutting down');

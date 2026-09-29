@@ -153,6 +153,9 @@ class _AppShellState extends State<AppShell>
     // —— 少了这一句，恢复播放的情况下整窗背景的视频永远不会开始拉。
     _syncVideoDemand();
     player.addListener(_onPlayer);
+    // 起手先记住「现在挂的是哪首」：恢复上次播放态时歌是**先**挂上、shell
+    // 后建的，不记这一笔的话第一次 tick 会被当成「切歌」，白拉一次。
+    _lastSongMid = player.currentSong?.mid;
     player.onEnded = (action) => state.handleEndedAction(action);
     player.onModeChange = state.onModeChanged;
     player.onShortAudio = state.onShortAudio;
@@ -301,6 +304,18 @@ class _AppShellState extends State<AppShell>
       unawaited(exitFullscreen());
       return KeyEventResult.handled;
     }
+    // F5 = 同步「当前播放那首所属的歌单」。
+    //
+    // ⚠️ 位置要在 `isTextFieldFocused()` 早退**之前**：光标停在搜索框里时
+    // 按 F5 也该同步（焦点在输入框不该把功能键吃掉）。
+    // 静默：这是四个自动触发点之一，成功失败都不弹提示，只写日志。
+    // 冷却：跟另外三个自动触发共用一分钟的窗口 —— 连按 F5 不会连着拉。
+    if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.f5) {
+      if (state.page == 'playlist') {
+        unawaited(state.syncCurrentPlaylist(trigger: 'f5'));
+      }
+      return KeyEventResult.handled;
+    }
     // 现在播放页开着时：Esc 收起，别的滚动键**不作用到下面的页面**上
     // （页面还在树上，不管的话 PgDn 会把看不见的那一页滚走）
     if (_nowPlayingOpen) {
@@ -332,6 +347,9 @@ class _AppShellState extends State<AppShell>
   }
 
   bool _lastHasSong = false;
+
+  /// 上一次看到的「正在播的那首」——用来认出**切歌**（换了一首才拉同步）
+  String? _lastSongMid;
 
   SmoothScrollController _controllerFor(String page) => switch (page) {
         'playlist' => _playlistScroll,
@@ -366,6 +384,17 @@ class _AppShellState extends State<AppShell>
     // 下面那个「有没有歌」的早退会把换歌挡掉，而视频背景要跟着新歌走。
     _syncVideoDemand();
     _markPerf();
+
+    // 切歌：静默拉「这首所属的那个歌单」（见 AppState.syncCurrentPlaylist）。
+    //
+    // ⚠️ 必须放在下面 `hasSong == _lastHasSong` 早退**之前**：换歌时
+    // hasSong 一直是 true，早退之后这条永远轮不到。
+    final mid = player.currentSong?.mid;
+    if (mid != _lastSongMid) {
+      _lastSongMid = mid;
+      if (mid != null) unawaited(state.syncCurrentPlaylist(trigger: 'song'));
+    }
+
     final hasSong = player.currentSong != null;
     if (hasSong == _lastHasSong) return;
     _lastHasSong = hasSong;

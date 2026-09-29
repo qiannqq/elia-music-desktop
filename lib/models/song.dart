@@ -113,10 +113,14 @@ class PlaylistInfo {
   final String desc;
   final String pic;
 
+  /// 音源报的歌单总数（0 = 音源没给）。分页拉全时要靠它判断什么时候收尾。
+  final int total;
+
   const PlaylistInfo({
     required this.list,
     this.name = '',
     this.desc = '',
     this.pic = '',
+    this.total = 0,
   });
 }

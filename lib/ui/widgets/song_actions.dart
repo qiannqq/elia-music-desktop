@@ -435,9 +435,12 @@ class _PopupState extends State<_Popup> {
                     for (final p in state.playlists)
                       _PopupItem(
                         label: p.name,
+                        // 已有这首歌的置灰（加了会出现两首一样的）；
+                        // 「完全单向」的歌单也置灰（加了会被下一次同步清掉）
                         enabled: song == null
                             ? false
-                            : !state.playlistHasSong(p.id, song.mid),
+                            : !state.playlistHasSong(p.id, song.mid) &&
+                                !state.playlistLocked(p.id),
                         onTap: () {
                           requestClose();
                           if (song == null) return;
@@ -607,11 +610,13 @@ List<AppMenuItem> buildSongMenuItems({
         for (final p in state.playlists)
           AppMenuItem(
             label: p.name,
-            // 已经在里面的用对勾 + 置灰：不用点进去才发现重复
+            // 已经在里面的用对勾 + 置灰：不用点进去才发现重复；
+            // 「完全单向」的歌单也不能加（加了会被下一次同步清掉）
             icon: state.playlistHasSong(p.id, song.mid)
                 ? AppIcons.check
                 : AppIcons.plus,
-            enabled: !state.playlistHasSong(p.id, song.mid),
+            enabled: !state.playlistHasSong(p.id, song.mid) &&
+                !state.playlistLocked(p.id),
             onTap: () => state.addToPlaylist(p.id, song),
           ),
       ],
@@ -636,21 +641,26 @@ List<AppMenuItem> buildSongMenuItems({
         onTap: () => state.removeFromQueue(song),
       )
     else if (inPlaylist) ...[
+      // 「完全单向」的歌单不能增删排序 —— 危险项直接置灰，
+      // 连点击都不该响应（`AppMenuItem.enabled` 就是干这个的）
       AppMenuItem(
         label: '从歌单中移除',
         icon: AppIcons.trash,
         danger: true,
         dividerBefore: true,
+        enabled: !state.songsLocked,
         onTap: () => state.removeFromList(song.mid),
       ),
       AppMenuItem(
         label: '置顶',
         icon: AppIcons.arrowUpToLine,
+        enabled: !state.songsLocked,
         onTap: () => state.moveToTop(song.mid),
       ),
       AppMenuItem(
         label: '置底',
         icon: AppIcons.arrowDownToLine,
+        enabled: !state.songsLocked,
         onTap: () => state.moveToBottom(song.mid),
       ),
     ],

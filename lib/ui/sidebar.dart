@@ -6,6 +6,7 @@ import '../core/motion.dart';
 import '../models/playlist.dart';
 import '../state/app_state.dart';
 import '../state/toast.dart';
+import 'dialogs/playlist_sync_dialog.dart';
 import 'icons.dart';
 import 'widgets/common.dart';
 import 'widgets/context_menu.dart';
@@ -202,6 +203,16 @@ class _PlaylistChildState extends State<_PlaylistChild> {
           label: '重命名',
           icon: AppIcons.edit,
           onTap: _startEdit,
+        ),
+        // 同步只认「音源 → 本地」这一个方向。机制（完全单向 / 增加单向 /
+        // 兼容单向）**只在弹窗里选** —— 同一组选项在右键菜单里再摆一份，
+        // 用户就得在两处维持同一个心智模型，还容易以为两处是两套配置。
+        AppMenuItem(
+          label: '同步设置',
+          icon: AppIcons.refresh,
+          dividerBefore: true,
+          onTap: () =>
+              showPlaylistSyncDialog(context, widget.state, widget.playlist.id),
         ),
         AppMenuItem(
           label: '删除歌单',

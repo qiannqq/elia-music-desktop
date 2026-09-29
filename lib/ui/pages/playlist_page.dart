@@ -494,7 +494,11 @@ class _PlaylistPageState extends State<PlaylistPage>
       onReorderEnd: _onReorderEnd,
       onReorderItem: _reorder,
       prototypeItem: _prototypeRow(state, _prototypeKeyReorder),
-      itemBuilder: (ctx, i) => _row(state, visible, i, dragIndex: i),
+      // 「完全单向」时不给拖（跟「改名中」共用同一套：传 null 摘掉那一层的抓取）。
+      // ⚠️ 别把 `_CardDragStart` 这一层整个摘掉 —— 树一变形，里面那条下划线的
+      // State 会连着重建（见下面 dragIndex == null 处的注释）。
+      itemBuilder: (ctx, i) =>
+          _row(state, visible, i, dragIndex: state.songsLocked ? null : i),
     );
   }
 
@@ -640,15 +644,20 @@ class _PlaylistPageState extends State<PlaylistPage>
                   ),
                   AppButton(label: '反选', small: true, onPressed: state.invertSelect),
                   const SizedBox(width: 8),
+                  // 倒序改的是顺序、删除改的是内容 —— 「完全单向」两样都不许
                   AppButton(
                     label: '倒序',
                     small: true,
                     icon: AppIcons.playOrderReverse,
                     iconSize: 14,
-                    onPressed: state.reversePlaylist,
+                    onPressed: state.songsLocked ? null : state.reversePlaylist,
                   ),
                   const SizedBox(width: 8),
-                  AppButton(label: '删除', small: true, onPressed: state.deleteSelected),
+                  AppButton(
+                    label: '删除',
+                    small: true,
+                    onPressed: state.songsLocked ? null : state.deleteSelected,
+                  ),
                   const SizedBox(width: 8),
                   AppButton(
                     label: '批量下载',
@@ -1119,7 +1128,10 @@ class _PlaylistItemState extends State<_PlaylistItem> {
                   bordered: true,
                   accentHover: true,
                   tooltip: '删除',
-                  onTap: () => state.removeFromList(song.mid),
+                  // 「完全单向」的歌单不能删：传 null 按钮自己会变灰
+                  onTap: state.songsLocked
+                      ? null
+                      : () => state.removeFromList(song.mid),
                 ),
               ],
             ),
