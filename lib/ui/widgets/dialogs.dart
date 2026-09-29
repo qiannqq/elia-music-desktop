@@ -83,13 +83,11 @@ class _AppTextFieldState extends State<AppTextField> {
       decoration: BoxDecoration(
         color: focused ? c.inputBg : c.controlFill,
         borderRadius: BorderRadius.circular(c.radius),
-        border: Border(
-          top: BorderSide(color: line),
-          left: BorderSide(color: line),
-          right: BorderSide(color: line),
-          // 聚焦时底边 1 → 2px，WinUI 就是靠这一条表示「光标在这里」
-          bottom: BorderSide(color: line, width: focused ? 2 : 1),
-        ),
+        // ⚠️ 四边**必须同宽**：原来是「只有底边 1 → 2px」那种 WinUI 画法，
+        // 但非等宽的 Border 在圆角处是斜接的，看起来就是「描边粗细不匀」
+        //（千奈对着下载弹窗的编辑框看出来的）。改成整圈一起加粗 ——
+        // `AnimatedContainer` 会把宽度与颜色一起补间，所以是平滑的。
+        border: Border.all(color: line, width: focused ? 1.5 : 1),
       ),
       child: Stack(
         children: [
