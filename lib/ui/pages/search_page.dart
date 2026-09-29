@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
 import '../../core/motion.dart';
+import '../../services/app_background.dart';
 import '../../models/song.dart';
 import '../../state/app_state.dart';
 import '../icons.dart';
@@ -35,14 +36,43 @@ class SearchPage extends StatefulWidget {
   State<SearchPage> createState() => _SearchPageState();
 }
 
+/// 可选的搜索音源。`id` 要和 `AppState.setSearchSource` 认的字符串一致。
+class _SourceDef {
+  const _SourceDef(this.id, this.label);
+
+  final String id;
+  final String label;
+}
+
+const List<_SourceDef> _kSources = [
+  _SourceDef('qq', 'QQ音乐'),
+  _SourceDef('netease', '网易云音乐'),
+  _SourceDef('bilibili', 'B站'),
+];
+
 class _SearchPageState extends State<SearchPage> {
   // 焦点不跨页面保留：切回来时不该自动弹出光标
   final FocusNode _focus = FocusNode();
 
   TextEditingController get _input => widget.inputController;
 
+  /// 菜单锚在**整条搜索框**上：它要从框的下方展开，不能压在框上
+  final GlobalKey _barKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    // 搜索框的底色与提示文字都跟着焦点走：焦点一变就重画一次
+    _focus.addListener(_onFocusChanged);
+  }
+
+  void _onFocusChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
+    _focus.removeListener(_onFocusChanged);
     _focus.dispose();
     super.dispose();
   }
@@ -126,13 +156,19 @@ class _SearchPageState extends State<SearchPage> {
                       textAlign: TextAlign.center,
                       style: TextStyle(fontSize: 14, color: c.textTertiary),
                     ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '点击左侧音源图标可切换音源',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 12.5, color: c.textTertiary),
+                    ),
                     const SizedBox(height: 24),
                   ],
-                  _buildSourceTabs(c, state),
-                  const SizedBox(height: 20),
+                  // 音源选择不再是横排那几个按钮了：它挪进了搜索框左侧那个
+                  // 按钮里（点开是个菜单），所以这里直接就是搜索框。
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 640),
-                    child: _buildSearchBar(c, state),
+                    child: _buildSearchBar(c, state, onResultsPage: hasResults),
                   ),
                 ],
               ),
@@ -184,112 +220,173 @@ class _SearchPageState extends State<SearchPage> {
     ));
   }
 
-  Widget _buildSourceTabs(AppColors c, AppState state) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        _SourceTab(
-          source: 'qq',
-          label: 'QQ音乐',
-          active: state.searchSource == 'qq',
-          disabled: state.isSearching,
-          onTap: () => state.setSearchSource('qq'),
-        ),
-        const SizedBox(width: 8),
-        _SourceTab(
-          source: 'netease',
-          label: '网易云音乐',
-          active: state.searchSource == 'netease',
-          disabled: state.isSearching,
-          onTap: () => state.setSearchSource('netease'),
-        ),
-        const SizedBox(width: 8),
-        _SourceTab(
-          source: 'bilibili',
-          label: 'B站',
-          active: state.searchSource == 'bilibili',
-          disabled: state.isSearching,
-          onTap: () => state.setSearchSource('bilibili'),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSearchBar(AppColors c, AppState state) {
-    final linkStyle = state.searchLinkStyle;
-    return Container(
-      height: 36,
+  Widget _buildSearchBar(AppColors c, AppState state,
+      {required bool onResultsPage}) {
+    final focused = _focus.hasFocus;
+    // 两侧按钮什么时候露出来：
+    //  * 聚焦时当然露；
+    //  * **正在搜索**时也要露 —— 按回车/点搜索之后焦点会退出，只按「聚焦」判断的话，
+    //    那个刚替换成转圈圈的加载图标会被一起藏起来，用户会以为「我没按到」，
+    //    然后再点一次搜索框重按一遍（千奈报的）；
+    //  * 已经在**搜索结果页**上时常驻（那儿随时要换音源、或者再搜一次）。
+    final showButtons = focused || state.isSearching || onResultsPage;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    // 未聚焦 = 高透明（"浅色"就是透），聚焦 = 低透明（更实）—— 底色在两档之间补间。
+    //
+    // ⚠️ 要分两种情况：**铺了整体背景**（照片/封面）时用「白/黑 + 透明度」那套
+    // （压在图上观感正好，千奈说这种时候"很完美"）；**没铺背景**时底色是主题的
+    // 纯色面，白 alpha 会淡得几乎看不见，深色下还会出现「聚焦反而更浅」——
+    // 所以那一档改用实打实的灰/黑：浅色主题下未聚焦是比底稍深的灰、聚焦是纯白；
+    // 深色主题下未聚焦是稍亮的灰、聚焦更深更实。
+    final onPhoto = appBackground.active;
+    final Color fill;
+    if (onPhoto) {
+      fill = dark
+          ? (focused ? const Color(0xE01A1A1A) : const Color(0x4D000000))
+          : (focused ? const Color(0xF2FFFFFF) : const Color(0x59FFFFFF));
+    } else {
+      // ⚠️ 这两档必须是**不透明**的颜色：`Color.lerp` 是按未预乘插值的，
+      // 「8% 黑」到「纯白」中间会路过一个比两端都怪的颜色 —— 表现就是
+      // 千奈看到的「浅色下先突然变暗再亮回来 / 深色下先突然变亮再暗回去」。
+      // 两端都做实色，中间的灰就是一条干净的渐变。
+      fill = dark
+          ? (focused ? const Color(0xFF0D0D0D) : const Color(0xFF2A2A2A))
+          : (focused ? const Color(0xFFFFFFFF) : const Color(0xFFE7E7E7));
+    }
+    return AnimatedContainer(
+      key: _barKey,
+      duration: Motion.controlNormal,
+      curve: Motion.decelerate,
+      height: 44,
       decoration: BoxDecoration(
-        color: c.controlFill,
-        border: Border.all(color: c.inputBorder),
-        borderRadius: BorderRadius.circular(c.radius),
+        color: fill,
+        // 胶囊形：半径就是高度的一半
+        borderRadius: BorderRadius.circular(22),
       ),
-      padding: const EdgeInsets.only(left: 12, right: 2),
-      // 整条都聚焦输入框：
-      // TextField 用了 isDense，实际高度只有 ~20px，而外框 44px ——
-      // 点到上下留白时不会聚焦，用户会觉得「可点击区域很小」。
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      // 整条都聚焦输入框：TextField 用 isDense 之后只有 ~20px 高，
+      // 点到上下留白时不聚焦的话，用户会觉得「可点击区域很小」。
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => _focus.requestFocus(),
         child: Row(
-        children: [
-          AppIcon(AppIcons.search, size: 18, color: c.textTertiary),
-          Expanded(
-            child: TextField(
-              controller: _input,
-              focusNode: _focus,
-              onSubmitted: (_) => _search(),
-              onChanged: state.onSearchInputChanged,
-              cursorColor: c.accent,
-              style: TextStyle(fontSize: 14, color: c.text),
-              decoration: InputDecoration(
-                isDense: true,
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                hintText: '搜索歌曲、歌手 或 粘贴歌单链接、BV 号',
-                hintStyle: TextStyle(fontSize: 14, color: c.textTertiary),
+          children: [
+            // 左：音源选择（点开是菜单）。**未聚焦时整体隐藏** ——
+            // 只留下一个浅色输入框（千奈要的那个观感）。
+            // 用透明度而不是整块拿掉：留着占位，居中的提示文字就不会左右跳。
+            AnimatedOpacity(
+              duration: Motion.controlFast,
+              curve: Motion.decelerate,
+              opacity: showButtons ? 1 : 0,
+              child: IgnorePointer(
+                ignoring: !showButtons,
+                child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: state.isSearching ? null : _showSourceMenu,
+                child: SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: Center(
+                    child: SourceIcon(source: state.searchSource, size: 18),
+                  ),
+                ),
+              ),
+                ),
               ),
             ),
-          ),
-          MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-              onTap: state.isSearching ? null : _search,
-              child: AnimatedContainer(
-                duration: kStateFade,
-                curve: Motion.easyEase,
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  // 实心按钮走填充档
-                  color: linkStyle ? null : c.accentFill,
-                  border: linkStyle ? Border.all(color: c.accent) : null,
-                  borderRadius: BorderRadius.circular(c.radius),
+            Expanded(
+              child: TextField(
+                controller: _input,
+                focusNode: _focus,
+                onSubmitted: (_) => _search(),
+                onChanged: state.onSearchInputChanged,
+                cursorColor: c.accent,
+                // 输入的文字**居中**（含占位文字——它就是 hintText）
+                textAlign: TextAlign.center,
+                // 字体不加粗：显式 w400（别继承主题里偏粗的那档）
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w400,
+                    color: c.text),
+                decoration: InputDecoration(
+                  isDense: true,
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.zero,
+                  // 聚焦之后光标已经在里面了，提示文字就该收起来
+                  hintText: focused ? null : '搜索歌曲或粘贴歌单链接、BV号',
+                  hintStyle: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w400,
+                      color: c.textTertiary),
                 ),
-                child: Center(
-                  child: state.isSearching
-                      ? SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              linkStyle ? c.accent : Colors.white,
+              ),
+            ),
+            // 右：搜索（同样只在聚焦时露出来）
+            AnimatedOpacity(
+              duration: Motion.controlFast,
+              curve: Motion.decelerate,
+              opacity: showButtons ? 1 : 0,
+              child: IgnorePointer(
+                ignoring: !showButtons,
+                child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: state.isSearching ? null : _search,
+                child: SizedBox(
+                  width: 36,
+                  height: 36,
+                  child: Center(
+                    child: state.isSearching
+                        ? SizedBox(
+                            width: 15,
+                            height: 15,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(c.accent),
                             ),
-                          ),
-                        )
-                      : AppIcon(
-                          AppIcons.search,
-                          size: 16,
-                          color: linkStyle ? c.accent : c.accentText,
-                        ),
+                          )
+                        : AppIcon(AppIcons.search, size: 17, color: c.accent),
+                  ),
+                ),
+              ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
         ),
       ),
+    );
+  }
+
+  /// 音源菜单。复用右键菜单那一套（弹出动画、圆角、悬停都是同一套），
+  /// 只是锚在音源按钮上、朝下弹。
+  void _showSourceMenu() {
+    final box = _barKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) return;
+    // 锚在搜索框的**下沿**再留 6px：菜单从框下面展开，不压在框上
+    showAppContextMenu(
+      context: context,
+      position: box.localToGlobal(Offset(0, box.size.height + 6)),
+      above: false,
+      items: [
+        for (final s in _kSources)
+          AppMenuItem(
+            label: s.label,
+            icon: AppIcons.music,
+            // 直接给品牌图（assets/source_icons 那三张），别用 SVG 硬画
+            iconWidget: SourceIcon(source: s.id, size: 16),
+            checked: widget.state.searchSource == s.id,
+            onTap: () {
+              widget.state.setSearchSource(s.id);
+              // 切音源不该把焦点弄丢：菜单一收就把光标还给输入框，
+              // 否则输入框当场退回「未聚焦」那副样子（未聚焦连两侧按钮都藏起来）。
+              _focus.requestFocus();
+            },
+          ),
+      ],
     );
   }
 
@@ -447,72 +544,6 @@ class _SearchPageState extends State<SearchPage> {
                 : () => _changePage(state, state.currentPage + 1),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _SourceTab extends StatelessWidget {
-  const _SourceTab({
-    required this.source,
-    required this.label,
-    required this.active,
-    required this.disabled,
-    required this.onTap,
-  });
-
-  final String source;
-  final String label;
-  final bool active;
-  final bool disabled;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.c;
-    return Opacity(
-      opacity: disabled ? 0.5 : 1,
-      child: HoverBuilder(
-        cursor: disabled ? SystemMouseCursors.basic : SystemMouseCursors.click,
-        builder: (_, hovered) => GestureDetector(
-          onTap: disabled ? null : onTap,
-          child: AnimatedContainer(
-            duration: kStateFade,
-            curve: Motion.easyEase,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            height: 32,
-            decoration: BoxDecoration(
-              // 不要用 Colors.transparent（那是「透明的黑」）——
-              // Color.lerp 从它过渡到灰色时会经过半透明的黑，悬浮瞬间先「黑」一下。
-              // 用同色 + alpha 0 才能保证插值在同一色相内。
-              color: active
-                  ? c.accentLight
-                  : (hovered ? c.controlFillHover : c.controlFill),
-              border: Border.all(
-                color: active
-                    ? c.accent.withValues(alpha: 0.35)
-                    : (hovered ? c.border : c.border),
-              ),
-              // 胶囊形（WinUI 的 chip 就是整圆角）
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SourceIcon(source: source, size: 16),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: active ? c.accent : c.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }

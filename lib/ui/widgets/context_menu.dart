@@ -16,6 +16,7 @@ class AppMenuItem {
     this.danger = false,
     this.dividerBefore = false,
     this.checked = false,
+    this.iconWidget,
     this.enabled = true,
   });
 
@@ -31,6 +32,10 @@ class AppMenuItem {
   /// 二级子菜单。非空时这一项变成「父项」：行尾带箭头，悬停/点击展开子菜单
   /// —— 像 Windows 的右键菜单那样。
   final List<AppMenuItem>? children;
+
+  /// 直接给一个图标控件（比如音源那三张品牌图）。
+  /// 传了它就用它，否则用 [icon] 里的内置图形。
+  final Widget? iconWidget;
 
   bool get hasChildren => children != null && children!.isNotEmpty;
 
@@ -384,6 +389,7 @@ class _MenuCard extends StatelessWidget {
                 _MenuItem(
                   label: items[i].label,
                   icon: items[i].icon,
+                  iconWidget: items[i].iconWidget,
                   danger: items[i].danger,
                   checked: items[i].checked,
                   enabled: items[i].enabled,
@@ -412,6 +418,7 @@ class _MenuItem extends StatefulWidget {
   const _MenuItem({
     required this.label,
     required this.icon,
+    required this.iconWidget,
     required this.danger,
     required this.checked,
     required this.enabled,
@@ -423,6 +430,10 @@ class _MenuItem extends StatefulWidget {
 
   final String label;
   final String icon;
+
+  /// 直接给一个图标控件（比如音源那三张品牌图）
+  final Widget? iconWidget;
+
   final bool danger;
   final bool checked;
   final bool enabled;
@@ -479,7 +490,14 @@ class _MenuItemState extends State<_MenuItem> {
           ),
           child: Row(
             children: [
-              AppIcon(widget.icon, size: 16, color: fg),
+              if (widget.iconWidget != null)
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: Center(child: widget.iconWidget),
+                )
+              else
+                AppIcon(widget.icon, size: 16, color: fg),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(

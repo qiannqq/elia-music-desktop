@@ -75,11 +75,6 @@ class AppState extends ChangeNotifier {
   /// 看起来就像「点了搜索没反应」。
   bool hasSearched = false;
 
-  /// 搜索框里的链接样式（等价原 `link-style` 类）
-  bool searchLinkStyle = false;
-
-  // ------------------------------------------------------------ 歌单
-
   // ------------------------------------------------------------ 歌单
 
   /// 所有歌单。永远至少有一个 —— 删到最后一个会被拦住。
@@ -998,19 +993,14 @@ class AppState extends ChangeNotifier {
   static final RegExp _idRe = RegExp(r'[?&]id=(\d+)');
   static final RegExp _numRe = RegExp(r'^\d+$');
 
-  /// 输入框内容变化时判断搜索按钮是否切换为「链接样式」
+  /// 输入框内容变化时记下来。
+  ///
+  /// 以前这里还要判断「输入的是不是歌单链接 / BV 号」，据此把搜索按钮切成
+  /// 「链接样式」；2026-09-29 搜索框改版（胶囊 + 左侧音源菜单 + 右侧搜索图标）之后
+  /// 那套样式没有了，那个标志位就成了只写不读的死状态，一并删掉。
   void onSearchInputChanged(String value) {
     searchInput = value;
-    final v = value.trim();
-    final isLink = RegExp(r'playlist/(\d+)|song/(\w+)|[?&]id=\d+|^\d+$').hasMatch(v);
-    final isNeteaseLink = v.contains('music.163.com');
-    // BV 号也是「直接定位」，跟粘贴链接一样把按钮切成链接样式
-    final isBv = BilibiliService.bvPattern.hasMatch(v);
-    final next = isLink || isNeteaseLink || isBv;
-    if (next != searchLinkStyle) {
-      searchLinkStyle = next;
-      notifyListeners();
-    }
+    if (hasListeners) notifyListeners();
   }
 
   /// 按当前音源搜索。三个源的入口集中在这里，加音源时只改这一处。
