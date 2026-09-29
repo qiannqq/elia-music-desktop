@@ -24,15 +24,18 @@ const double _kItemMargin = 4;
 
 const List<NavDef> kNavItems = [
   NavDef('search', AppIcons.search, '搜索'),
-  NavDef('playlist', AppIcons.playlist, '歌单'),
+  // ⚠️ 歌单**不在**这个列表里：它现在是侧边栏里一个常驻的、可折叠的分组
+  //（见 `_PlaylistGroup`），夹在「搜索」与「设置」之间。
   NavDef('settings', AppIcons.settings, '设置'),
   NavDef('about', AppIcons.info, '关于'),
 ];
 
 /// 侧边栏 —— 对应 `.sidebar` / `.nav-item` / `.nav-badge`
 ///
-/// 「歌单」下面会延伸出一排子项（每个歌单一条，最下方固定是「新建歌单」）。
-/// 窄侧边栏（compact）放不下名字，子项就不展开 —— 那里面塞文字只会挤成一团。
+/// 结构：搜索 / **歌单分组** / 设置 / 关于。歌单分组是常驻的，可以折叠
+///（2026-09-29 改：以前是「点【歌单】导航项才伸出一排子项」，那种下拉式的
+/// 观感不好，千奈明确要换成常驻分组 + 上下各一条淡分隔线）。
+/// 窄侧边栏（compact）放不下名字，分组只留图标与那两条线。
 class AppSidebar extends StatelessWidget {
   const AppSidebar({super.key, required this.state});
 
@@ -64,38 +67,10 @@ class AppSidebar extends StatelessWidget {
           child: SingleChildScrollView(
             child: Column(
               children: [
-                for (final item in kNavItems) ...[
-                  _NavItem(
-                    item: item,
-                    active: state.page == item.page,
-                    compact: compact,
-                    badge: item.page == 'playlist' ? state.songs.length : 0,
-                    onTap: () {
-                      if (item.page != 'playlist') {
-                        state.navigate(item.page);
-                        return;
-                      }
-                      // 已经在歌单页了：这一下就是「收起 / 展开子列表」。
-                      // 从别的页面过来时 navigate 自己会展开，不用再补一下。
-                      if (state.page == 'playlist') {
-                        state.togglePlaylistsExpanded();
-                      } else {
-                        state.navigate(item.page);
-                      }
-                    },
-                  ),
-                  if (item.page == 'playlist' && !compact)
-                    // 展开/收起要有动画：直接 if 掉的话是「啪」地跳出来。
-                    // 收起时给一个零高度的占位，AnimatedSize 才有东西可以量。
-                    AnimatedSize(
-                      duration: Motion.controlFast,
-                      curve: Motion.decelerate,
-                      alignment: Alignment.topCenter,
-                      child: state.playlistsExpanded
-                          ? _PlaylistChildren(state: state)
-                          : const SizedBox(width: double.infinity),
-                    ),
-                ],
+                // 搜索在最上，歌单分组夹在它与「设置 / 关于」之间
+                _navItem(kNavItems.first, compact),
+                _PlaylistGroup(state: state, compact: compact),
+                for (final item in kNavItems.skip(1)) _navItem(item, compact),
               ],
             ),
           ),
@@ -103,9 +78,19 @@ class AppSidebar extends StatelessWidget {
       },
     );
   }
+
+  Widget _navItem(NavDef item, bool compact) {
+    return _NavItem(
+      item: item,
+      active: state.page == item.page,
+      compact: compact,
+      badge: 0,
+      onTap: () => state.navigate(item.page),
+    );
+  }
 }
 
-/// 「歌单」下面的那一排子项
+/// 「歌单」分组里那一排子项
 class _PlaylistChildren extends StatelessWidget {
   const _PlaylistChildren({required this.state});
 
@@ -145,8 +130,6 @@ class _PlaylistChildren extends StatelessWidget {
               ),
             ),
           ),
-          // 【新建歌单】放在滚动区**外面**：歌单再多它也得露在最下面
-          _NewPlaylistButton(state: state),
         ],
       ),
     );
@@ -240,7 +223,15 @@ class _PlaylistChildState extends State<_PlaylistChild> {
   Widget build(BuildContext context) {
     final c = context.c;
     final active = widget.active;
+    // 选中 / 悬浮都用**文字**表达（跟设置页那四个分栏同一套）：
+    // 选中 = 主色（1 级，最亮），悬浮 = 主文字色（2 级），其余 = 次要文字色。
+    // 不给整行上底色 —— 一行行都亮一块的话，这个分组会花得看不出层次。
     final fg = active ? c.accent : (_hovered ? c.text : c.textSecondary);
+
+    // 前置封面用「置底」那一首的封面（空歌单、或那首没有封面 → 回退成图标）
+    final lastSong =
+        widget.playlist.songs.isNotEmpty ? widget.playlist.songs.last : null;
+    final coverPic = (lastSong?.pic ?? '').isEmpty ? null : lastSong!.pic;
 
     // 显示态与编辑态**共用同一个 TextStyle + 同一个 strut**。
     //
@@ -249,8 +240,7 @@ class _PlaylistChildState extends State<_PlaylistChild> {
     // 两边算基线用的字体不同，进出编辑态字就上下跳 1px（歌名那一处踩过
     // 同一个坑，修法一样：style 手动合并、两边挂同一个 strut）。
     final labelStyle = DefaultTextStyle.of(context).style.merge(TextStyle(
-      fontSize: 12.5,
-      fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+      fontSize: 13.5,
       color: fg,
     ));
     final labelStrut = StrutStyle.fromTextStyle(
@@ -284,15 +274,21 @@ class _PlaylistChildState extends State<_PlaylistChild> {
 
     final row = Container(
       height: 32,
-      padding: const EdgeInsets.only(left: 12, right: 4),
-      decoration: BoxDecoration(
-        color: active
-            ? c.accentLight
-            : (_hovered ? c.hover : c.hover.withValues(alpha: 0)),
-        borderRadius: BorderRadius.circular(c.radius),
-      ),
+      padding: const EdgeInsets.only(left: 6, right: 4),
+      // 不给底色：选中与悬浮都由上面的文字色表达（见 fg 的说明）。
       child: Row(
         children: [
+          // 前置封面：取该歌单**最下面那一首**的封面（「置底」，跟原版一致）。
+          // 空歌单没有封面，给一块同宽的占位图标 —— 免得那几行文字左右跳。
+          SizedBox(
+            width: 24,
+            child: Center(
+              child: coverPic == null
+                  ? AppIcon(AppIcons.music, size: 14, color: c.textTertiary)
+                  : SongCover(pic: coverPic, size: 20, radius: 4),
+            ),
+          ),
+          const SizedBox(width: 6),
           Expanded(
             child: CallbackShortcuts(
               // Esc 放弃修改，回到原来的名字
@@ -357,7 +353,15 @@ class _PlaylistChildState extends State<_PlaylistChild> {
         child: GestureDetector(
           // 同 _NavItem：让命中区跟悬浮区一致（能悬浮就能点）
           behavior: HitTestBehavior.opaque,
-          onTap: _editing ? null : () => widget.state.switchPlaylist(widget.playlist.id),
+          onTap: _editing
+              ? null
+              : () {
+                  // 换歌单 + **进歌单页**：以前进歌单页靠那个【歌单】导航项，
+                  // 现在导航项没了（分组常驻），点歌单行就得自己把页面带过去
+                  // —— 少了这一句，点了没反应、界面停在原地。
+                  widget.state.switchPlaylist(widget.playlist.id);
+                  widget.state.navigate('playlist');
+                },
           child: body,
         ),
       ),
@@ -366,54 +370,151 @@ class _PlaylistChildState extends State<_PlaylistChild> {
 }
 
 /// 子列表最下方固定的一项
-class _NewPlaylistButton extends StatefulWidget {
-  const _NewPlaylistButton({required this.state});
+/// 侧边栏里的「歌单」分组：一条淡线 + 标题行（带折叠箭头与新建）+ 歌单列表 + 一条淡线。
+///
+/// 千奈特意强调那两条线**必须有**：分组跟上下两个导航按钮挨在一起时，光靠间距
+/// 会显得挤、像一坨；加一条很淡的分隔线，才读得出「这是一组」。
+class _PlaylistGroup extends StatelessWidget {
+  const _PlaylistGroup({required this.state, required this.compact});
 
   final AppState state;
+  final bool compact;
 
   @override
-  State<_NewPlaylistButton> createState() => _NewPlaylistButtonState();
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _GroupDivider(),
+        _PlaylistHeader(state: state, compact: compact),
+        if (!compact)
+          // 展开/收起要有动画：直接 if 掉的话是「啪」地跳出来。
+          // 收起时给一个零高度的占位，AnimatedSize 才有东西可以量。
+          AnimatedSize(
+            duration: Motion.controlNormal,
+            curve: Motion.decelerate,
+            alignment: Alignment.topCenter,
+            child: state.playlistsExpanded
+                ? _PlaylistChildren(state: state)
+                : const SizedBox(width: double.infinity),
+          ),
+        const _GroupDivider(),
+      ],
+    );
+  }
 }
 
-class _NewPlaylistButtonState extends State<_NewPlaylistButton> {
+/// 分组上下那条很淡的分隔线。
+class _GroupDivider extends StatelessWidget {
+  const _GroupDivider();
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        child: Container(height: 1, color: context.c.borderSubtle),
+      );
+}
+
+/// 分组标题行：`[图标] 歌单 [折叠箭头] … [＋]`。
+///
+/// 整行是**折叠开关**（跟参考样式里那种分组标题一致）；右边的 `＋` 是新建歌单，
+/// 它有自己的一层手势，点它不会连带把分组收起来。
+class _PlaylistHeader extends StatefulWidget {
+  const _PlaylistHeader({required this.state, required this.compact});
+
+  final AppState state;
+  final bool compact;
+
+  @override
+  State<_PlaylistHeader> createState() => _PlaylistHeaderState();
+}
+
+class _PlaylistHeaderState extends State<_PlaylistHeader> {
   bool _hovered = false;
+  bool _pressed = false;
+  bool _plusHovered = false;
 
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final compact = widget.compact;
+    final state = widget.state;
+    final active = state.page == 'playlist';
+    final fg = active ? c.text : (_hovered ? c.text : c.textSecondary);
+
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapCancel: () => setState(() => _pressed = false),
         onTap: () {
-          final p = widget.state.createPlaylist();
-          widget.state.switchPlaylist(p.id);
-          toast.show('已新建「${p.name}」', type: ToastType.success);
+          setState(() => _pressed = false);
+          state.togglePlaylistsExpanded();
         },
         child: Container(
-          height: 32,
-          padding: const EdgeInsets.only(left: 12, right: 4),
+          height: 36,
+          margin: const EdgeInsets.symmetric(horizontal: _kItemMargin, vertical: 2),
+          padding: EdgeInsets.symmetric(horizontal: compact ? 0 : 12),
           decoration: BoxDecoration(
-            color: _hovered ? c.hover : c.hover.withValues(alpha: 0),
+            color: stateFill(c, hovered: _hovered, pressed: _pressed, selected: active),
             borderRadius: BorderRadius.circular(c.radius),
           ),
           child: Row(
+            mainAxisAlignment:
+                compact ? MainAxisAlignment.center : MainAxisAlignment.start,
             children: [
-              AppIcon(
-                AppIcons.plus,
-                size: 13,
-                color: _hovered ? c.accent : c.textTertiary,
-              ),
-              const SizedBox(width: 7),
-              Text(
-                '新建歌单',
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w500,
-                  color: _hovered ? c.accent : c.textTertiary,
+              AppIcon(AppIcons.playlist, size: 16, color: fg),
+              if (!compact) ...[
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    '歌单',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: fg,
+                    ),
+                  ),
                 ),
-              ),
+                // 折叠箭头：展开时转半圈 —— 状态变了要看得出来，不能只是「有/没有」
+                AnimatedRotation(
+                  turns: state.playlistsExpanded ? 0.5 : 0,
+                  duration: Motion.controlFast,
+                  curve: Motion.decelerate,
+                  child: AppIcon(AppIcons.chevronDown, size: 12, color: c.textTertiary),
+                ),
+                const SizedBox(width: 2),
+                MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  onEnter: (_) => setState(() => _plusHovered = true),
+                  onExit: (_) => setState(() => _plusHovered = false),
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      final p = state.createPlaylist();
+                      state.switchPlaylist(p.id);
+                      toast.show('已新建「${p.name}」', type: ToastType.success);
+                    },
+                    child: SizedBox(
+                      key: const Key('sidebar-new-playlist'),
+                      width: 24,
+                      height: 24,
+                      child: Center(
+                        child: AppIcon(
+                          AppIcons.plus,
+                          size: 13,
+                          color: _plusHovered ? c.accent : c.textTertiary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

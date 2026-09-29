@@ -167,12 +167,15 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
-  /// 侧边栏的歌单子列表是否展开。切到歌单页会自动展开 ——
-  /// 进了歌单页却看不到有哪些歌单，会以为只有一个。
-  bool playlistsExpanded = false;
+  /// 侧边栏「歌单」分组是否展开。
+  ///
+  /// 它现在是**常驻分组**（不再是「点导航项才伸出来的下拉」），所以默认展开、
+  /// 状态跟着用户走、并记在本地 —— 收起是自己按的，重启不该被重置回去。
+  bool playlistsExpanded = true;
 
   void togglePlaylistsExpanded() {
     playlistsExpanded = !playlistsExpanded;
+    LocalStore.set('sidebar_playlists_expanded', playlistsExpanded ? '1' : '0');
     notifyListeners();
   }
   final Set<String> selectedMids = {};
@@ -397,6 +400,9 @@ class AppState extends ChangeNotifier {
   /// 老版本只有一份歌单（`qqmusic_songs`）—— 读不到新结构时把它搬进
   /// 「默认歌单」，升级之后看到的还是原来那些歌，不会因为改结构丢东西。
   void _loadPlaylists() {
+    // 侧边栏「歌单」分组的展开状态：没记过就按默认（展开）
+    playlistsExpanded =
+        LocalStore.get('sidebar_playlists_expanded') != '0';
     try {
       final raw = LocalStore.get('qqmusic_playlists');
       if (raw != null && raw.isNotEmpty) {
@@ -467,9 +473,8 @@ class AppState extends ChangeNotifier {
     final to = _pageOrder.indexOf(target);
     pageDirection = to >= from ? 1 : -1;
     page = target;
-    // 切页时歌单子列表跟着收/展：进了别的页面还挂着那一排歌单，
-    // 侧边栏会一直占着高度；回到歌单页则自动展开（不然看不到有哪些歌单）。
-    playlistsExpanded = target == 'playlist';
+    // 歌单分组是**常驻**的（2026-09-29 改）：切页不再动它的展开状态 ——
+    // 那是用户自己的选择，记在本地，切来切去不该把它重置。
     // 探针开着时给这一段起个名，方便把帧耗时对上具体操作
     PerfProbe.mark('切页→$target');
     notifyListeners();

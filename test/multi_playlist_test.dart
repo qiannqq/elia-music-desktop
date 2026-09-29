@@ -54,7 +54,8 @@ void main() {
   setUp(() {
     state.playlists = [Playlist(id: 'p1', name: '默认歌单')];
     state.currentPlaylistId = 'p1';
-    state.playlistsExpanded = false; // 是单例上的状态，上一个用例可能留成展开了
+    // 歌单分组现在默认展开、状态跟着用户走（还会落盘），用例之间要复位
+    state.playlistsExpanded = true;
     state.selectedMids.clear();
     state.playQueue = [];
     state.queueIndex = -1;
@@ -274,36 +275,38 @@ void main() {
       await tester.pump();
     }
 
-    testWidgets('点「歌单」延伸出子项，最下方是新建歌单', (tester) async {
+    testWidgets('歌单是常驻分组，标题行整行可以折叠', (tester) async {
       state.createPlaylist('我的收藏');
       await pumpSidebar(tester);
 
-      expect(find.text('我的收藏'), findsNothing, reason: '默认是收着的');
-
-      await tester.tap(find.text('歌单'));
-      await tester.pumpAndSettle();
-
+      // 常驻：一进来就看得见有哪些歌单（不再需要先点【歌单】把下拉点出来）
       expect(find.text('默认歌单'), findsOneWidget);
       expect(find.text('我的收藏'), findsOneWidget);
-      expect(find.text('新建歌单'), findsOneWidget);
+      expect(find.byKey(const Key('sidebar-new-playlist')), findsOneWidget,
+          reason: '新建按钮长在标题行上，跟列表一起常驻');
 
-      // 再点一次收起
+      // 点标题行收起
       await tester.tap(find.text('歌单'));
       await tester.pumpAndSettle();
-      expect(find.text('我的收藏'), findsNothing);
+      expect(find.text('我的收藏'), findsNothing, reason: '收起后列表跟着藏起来');
+
+      // 再点一次展回来
+      await tester.tap(find.text('歌单'));
+      await tester.pumpAndSettle();
+      expect(find.text('我的收藏'), findsOneWidget, reason: '再点一次展回来');
+
+      // 折叠状态会落盘（防抖 120ms），把定时器跑完
     });
 
     testWidgets('点子项切换当前歌单；点「新建歌单」会多出一个', (tester) async {
       final b = state.createPlaylist('我的收藏');
       await pumpSidebar(tester);
-      await tester.tap(find.text('歌单'));
-      await tester.pumpAndSettle();
 
       await tester.tap(find.text('我的收藏'));
       await tester.pumpAndSettle();
       expect(state.currentPlaylistId, b.id);
 
-      await tester.tap(find.text('新建歌单'));
+      await tester.tap(find.byKey(const Key('sidebar-new-playlist')));
       await tester.pumpAndSettle();
       expect(state.playlists.length, 3);
       expect(state.currentPlaylist.name, '新歌单');
@@ -319,51 +322,56 @@ void main() {
       await pumpSidebar(tester);
 
       double listH() => tester.getSize(find.byType(AnimatedSize)).height;
-      expect(listH(), 0, reason: '默认收着，高度为 0');
+      expect(listH(), greaterThan(0), reason: '常驻分组默认是展开的');
 
-      // 只 pump 一帧（时间不推进）：动画刚开始，高度还没长到终点
+      // 收起来：只 pump 一帧（时间不推进）—— 动画刚开始，高度还没缩到 0
       await tester.tap(find.text('歌单'));
       await tester.pump();
       final mid = listH();
       await tester.pumpAndSettle();
-      final full = listH();
-
-      expect(full, greaterThan(0));
-      expect(mid, lessThan(full), reason: '一帧就到终点的话说明根本没动画');
-
-      // 收起同理
-      await tester.tap(find.text('歌单'));
-      await tester.pump();
-      expect(listH(), greaterThan(0));
-      await tester.pumpAndSettle();
+      expect(mid, greaterThan(0), reason: '一帧就缩到底的话说明根本没动画');
       expect(listH(), 0);
+
+      // 再展开：⚠️ 这一帧的高度还是 0 —— AnimatedSize 是从**当前**尺寸开始动的，
+      // 展开途中才有中间态，所以只在 settle 之后断言
+      await tester.tap(find.text('歌单'));
+      await tester.pumpAndSettle();
+      expect(listH(), greaterThan(0));
+
+      // 展开状态会落盘（防抖 120ms），把定时器跑完
+      await tester.pump(const Duration(seconds: 5));
     });
 
-    testWidgets('切到别的页面时子列表自动收起，回歌单页自动展开', (tester) async {
-      state.navigate('playlist');
-      expect(state.playlistsExpanded, isTrue, reason: '进歌单页要能看到有哪些歌单');
-
+    testWidgets('切页不动歌单分组的展开状态（它是常驻分组，收起是用户自己的选择）',
+        (tester) async {
+      state.playlistsExpanded = false; // 用户手动收起来了
       state.navigate('settings');
-      expect(state.playlistsExpanded, isFalse, reason: '离开歌单页就该收起来');
+      expect(state.playlistsExpanded, isFalse, reason: '切页不该把它顶开');
 
       state.navigate('playlist');
-      expect(state.playlistsExpanded, isTrue);
+      expect(state.playlistsExpanded, isFalse, reason: '回歌单页也一样，别自作主张');
+
+      state.playlistsExpanded = true;
+      state.navigate('settings');
+      expect(state.playlistsExpanded, isTrue, reason: '展开着的也不该被切页收掉');
     });
 
-    testWidgets('歌单很多时在子菜单内部滚，【新建歌单】始终露在最下面', (tester) async {
+    testWidgets('歌单很多时在分组内部滚，标题行（含新建按钮）始终露着', (tester) async {
       for (var i = 0; i < 40; i++) {
         state.createPlaylist('歌单$i');
       }
       await pumpSidebar(tester);
-      await tester.tap(find.text('歌单'));
-      await tester.pumpAndSettle();
 
-      // 40 条 × 32px ≈ 1280，远超 800 的窗口：没有长度上限的话
-      // 「新建歌单」会被顶到可视区外面去
-      expect(tester.getBottomLeft(find.text('新建歌单')).dy, lessThan(800),
-          reason: '它在滚动区外面，歌单再多也得露着');
-      // 侧边栏自己一个滚动区 + 子列表一个
+      // 40 条 × 32px ≈ 1280，远超 800 的窗口：没有长度上限的话标题行会被顶出去
+      expect(tester.getBottomLeft(find.text('歌单')).dy, lessThan(800),
+          reason: '标题行在滚动区外面，歌单再多也得露着');
+      expect(find.byKey(const Key('sidebar-new-playlist')), findsOneWidget,
+          reason: '新建按钮长在标题行上，自然也露着');
+      // 侧边栏自己一个滚动区 + 分组里一个
       expect(find.byType(SingleChildScrollView), findsNWidgets(2));
+
+      // 40 次新建各自触发了 LocalStore 的防抖落盘，把定时器跑完
+      await tester.pump(const Duration(seconds: 5));
     });
   });
 }
