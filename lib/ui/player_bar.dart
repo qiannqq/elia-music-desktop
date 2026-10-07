@@ -9,7 +9,6 @@ import '../services/app_background.dart';
 import 'widgets/karaoke_text.dart';
 import '../core/lyric.dart';
 import '../models/song.dart';
-import '../services/api_client.dart';
 import '../services/player_controller.dart';
 import '../state/app_state.dart';
 import 'icons.dart';
@@ -24,14 +23,12 @@ const double kLyricLineHeight = 24;
 /// 播放栏（按钮 + 菜单）和现在播放页共用这一份 —— 两处的图标必须一致，
 /// 否则同一个模式在两个地方长得不一样。
 String playModeIcon(PlayMode mode) => switch (mode) {
-      PlayMode.sequential => AppIcons.playOrder,
-      PlayMode.reverse => AppIcons.playOrderReverse,
-      PlayMode.repeatAll => AppIcons.repeatAll,
-      PlayMode.repeatOne => AppIcons.repeatOne,
-      PlayMode.shuffle => AppIcons.shuffle,
-    };
-
-
+  PlayMode.sequential => AppIcons.playOrder,
+  PlayMode.reverse => AppIcons.playOrderReverse,
+  PlayMode.repeatAll => AppIcons.repeatAll,
+  PlayMode.repeatOne => AppIcons.repeatOne,
+  PlayMode.shuffle => AppIcons.shuffle,
+};
 
 /// 底部播放器栏 —— 对应 `.player-bar`
 class PlayerBar extends StatefulWidget {
@@ -147,7 +144,10 @@ class _PlayerBarState extends State<PlayerBar> {
             right: 0,
             child: Center(
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: c.danger,
                   borderRadius: BorderRadius.circular(c.radius),
@@ -205,7 +205,7 @@ class _PlayerBarState extends State<PlayerBar> {
                               color: c.accent.withValues(alpha: 0.36),
                               blurRadius: 16,
                               spreadRadius: 3,
-                            )
+                            ),
                           ]
                         : const [],
                   ),
@@ -221,23 +221,10 @@ class _PlayerBarState extends State<PlayerBar> {
                     color: c.surfaceAlt,
                     borderRadius: BorderRadius.circular(c.radius),
                   ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(c.radius),
-                    child: song.pic.isEmpty
-                        ? Center(
-                            child: AppIcon(AppIcons.music,
-                                size: 24, color: c.textTertiary),
-                          )
-                        : Image.network(
-                            ApiClient.getProxyImageUrl(song.pic),
-                            width: 48,
-                            height: 48,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) => Center(
-                              child: AppIcon(AppIcons.music,
-                                  size: 24, color: c.textTertiary),
-                            ),
-                          ),
+                  child: SongCover(
+                    pic: song.coverPic,
+                    size: 48,
+                    radius: c.radius,
                   ),
                 ),
               ),
@@ -299,7 +286,8 @@ class _PlayerBarState extends State<PlayerBar> {
                         child: TweenAnimationBuilder<double>(
                           tween: Tween(
                             begin: 0,
-                            end: -(idx.clamp(0, math.max(0, lines.length - 1))) *
+                            end:
+                                -(idx.clamp(0, math.max(0, lines.length - 1))) *
                                 kLyricLineHeight,
                           ),
                           duration: const Duration(milliseconds: 400),
@@ -336,14 +324,17 @@ class _PlayerBarState extends State<PlayerBar> {
                                                   player.positionNotifier,
                                               builder: (_, pos, _) =>
                                                   SlidingKaraokeText(
-                                                key: ValueKey(
-                                                    'karaoke-${lines[i].time}'),
-                                                line: lines[i],
-                                                position:
-                                                    pos.inMilliseconds / 1000.0,
-                                                activeColor: c.accent,
-                                                inactiveColor: c.textTertiary,
-                                              ),
+                                                    key: ValueKey(
+                                                      'karaoke-${lines[i].time}',
+                                                    ),
+                                                    line: lines[i],
+                                                    position:
+                                                        pos.inMilliseconds /
+                                                        1000.0,
+                                                    activeColor: c.accent,
+                                                    inactiveColor:
+                                                        c.textTertiary,
+                                                  ),
                                             )
                                           : Text(
                                               lines[i].text,
@@ -519,10 +510,7 @@ class _PlayerBarState extends State<PlayerBar> {
             ),
             const SizedBox(width: 28),
             // ---- 音量（最右，悬浮向右展开滑块）----
-            _VolumeControl(
-              volume: player.volume,
-              onChanged: player.setVolume,
-            ),
+            _VolumeControl(volume: player.volume, onChanged: player.setVolume),
           ],
         ),
         const SizedBox(height: 4),
@@ -532,76 +520,78 @@ class _PlayerBarState extends State<PlayerBar> {
         ValueListenableBuilder<Duration>(
           valueListenable: player.positionNotifier,
           builder: (context, _, _) {
-            final progress = _draggingProgress ? _dragProgress : player.progress;
+            final progress = _draggingProgress
+                ? _dragProgress
+                : player.progress;
             final displayPos = _draggingProgress
                 ? Duration(
-                    milliseconds:
-                        (progress * player.duration.inMilliseconds).round(),
+                    milliseconds: (progress * player.duration.inMilliseconds)
+                        .round(),
                   )
                 : player.position;
             return Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-          SizedBox(
-            width: 400,
-            child: Row(
-              children: [
                 SizedBox(
-                  width: 36,
-                  child: Text(
-                    formatTime(displayPos.inMilliseconds / 1000.0),
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: c.textTertiary,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
+                  width: 400,
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 36,
+                        child: Text(
+                          formatTime(displayPos.inMilliseconds / 1000.0),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: c.textTertiary,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: AppProgressBar(
+                          value: progress,
+                          height: 4,
+                          hoverHeight: 6,
+                          draggable: true,
+                          // 拖动过程中**只更新本地预览**，不真的 seek ——
+                          // 边拖边 seek 会让音频不停跳转，听感很鬼畜。
+                          onSeek: (v) => setState(() {
+                            _draggingProgress = true;
+                            _dragProgress = v;
+                          }),
+                          // 按下/开始拖动：先暂停，并记住拖动前的播放状态
+                          onSeekStart: () {
+                            _wasPlayingBeforeSeek = player.isPlaying;
+                            player.pause();
+                          },
+                          // 松手/抬起：真正 seek，然后还原拖动前的播放状态
+                          onSeekEnd: () {
+                            final v = _dragProgress;
+                            setState(() => _draggingProgress = false);
+                            player.seekPercent(v).then((_) {
+                              if (_wasPlayingBeforeSeek) player.resume();
+                            });
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        width: 36,
+                        child: Text(
+                          formatTime(player.duration.inMilliseconds / 1000.0),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: c.textTertiary,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: AppProgressBar(
-                    value: progress,
-                    height: 4,
-                    hoverHeight: 6,
-                    draggable: true,
-                    // 拖动过程中**只更新本地预览**，不真的 seek ——
-                    // 边拖边 seek 会让音频不停跳转，听感很鬼畜。
-                    onSeek: (v) => setState(() {
-                      _draggingProgress = true;
-                      _dragProgress = v;
-                    }),
-                    // 按下/开始拖动：先暂停，并记住拖动前的播放状态
-                    onSeekStart: () {
-                      _wasPlayingBeforeSeek = player.isPlaying;
-                      player.pause();
-                    },
-                    // 松手/抬起：真正 seek，然后还原拖动前的播放状态
-                    onSeekEnd: () {
-                      final v = _dragProgress;
-                      setState(() => _draggingProgress = false);
-                      player.seekPercent(v).then((_) {
-                        if (_wasPlayingBeforeSeek) player.resume();
-                      });
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 36,
-                  child: Text(
-                    formatTime(player.duration.inMilliseconds / 1000.0),
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: c.textTertiary,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
               ],
             );
           },
@@ -615,11 +605,8 @@ class _PlayerBarState extends State<PlayerBar> {
   /// 五个控件的实际宽度不同（28 / 28 / 36 / 28 / 16），而 spaceEvenly
   /// 平分的是「间隙」—— 宽度不同则中心距不同，看起来间距就不一致。
   /// 统一套 36×36 并居中后，间距才真正相等。
-  Widget _ctrlSlot(Widget child) => SizedBox(
-        width: 36,
-        height: 36,
-        child: Center(child: child),
-      );
+  Widget _ctrlSlot(Widget child) =>
+      SizedBox(width: 36, height: 36, child: Center(child: child));
 
   // ------------------------------------------------------------ 右侧：歌词 + 关闭
 
@@ -791,7 +778,10 @@ class _VolumeControlState extends State<_VolumeControl> {
                   width: _sliderWidth + 20,
                   child: Center(
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: c.card,
                         border: Border.all(color: c.border),

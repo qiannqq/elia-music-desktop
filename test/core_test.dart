@@ -35,14 +35,17 @@ void main() {
     });
 
     test('只有 // 的行丢掉（QQ 拿它隔开作者信息和正文）', () {
-      const raw = '[00:00.00]Written by: A/B/C\n'
+      const raw =
+          '[00:00.00]Written by: A/B/C\n'
           '[00:00.50]//\n'
           '[00:01.00]Charlie Puth:\n'
           '[00:02.00]只剩沉默\n';
       final lines = parseLrc(raw);
-      expect(lines.map((l) => l.text).toList(),
-          ['Written by: A/B/C', 'Charlie Puth:', '只剩沉默'],
-          reason: '夹在中间的那行 // 不该显示出来');
+      expect(lines.map((l) => l.text).toList(), [
+        'Written by: A/B/C',
+        'Charlie Puth:',
+        '只剩沉默',
+      ], reason: '夹在中间的那行 // 不该显示出来');
     });
 
     test('翻译里的 // 一样丢掉（否则「这一句的翻译」会显示成两个斜杠）', () {
@@ -76,7 +79,10 @@ void main() {
 
   group('文件名清洗', () {
     test('替换非法字符并压缩空白', () {
-      expect(AppState.sanitizeFilename('a/b\\c:d*e?f"g<h>i|j'), 'a_b_c_d_e_f_g_h_i_j');
+      expect(
+        AppState.sanitizeFilename('a/b\\c:d*e?f"g<h>i|j'),
+        'a_b_c_d_e_f_g_h_i_j',
+      );
       expect(AppState.sanitizeFilename('  多   空格  '), '多 空格');
     });
   });
@@ -91,11 +97,19 @@ void main() {
         link: 'https://y.qq.com/n/yqq/song/abc.html',
         mediaMid: 'm1',
         source: 'qq',
-        raw: {'file': {'media_mid': 'm1'}},
+        raw: {
+          'file': {'media_mid': 'm1'},
+        },
       );
       final stored = song.toStoreJson();
       expect(stored.keys.toSet(), {
-        'mid', 'name', 'artist', 'pic', 'link', 'mediaMid', 'source',
+        'mid',
+        'name',
+        'artist',
+        'pic',
+        'link',
+        'mediaMid',
+        'source',
       });
       expect(stored['raw'], isNull);
 
@@ -105,12 +119,28 @@ void main() {
       expect(restored.raw, isEmpty);
     });
 
+    test('自定义封面单独落盘，恢复默认不影响远端 pic', () {
+      const song = Song(
+        mid: 'abc',
+        name: 'n',
+        artist: 'a',
+        pic: 'https://remote/cover.jpg',
+        coverOverride: 'file:///D:/custom/abc.png',
+      );
+      final restored = Song.fromStoreJson(song.toStoreJson());
+      expect(restored.pic, 'https://remote/cover.jpg');
+      expect(restored.coverOverride, 'file:///D:/custom/abc.png');
+      expect(restored.coverPic, 'file:///D:/custom/abc.png');
+    });
+
     test('请求体携带 raw（取 vkey 需要 media_mid）', () {
       const song = Song(
         mid: 'abc',
         name: 'n',
         artist: 'a',
-        raw: {'file': {'media_mid': 'mm'}},
+        raw: {
+          'file': {'media_mid': 'mm'},
+        },
       );
       final api = song.toApiJson();
       expect(api['raw'], isNotNull);
@@ -142,14 +172,16 @@ void main() {
     });
 
     test('缺 unionid → rejected', () async {
-      final r = await QQMusicService.instance
-          .fetchUserInfo(ck: 'uin=1; qqmusic_key=abc');
+      final r = await QQMusicService.instance.fetchUserInfo(
+        ck: 'uin=1; qqmusic_key=abc',
+      );
       expect(r.outcome, CkOutcome.rejected);
     });
 
     test('缺 musickey → rejected', () async {
-      final r = await QQMusicService.instance
-          .fetchUserInfo(ck: 'psrf_qqunionid=DEADBEEF; uin=1');
+      final r = await QQMusicService.instance.fetchUserInfo(
+        ck: 'psrf_qqunionid=DEADBEEF; uin=1',
+      );
       expect(r.outcome, CkOutcome.rejected);
     });
 
@@ -160,7 +192,8 @@ void main() {
       QQMusicService.profileEndpoint = 'http://127.0.0.1:1/nope';
       try {
         final r = await QQMusicService.instance.fetchUserInfo(
-            ck: 'uin=1; qqmusic_key=abc; psrf_qqunionid=DEADBEEF');
+          ck: 'uin=1; qqmusic_key=abc; psrf_qqunionid=DEADBEEF',
+        );
         expect(r.outcome, CkOutcome.unreachable);
         expect(r.nickname, isEmpty);
       } finally {
@@ -170,8 +203,7 @@ void main() {
   });
 
   group('QRC 解密密钥', () {
-    test('密钥为 24 字节 ASCII（与 Node 版 Buffer.from(...,"ascii") 一致）',
-        () {
+    test('密钥为 24 字节 ASCII（与 Node 版 Buffer.from(...,"ascii") 一致）', () {
       const key = r'!@#)(*$%123ZXC!@!@#)(NHL';
       expect(utf8.encode(key).length, 24);
       // 与 Node 中 crypto.createHash('md5') 的输入一致，确保未被 Dart 插值破坏
@@ -196,7 +228,10 @@ void main() {
     });
 
     test('先清掉换行与空白', () {
-      expect(NeteaseMusicService.normalizeCookie('  ABC\n123\t  '), 'MUSIC_U=ABC123');
+      expect(
+        NeteaseMusicService.normalizeCookie('  ABC\n123\t  '),
+        'MUSIC_U=ABC123',
+      );
     });
 
     test('空串还是空串（不补成 MUSIC_U=）', () {

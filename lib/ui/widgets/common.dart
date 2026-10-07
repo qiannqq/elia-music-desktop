@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
@@ -11,7 +12,11 @@ import 'fluent.dart';
 
 /// 悬停状态构建器
 class HoverBuilder extends StatefulWidget {
-  const HoverBuilder({super.key, required this.builder, this.cursor = SystemMouseCursors.click});
+  const HoverBuilder({
+    super.key,
+    required this.builder,
+    this.cursor = SystemMouseCursors.click,
+  });
 
   final Widget Function(BuildContext context, bool hovered) builder;
   final MouseCursor cursor;
@@ -311,7 +316,9 @@ class AppIconButton extends StatelessWidget {
               ? SystemMouseCursors.basic
               : SystemMouseCursors.click,
           builder: (ctx, hovered) {
-            final fg = hovered ? (hoverColor ?? (accentHover ? c.accent : c.text)) : base;
+            final fg = hovered
+                ? (hoverColor ?? (accentHover ? c.accent : c.text))
+                : base;
             // 非悬浮态不能用 Colors.transparent（透明的黑）：
             // AnimatedContainer 会在两者之间插值，悬浮瞬间先「黑」一下。
             // 用同色 + alpha 0，插值才在同一色相内。
@@ -325,11 +332,19 @@ class AppIconButton extends StatelessWidget {
                 color: hovered ? idleBg : idleBg.withValues(alpha: 0),
                 borderRadius: BorderRadius.circular(c.radius),
                 border: bordered
-                    ? Border.all(color: hovered && accentHover ? c.accent : c.border)
+                    ? Border.all(
+                        color: hovered && accentHover ? c.accent : c.border,
+                      )
                     : null,
               ),
               child: Center(
-                child: AppIcon(icon, size: iconSize, color: fg, filled: filled, viewBox: viewBox),
+                child: AppIcon(
+                  icon,
+                  size: iconSize,
+                  color: fg,
+                  filled: filled,
+                  viewBox: viewBox,
+                ),
               ),
             );
           },
@@ -383,11 +398,11 @@ class _AppToggleState extends State<AppToggle> {
     // 轨道底：开 = 主色（悬停/按下分别降到 0.9 / 0.8），关 = 淡底三档
     final track = on
         ? (_pressed
-            ? c.accentFillPressed
-            : (_hovered ? c.accentFillHover : c.accentFill))
+              ? c.accentFillPressed
+              : (_hovered ? c.accentFillHover : c.accentFill))
         : (_pressed
-            ? c.altFillPressed
-            : (_hovered ? c.altFillHover : c.altFill));
+              ? c.altFillPressed
+              : (_hovered ? c.altFillHover : c.altFill));
     final stroke = on ? c.accentFill.withValues(alpha: 0.08) : c.strokeStrong;
     final knob = on ? c.accentText : c.textSecondary;
 
@@ -566,7 +581,9 @@ class AppProgressBar extends StatelessWidget {
         }
 
         return HoverBuilder(
-          cursor: draggable ? SystemMouseCursors.click : SystemMouseCursors.basic,
+          cursor: draggable
+              ? SystemMouseCursors.click
+              : SystemMouseCursors.basic,
           builder: (_, hovered) => GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTapDown: draggable ? (d) => seekAt(d.localPosition) : null,
@@ -577,7 +594,9 @@ class AppProgressBar extends StatelessWidget {
                     onSeekStart?.call();
                   }
                 : null,
-            onHorizontalDragUpdate: draggable ? (d) => seekAt(d.localPosition) : null,
+            onHorizontalDragUpdate: draggable
+                ? (d) => seekAt(d.localPosition)
+                : null,
             onHorizontalDragEnd: draggable ? (_) => onSeekEnd?.call() : null,
             child: SizedBox(
               height: math.max(height, draggable ? hoverHeight : height),
@@ -616,7 +635,12 @@ class AppProgressBar extends StatelessWidget {
 
 /// 加载圈 —— 对应 `.loading-spinner` / `.cover-spinner`
 class AppSpinner extends StatelessWidget {
-  const AppSpinner({super.key, this.size = 20, this.strokeWidth = 2, this.color});
+  const AppSpinner({
+    super.key,
+    this.size = 20,
+    this.strokeWidth = 2,
+    this.color,
+  });
 
   final double size;
   final double strokeWidth;
@@ -665,6 +689,19 @@ class SongCover extends StatelessWidget {
     final c = context.c;
     final raw = pic ?? '';
     if (raw.isEmpty) return _placeholder(c);
+    if (raw.startsWith('file://')) {
+      final file = File.fromUri(Uri.parse(raw));
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: Image.file(
+          file,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => _placeholder(c),
+        ),
+      );
+    }
 
     // 按显示尺寸解码。封面原图常有 300~3000px，为一个 40px 的格子解出整张，
     // 几百首歌就能把图片缓存挤爆、反复重新解码。
@@ -776,7 +813,12 @@ class SourceIcon extends StatelessWidget {
 
 /// 空状态 —— 对应 `.empty-state`
 class EmptyState extends StatelessWidget {
-  const EmptyState({super.key, required this.icon, required this.title, this.hint});
+  const EmptyState({
+    super.key,
+    required this.icon,
+    required this.title,
+    this.hint,
+  });
 
   final String icon;
   final String title;
@@ -791,7 +833,12 @@ class EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          AppIcon(icon, size: 48, color: c.textTertiary.withValues(alpha: 0.35), strokeWidth: 1.5),
+          AppIcon(
+            icon,
+            size: 48,
+            color: c.textTertiary.withValues(alpha: 0.35),
+            strokeWidth: 1.5,
+          ),
           const SizedBox(height: 12),
           // WinUI 的空状态：标题走 Body（14）、说明走 Caption（12），
           // 两级都用次级/三级文字色 —— 以前是 15 + 13，比正文还大。

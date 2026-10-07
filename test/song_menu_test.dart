@@ -30,8 +30,14 @@ void main() {
     });
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-    for (final name in ['xyz.luan/audioplayers', 'xyz.luan/audioplayers.global']) {
-      messenger.setMockMethodCallHandler(MethodChannel(name), (call) async => null);
+    for (final name in [
+      'xyz.luan/audioplayers',
+      'xyz.luan/audioplayers.global',
+    ]) {
+      messenger.setMockMethodCallHandler(
+        MethodChannel(name),
+        (call) async => null,
+      );
     }
     messenger.setMockStreamHandler(
       const EventChannel('xyz.luan/audioplayers.global/events'),
@@ -47,15 +53,17 @@ void main() {
   /// 菜单里的「下载」要用 context 弹保存框，所以借一棵最小 widget 树取一个。
   Future<BuildContext> takeContext(WidgetTester tester) async {
     late BuildContext ctx;
-    await tester.pumpWidget(MaterialApp(
-      theme: buildTheme(AppColors.dark, Brightness.dark),
-      home: Builder(
-        builder: (c) {
-          ctx = c;
-          return const SizedBox.shrink();
-        },
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(AppColors.dark, Brightness.dark),
+        home: Builder(
+          builder: (c) {
+            ctx = c;
+            return const SizedBox.shrink();
+          },
+        ),
       ),
-    ));
+    );
     return ctx;
   }
 
@@ -76,6 +84,7 @@ void main() {
         '播放',
         '下载',
         '刷新缓存',
+        '自定义封面',
         '歌词',
         '编辑歌曲名',
         '从歌单中移除',

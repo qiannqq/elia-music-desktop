@@ -8,6 +8,7 @@ import '../../services/player_controller.dart';
 import '../../services/shell_service.dart';
 import '../../state/app_state.dart';
 import '../icons.dart';
+import '../dialogs/custom_cover_dialog.dart';
 import 'common.dart';
 import 'context_menu.dart';
 import 'dialogs.dart';
@@ -617,6 +618,11 @@ List<AppMenuItem> buildSongMenuItems({
       icon: AppIcons.refresh,
       dividerBefore: true,
       onTap: () => refreshSongCacheFromMenu(state, song),
+    ),
+    AppMenuItem(
+      label: '自定义封面',
+      icon: AppIcons.palette,
+      onTap: () => showCustomCoverDialog(context, state, song),
     ),
     AppMenuItem(
       label: '歌词',

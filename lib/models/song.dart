@@ -7,6 +7,10 @@ class Song {
   final String name;
   final String artist;
   final String pic;
+
+  /// 用户自定义封面本地文件（`file://` URI）。空串表示使用 [pic]。
+  /// 原始远端封面始终保留，恢复默认时只清这个 override。
+  final String coverOverride;
   final String link;
   final String mediaMid;
 
@@ -26,6 +30,7 @@ class Song {
     required this.name,
     required this.artist,
     this.pic = '',
+    this.coverOverride = '',
     this.link = '',
     this.mediaMid = '',
     this.source = 'qq',
@@ -37,6 +42,9 @@ class Song {
 
   bool get isBilibili => source == 'bilibili';
 
+  /// 界面显示用封面：优先用户自定义文件，默认仍走远端 [pic]。
+  String get coverPic => coverOverride.isNotEmpty ? coverOverride : pic;
+
   /// 上游有那种「用户自己上传的作品」—— 拿不到任何 id（mid 为空）。
   ///
   /// 这种歌没法取流、也没法去重（全应用认歌都靠 mid），装进歌单只会变成
@@ -46,58 +54,62 @@ class Song {
 
   /// 持久化用（等价 `trimSong()`）
   Map<String, dynamic> toStoreJson() => {
-        'mid': mid,
-        'name': name,
-        'artist': artist,
-        'pic': pic,
-        'link': link,
-        'mediaMid': mediaMid,
-        'source': source,
-      };
+    'mid': mid,
+    'name': name,
+    'artist': artist,
+    'pic': pic,
+    if (coverOverride.isNotEmpty) 'coverOverride': coverOverride,
+    'link': link,
+    'mediaMid': mediaMid,
+    'source': source,
+  };
 
   /// 请求体用（带上 raw，服务端据此取高品质地址）
   Map<String, dynamic> toApiJson() => {
-        'mid': mid,
-        'id': mid,
-        'name': name,
-        'artist': artist,
-        'pic': pic,
-        'link': link,
-        'mediaMid': mediaMid,
-        'source': source,
-        'fee': fee,
-        'duration': duration,
-        'album': album,
-        if (raw.isNotEmpty) 'raw': raw,
-        if (raw.isNotEmpty) 'data': raw,
-      };
+    'mid': mid,
+    'id': mid,
+    'name': name,
+    'artist': artist,
+    'pic': pic,
+    'link': link,
+    'mediaMid': mediaMid,
+    'source': source,
+    'fee': fee,
+    'duration': duration,
+    'album': album,
+    if (raw.isNotEmpty) 'raw': raw,
+    if (raw.isNotEmpty) 'data': raw,
+  };
 
   factory Song.fromStoreJson(Map<String, dynamic> j) => Song(
-        mid: (j['mid'] ?? '').toString(),
-        name: (j['name'] ?? '').toString(),
-        artist: (j['artist'] ?? '').toString(),
-        pic: (j['pic'] ?? '').toString(),
-        link: (j['link'] ?? '').toString(),
-        mediaMid: (j['mediaMid'] ?? '').toString(),
-        source: (j['source'] ?? 'qq').toString(),
-      );
+    mid: (j['mid'] ?? '').toString(),
+    name: (j['name'] ?? '').toString(),
+    artist: (j['artist'] ?? '').toString(),
+    pic: (j['pic'] ?? '').toString(),
+    coverOverride: (j['coverOverride'] ?? '').toString(),
+    link: (j['link'] ?? '').toString(),
+    mediaMid: (j['mediaMid'] ?? '').toString(),
+    source: (j['source'] ?? 'qq').toString(),
+  );
 
-  Song copyWith({String? name, String? pic}) => Song(
-        mid: mid,
-        name: name ?? this.name,
-        artist: artist,
-        pic: pic ?? this.pic,
-        link: link,
-        mediaMid: mediaMid,
-        source: source,
-        raw: raw,
-        fee: fee,
-        duration: duration,
-        album: album,
-      );
+  Song copyWith({String? name, String? pic, String? coverOverride}) => Song(
+    mid: mid,
+    name: name ?? this.name,
+    artist: artist,
+    pic: pic ?? this.pic,
+    coverOverride: coverOverride ?? this.coverOverride,
+    link: link,
+    mediaMid: mediaMid,
+    source: source,
+    raw: raw,
+    fee: fee,
+    duration: duration,
+    album: album,
+  );
 
   @override
-  bool operator ==(Object other) => other is Song && other.mid == mid && other.source == source;
+  bool operator ==(Object other) =>
+      other is Song && other.mid == mid && other.source == source;
 
   @override
   int get hashCode => Object.hash(mid, source);

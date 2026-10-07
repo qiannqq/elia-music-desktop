@@ -55,7 +55,9 @@ class _QueuePanelState extends State<QueuePanel> {
     final h = _rowHeight;
     if (h <= 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) scrollListToRow(widget.scrollController, index, _rowHeight);
+        if (mounted) {
+          scrollListToRow(widget.scrollController, index, _rowHeight);
+        }
       });
       return;
     }
@@ -250,8 +252,12 @@ class _QueueRow extends StatelessWidget {
               SizedBox(
                 width: 18,
                 child: playing
-                    ? AppIcon(AppIcons.play,
-                        size: 11, color: c.accent, filled: true)
+                    ? AppIcon(
+                        AppIcons.play,
+                        size: 11,
+                        color: c.accent,
+                        filled: true,
+                      )
                     : Text(
                         '${index + 1}',
                         textAlign: TextAlign.center,
@@ -265,7 +271,7 @@ class _QueueRow extends StatelessWidget {
               const SizedBox(width: 8),
               // 与歌单行**同 URL 同尺寸**：两边算出来的 cacheWidth 一样，
               // ImageCache 的键就一样 —— 来回切不会重复解码，也不会多打一次网络。
-              SongCover(pic: song.pic, size: 40),
+              SongCover(pic: song.coverPic, size: 40),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -283,8 +289,9 @@ class _QueueRow extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 13,
-                              fontWeight:
-                                  playing ? FontWeight.w600 : FontWeight.w400,
+                              fontWeight: playing
+                                  ? FontWeight.w600
+                                  : FontWeight.w400,
                               color: playing ? c.accent : c.text,
                             ),
                           ),

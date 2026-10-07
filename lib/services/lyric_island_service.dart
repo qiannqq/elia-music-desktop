@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
@@ -30,10 +31,10 @@ class LyricIslandFrame {
   });
 
   const LyricIslandFrame.hidden()
-      : visible = false,
-        text = '',
-        trans = '',
-        lineIndex = -1;
+    : visible = false,
+      text = '',
+      trans = '',
+      lineIndex = -1;
 
   final bool visible;
   final String text;
@@ -80,7 +81,12 @@ class LyricIslandFrame {
     } else {
       text = '$name · $who';
     }
-    return LyricIslandFrame(visible: true, text: text, trans: '', lineIndex: -1);
+    return LyricIslandFrame(
+      visible: true,
+      text: text,
+      trans: '',
+      lineIndex: -1,
+    );
   }
 
   static int _pick(List<LyricLine> lines, int index) {
@@ -168,11 +174,8 @@ class LyricIslandService {
     // 差了一截才是拖动进度，或者后端把位置一下纠正了。
     if ((ms - predicted).abs() < 160) return;
     _note(ms);
-    _channel.invokeMethod('clock', {
-      'positionMs': ms,
-    }).catchError((Object e) {
-      fileLogger.warn('LyricIsland',
-          'clock(${ms}ms) 失败: $e');
+    _channel.invokeMethod('clock', {'positionMs': ms}).catchError((Object e) {
+      fileLogger.warn('LyricIsland', 'clock(${ms}ms) 失败: $e');
       return null;
     });
   }
@@ -184,12 +187,13 @@ class LyricIslandService {
 
   Future<void> _apply(bool value) async {
     try {
-      final ok = await _channel.invokeMethod<bool>('setEnabled', {
-        'enabled': value,
-      }) ??
+      final ok =
+          await _channel.invokeMethod<bool>('setEnabled', {'enabled': value}) ??
           false;
-      fileLogger.info('LyricIsland',
-          '开关=${value ? '开' : '关'} 原生窗口=${ok ? '已建立' : '未建立'}');
+      fileLogger.info(
+        'LyricIsland',
+        '开关=${value ? '开' : '关'} 原生窗口=${ok ? '已建立' : '未建立'}',
+      );
       if (value && !ok) {
         fileLogger.warn('LyricIsland', '原生窗口未建立，胶囊不会显示');
         return;
@@ -222,8 +226,8 @@ class LyricIslandService {
       transMap: bundle?.transMap ?? const {},
     );
 
-    final LyricLine? line = frame.lineIndex >= 0 &&
-            frame.lineIndex < player.lyricLines.length
+    final LyricLine? line =
+        frame.lineIndex >= 0 && frame.lineIndex < player.lyricLines.length
         ? player.lyricLines[frame.lineIndex]
         : null;
     final words = <Map<String, Object>>[];
@@ -247,58 +251,70 @@ class LyricIslandService {
       }
     }
 
-    final sig = '${frame.visible}|${song?.mid}|${frame.text}|${frame.trans}|'
+    final sig =
+        '${frame.visible}|${song?.mid}|${frame.text}|${frame.trans}|'
         '${words.length}|$startMs|$endMs';
     final pos = player.position.inMilliseconds;
     if (!force && sig == _last) return;
     _last = sig;
     _note(pos);
 
-    _channel.invokeMethod('update', {
-      'song': song?.mid ?? '',
-      'playing': frame.visible,
-      'positionMs': pos,
-      'text': frame.text,
-      'trans': frame.trans,
-      'sweep': frame.lineIndex >= 0,
-      'startMs': startMs,
-      'endMs': endMs,
-      'words': words,
-    }).catchError((Object e) {
-      fileLogger.warn('LyricIsland',
-          'update 失败 mid=${song?.mid ?? '-'} text="${frame.text}" : $e');
-      return null;
-    });
+    _channel
+        .invokeMethod('update', {
+          'song': song?.mid ?? '',
+          'playing': frame.visible,
+          'positionMs': pos,
+          'text': frame.text,
+          'trans': frame.trans,
+          'sweep': frame.lineIndex >= 0,
+          'startMs': startMs,
+          'endMs': endMs,
+          'words': words,
+        })
+        .catchError((Object e) {
+          fileLogger.warn(
+            'LyricIsland',
+            'update 失败 mid=${song?.mid ?? '-'} text="${frame.text}" : $e',
+          );
+          return null;
+        });
 
-    if (song != null && song.mid != _coverFor) {
-      _coverFor = song.mid;
+    final coverKey = song == null ? '' : '${song.mid}|${song.coverPic}';
+    if (song != null && coverKey != _coverFor) {
+      _coverFor = coverKey;
       unawaited(_pushCover(song));
     }
   }
 
   Future<void> _pushCover(Song song) async {
     final gen = ++_coverGen;
-    final url = ApiClient.getProxyImageUrl(song.pic);
+    final source = song.coverPic;
+    final url = source.startsWith('file://')
+        ? source
+        : ApiClient.getProxyImageUrl(source);
     Uint8List bytes = Uint8List(0);
     if (url.isNotEmpty) {
       try {
         var cached = _coverCache[url];
         if (cached == null) {
-          final res = await http
-              .get(Uri.parse(url))
-              .timeout(const Duration(seconds: 8));
-          if (res.statusCode != 200 || res.bodyBytes.isEmpty) {
-            fileLogger.warn('LyricIsland',
-                '封面取回失败 mid=${song.mid} HTTP ${res.statusCode} url=$url');
+          final raw = source.startsWith('file://')
+              ? await File.fromUri(Uri.parse(source)).readAsBytes()
+              : (await http
+                        .get(Uri.parse(url))
+                        .timeout(const Duration(seconds: 8)))
+                    .bodyBytes;
+          if (raw.isEmpty) {
+            fileLogger.warn('LyricIsland', '封面取回失败 mid=${song.mid} url=$url');
           } else {
-            final raw = res.bodyBytes;
             cached = await _toDecodable(raw);
             _coverCache[url] = cached;
             if (_coverCache.length > 8) {
               _coverCache.remove(_coverCache.keys.first);
             }
-            fileLogger.info('LyricIsland',
-                '封面 mid=${song.mid} 原始=${raw.length}B → 送出=${cached.length}B');
+            fileLogger.info(
+              'LyricIsland',
+              '封面 mid=${song.mid} 原始=${raw.length}B → 送出=${cached.length}B',
+            );
           }
         }
         if (cached != null) bytes = cached;
@@ -308,18 +324,19 @@ class LyricIslandService {
     }
     // 取封面的过程中可能已经换歌了，别把旧封面盖上去
     if (gen != _coverGen || song.mid != player.currentSong?.mid) {
-      fileLogger.info('LyricIsland',
-          '封面已过期，丢弃 mid=${song.mid}（当前=${player.currentSong?.mid ?? '-'}）');
+      fileLogger.info(
+        'LyricIsland',
+        '封面已过期，丢弃 mid=${song.mid}（当前=${player.currentSong?.mid ?? '-'}）',
+      );
       return;
     }
     try {
-      await _channel.invokeMethod('cover', {
-        'song': song.mid,
-        'bytes': bytes,
-      });
+      await _channel.invokeMethod('cover', {'song': song.mid, 'bytes': bytes});
     } catch (e) {
-      fileLogger.warn('LyricIsland',
-          'cover 下发失败 mid=${song.mid} bytes=${bytes.length} : $e');
+      fileLogger.warn(
+        'LyricIsland',
+        'cover 下发失败 mid=${song.mid} bytes=${bytes.length} : $e',
+      );
     }
   }
 

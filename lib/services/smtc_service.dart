@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/services.dart';
@@ -32,6 +33,7 @@ class SmtcService {
   bool _ready = false;
   String? _mid;
   String? _title;
+  String? _coverKey;
   bool? _playing;
   int _lastTimelineAt = 0;
   final Map<String, Uint8List> _coverCache = {};
@@ -76,6 +78,7 @@ class SmtcService {
     if (song == null) {
       if (_mid != null) {
         _mid = null;
+        _coverKey = null;
         _playing = null;
         _push('status', {'status': 'stopped'});
         _push('enabled', {'enabled': false});
@@ -84,9 +87,11 @@ class SmtcService {
     }
 
     // 去重按「mid + 歌名」：mid 没变但名字被改过时，面板上的标题也得跟着换
-    if (song.mid != _mid || song.name != _title) {
+    final coverKey = '${song.mid}|${song.coverPic}';
+    if (song.mid != _mid || song.name != _title || coverKey != _coverKey) {
       _mid = song.mid;
       _title = song.name;
+      _coverKey = coverKey;
       _push('enabled', {'enabled': true});
       _push('metadata', {
         'title': song.name,
@@ -151,7 +156,10 @@ class SmtcService {
   /// 封面本来就要经本地代理取一次给界面用，这里复用同一个地址再取一遍字节，
   /// 比让系统进程去访问 127.0.0.1 上的本地服务可靠得多。
   Future<void> _pushCover(Song song) async {
-    final url = ApiClient.getProxyImageUrl(song.pic);
+    final source = song.coverPic;
+    final url = source.startsWith('file://')
+        ? source
+        : ApiClient.getProxyImageUrl(source);
     if (url.isEmpty) {
       fileLogger.warn('SMTC', '这首歌没有封面地址');
       return;
@@ -159,24 +167,29 @@ class SmtcService {
     try {
       var bytes = _coverCache[url];
       if (bytes == null) {
-        final res =
-            await http.get(Uri.parse(url)).timeout(const Duration(seconds: 8));
-        if (res.statusCode != 200 || res.bodyBytes.isEmpty) {
-          fileLogger.warn('SMTC', '封面取回失败: HTTP ${res.statusCode}');
+        final raw = source.startsWith('file://')
+            ? await File.fromUri(Uri.parse(source)).readAsBytes()
+            : (await http
+                      .get(Uri.parse(url))
+                      .timeout(const Duration(seconds: 8)))
+                  .bodyBytes;
+        if (raw.isEmpty) {
+          fileLogger.warn('SMTC', '封面取回失败');
           return;
         }
-        final raw = res.bodyBytes;
         // 封面失败是「静默」的（面板上只是空白），所以把原始字节数、图片魔数
         // 都记下来 —— 出问题时一眼能看出是没取到、格式不对，还是原生没塞进去。
         final magic = raw.length >= 4
             ? raw
-                .sublist(0, 4)
-                .map((b) => b.toRadixString(16).padLeft(2, '0'))
-                .join()
+                  .sublist(0, 4)
+                  .map((b) => b.toRadixString(16).padLeft(2, '0'))
+                  .join()
             : '';
         bytes = await _toDecodable(raw);
-        fileLogger.info('SMTC',
-            '封面 原始=${raw.length}B magic=$magic → 送出=${bytes.length}B');
+        fileLogger.info(
+          'SMTC',
+          '封面 原始=${raw.length}B magic=$magic → 送出=${bytes.length}B',
+        );
         _coverCache[url] = bytes;
         // 只留最近几首，长播一个歌单时不让它无限涨
         if (_coverCache.length > 8) _coverCache.remove(_coverCache.keys.first);

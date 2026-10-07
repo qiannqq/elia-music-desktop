@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -272,24 +273,41 @@ class _CoverBackdropState extends State<CoverBackdrop> {
                     final t = _playT;
                     // 帧间隔用真实时间的钟：暂停时时钟停了，画面就停住
                     final wall = _wall.elapsed;
-                    final dt = ((wall - _wallPrev).inMicroseconds / 1e6)
-                        .clamp(0.0, 0.1);
+                    final dt = ((wall - _wallPrev).inMicroseconds / 1e6).clamp(
+                      0.0,
+                      0.1,
+                    );
                     _wallPrev = wall;
                     final bassTrack = _bassTrack;
                     final levelTrack = _levelTrack;
                     if (dt > 0) {
                       if (bassTrack != null) {
                         // 低频「上得快、落得慢」：鼓点打下去立刻放大，之后慢慢回来
-                        _bass = followLevel(_bass, bgVolume(bassTrack.levelAt(t)),
-                            dt, attack: 0.05, release: 0.35);
+                        _bass = followLevel(
+                          _bass,
+                          bgVolume(bassTrack.levelAt(t)),
+                          dt,
+                          attack: 0.05,
+                          release: 0.35,
+                        );
                       }
                       if (levelTrack != null) {
-                        _level = followLevel(_level, levelTrack.levelAt(t), dt,
-                            attack: 0.05, release: 0.40);
+                        _level = followLevel(
+                          _level,
+                          levelTrack.levelAt(t),
+                          dt,
+                          attack: 0.05,
+                          release: 0.40,
+                        );
                       }
                     }
                     return Transform.rotate(
-                      angle: bgAngle(t, _bass, widget.amount, spin: widget.spin),
+                      angle: bgAngle(
+                        t,
+                        _bass,
+                        widget.amount,
+                        spin: widget.spin,
+                      ),
                       child: Transform.scale(
                         scale: bgZoom(_bass, widget.amount),
                         child: child,
@@ -304,10 +322,18 @@ class _CoverBackdropState extends State<CoverBackdrop> {
                             // 背景要糊掉，但糊之前缩到 256 —— 用原图这一档，
                             // 和封面预热共用同一份下载与解码缓存
                             provider: ResizeImage(
-                              NetworkImage(ApiClient.getProxyImageUrl(
-                                ApiClient.coverUrlFor(widget.pic,
-                                    px: kBackdropCoverPx),
-                              )),
+                              widget.pic.startsWith('file://')
+                                  ? FileImage(
+                                      File.fromUri(Uri.parse(widget.pic)),
+                                    )
+                                  : NetworkImage(
+                                      ApiClient.getProxyImageUrl(
+                                        ApiClient.coverUrlFor(
+                                          widget.pic,
+                                          px: kBackdropCoverPx,
+                                        ),
+                                      ),
+                                    ),
                               width: kBackdropPx,
                               height: kBackdropPx,
                             ),
@@ -377,10 +403,8 @@ class DimOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => DecoratedBox(
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: alpha),
-        ),
-      );
+    decoration: BoxDecoration(color: Colors.black.withValues(alpha: alpha)),
+  );
 }
 
 /// 暗角：中心不压、四周收下去（比线性渐变自然）
@@ -389,17 +413,14 @@ class VignetteOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: RadialGradient(
-            radius: 0.95,
-            stops: const [0.45, 1.0],
-            colors: [
-              Colors.transparent,
-              Colors.black.withValues(alpha: 0.26),
-            ],
-          ),
-        ),
-      );
+    decoration: BoxDecoration(
+      gradient: RadialGradient(
+        radius: 0.95,
+        stops: const [0.45, 1.0],
+        colors: [Colors.transparent, Colors.black.withValues(alpha: 0.26)],
+      ),
+    ),
+  );
 }
 
 /// 预先糊好的背景底图。

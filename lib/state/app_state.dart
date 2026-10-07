@@ -17,6 +17,7 @@ import '../services/api_client.dart';
 import '../services/audio_cache.dart';
 import '../services/bilibili_service.dart';
 import '../services/cover_cache.dart';
+import '../services/custom_cover.dart';
 import '../services/lyric_cache.dart';
 import '../services/netease_service.dart';
 import '../services/player_controller.dart';
@@ -990,6 +991,54 @@ class AppState extends ChangeNotifier {
     songs[i] = songs[i].copyWith(name: newName);
     player.renameCurrentSong(mid, newName);
     _saveSongs();
+    notifyListeners();
+  }
+
+  /// 给同一首歌所在的所有本地歌单设置自定义封面。
+  void setSongCoverOverride(String mid, String uri) {
+    var changed = false;
+    for (final playlist in playlists) {
+      for (var i = 0; i < playlist.songs.length; i++) {
+        final song = playlist.songs[i];
+        if (song.mid != mid) continue;
+        playlist.songs[i] = song.copyWith(coverOverride: uri);
+        changed = true;
+      }
+    }
+    for (var i = 0; i < _searchResults.length; i++) {
+      if (_searchResults[i].mid == mid) {
+        _searchResults[i] = _searchResults[i].copyWith(coverOverride: uri);
+        changed = true;
+      }
+    }
+    player.setCoverOverride(mid, uri);
+    if (!changed) return;
+    _savePlaylists();
+    notifyListeners();
+  }
+
+  /// 恢复远端默认封面，并删除这一首唯一的本地 override 文件。
+  void clearSongCoverOverride(String mid) {
+    var changed = false;
+    for (final playlist in playlists) {
+      for (var i = 0; i < playlist.songs.length; i++) {
+        final song = playlist.songs[i];
+        if (song.mid != mid || song.coverOverride.isEmpty) continue;
+        playlist.songs[i] = song.copyWith(coverOverride: '');
+        changed = true;
+      }
+    }
+    for (var i = 0; i < _searchResults.length; i++) {
+      if (_searchResults[i].mid == mid &&
+          _searchResults[i].coverOverride.isNotEmpty) {
+        _searchResults[i] = _searchResults[i].copyWith(coverOverride: '');
+        changed = true;
+      }
+    }
+    CustomCoverService.delete(mid);
+    player.setCoverOverride(mid, '');
+    if (!changed) return;
+    _savePlaylists();
     notifyListeners();
   }
 

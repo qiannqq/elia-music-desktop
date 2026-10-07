@@ -64,7 +64,10 @@ class AppSidebar extends StatelessWidget {
             color: c.sidebarBg,
             border: Border(right: BorderSide(color: c.borderSubtle)),
           ),
-          padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 4, vertical: 8),
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 4 : 4,
+            vertical: 8,
+          ),
           child: SingleChildScrollView(
             child: Column(
               children: [
@@ -199,11 +202,7 @@ class _PlaylistChildState extends State<_PlaylistChild> {
       context: context,
       position: at,
       items: [
-        AppMenuItem(
-          label: '重命名',
-          icon: AppIcons.edit,
-          onTap: _startEdit,
-        ),
+        AppMenuItem(label: '重命名', icon: AppIcons.edit, onTap: _startEdit),
         // 同步只认「音源 → 本地」这一个方向。机制（完全单向 / 增加单向 /
         // 兼容单向）**只在弹窗里选** —— 同一组选项在右键菜单里再摆一份，
         // 用户就得在两处维持同一个心智模型，还容易以为两处是两套配置。
@@ -240,9 +239,12 @@ class _PlaylistChildState extends State<_PlaylistChild> {
     final fg = active ? c.accent : (_hovered ? c.text : c.textSecondary);
 
     // 前置封面用「置底」那一首的封面（空歌单、或那首没有封面 → 回退成图标）
-    final lastSong =
-        widget.playlist.songs.isNotEmpty ? widget.playlist.songs.last : null;
-    final coverPic = (lastSong?.pic ?? '').isEmpty ? null : lastSong!.pic;
+    final lastSong = widget.playlist.songs.isNotEmpty
+        ? widget.playlist.songs.last
+        : null;
+    final coverPic = (lastSong?.coverPic ?? '').isEmpty
+        ? null
+        : lastSong!.coverPic;
 
     // 显示态与编辑态**共用同一个 TextStyle + 同一个 strut**。
     //
@@ -250,10 +252,9 @@ class _PlaylistChildState extends State<_PlaylistChild> {
     // `TextField` 的 style 不会 —— 整段都是汉字、只能靠回退字体渲染时，
     // 两边算基线用的字体不同，进出编辑态字就上下跳 1px（歌名那一处踩过
     // 同一个坑，修法一样：style 手动合并、两边挂同一个 strut）。
-    final labelStyle = DefaultTextStyle.of(context).style.merge(TextStyle(
-      fontSize: 13.5,
-      color: fg,
-    ));
+    final labelStyle = DefaultTextStyle.of(
+      context,
+    ).style.merge(TextStyle(fontSize: 13.5, color: fg));
     final labelStrut = StrutStyle.fromTextStyle(
       labelStyle,
       forceStrutHeight: true,
@@ -467,15 +468,24 @@ class _PlaylistHeaderState extends State<_PlaylistHeader> {
         },
         child: Container(
           height: 36,
-          margin: const EdgeInsets.symmetric(horizontal: _kItemMargin, vertical: 2),
+          margin: const EdgeInsets.symmetric(
+            horizontal: _kItemMargin,
+            vertical: 2,
+          ),
           padding: EdgeInsets.symmetric(horizontal: compact ? 0 : 12),
           decoration: BoxDecoration(
-            color: stateFill(c, hovered: _hovered, pressed: _pressed, selected: active),
+            color: stateFill(
+              c,
+              hovered: _hovered,
+              pressed: _pressed,
+              selected: active,
+            ),
             borderRadius: BorderRadius.circular(c.radius),
           ),
           child: Row(
-            mainAxisAlignment:
-                compact ? MainAxisAlignment.center : MainAxisAlignment.start,
+            mainAxisAlignment: compact
+                ? MainAxisAlignment.center
+                : MainAxisAlignment.start,
             children: [
               AppIcon(AppIcons.playlist, size: 16, color: fg),
               if (!compact) ...[
@@ -497,7 +507,11 @@ class _PlaylistHeaderState extends State<_PlaylistHeader> {
                   turns: state.playlistsExpanded ? 0.5 : 0,
                   duration: Motion.controlFast,
                   curve: Motion.decelerate,
-                  child: AppIcon(AppIcons.chevronDown, size: 12, color: c.textTertiary),
+                  child: AppIcon(
+                    AppIcons.chevronDown,
+                    size: 12,
+                    color: c.textTertiary,
+                  ),
                 ),
                 const SizedBox(width: 2),
                 MouseRegion(
@@ -565,7 +579,12 @@ class _NavItemState extends State<_NavItem> {
     // `TextFillColorPrimary`（主文字色）+ `SubtleFillColorSecondary` 底，
     // 「我在这一页」这件事由左边那道主色指示条表达。
     final fg = active ? c.text : (_hovered ? c.text : c.textSecondary);
-    final bg = stateFill(c, hovered: _hovered, pressed: _pressed, selected: active);
+    final bg = stateFill(
+      c,
+      hovered: _hovered,
+      pressed: _pressed,
+      selected: active,
+    );
 
     Widget row = Container(
       // `NavigationViewItemOnLeftMinHeight` = 36
@@ -577,7 +596,9 @@ class _NavItemState extends State<_NavItem> {
         borderRadius: BorderRadius.circular(c.radius),
       ),
       child: Row(
-        mainAxisAlignment: widget.compact ? MainAxisAlignment.center : MainAxisAlignment.start,
+        mainAxisAlignment: widget.compact
+            ? MainAxisAlignment.center
+            : MainAxisAlignment.start,
         children: [
           AppIcon(widget.item.icon, size: 16, color: fg),
           if (!widget.compact) ...[
@@ -626,10 +647,7 @@ class _NavItemState extends State<_NavItem> {
         alignment: Alignment.centerLeft,
         children: [
           row,
-          const Positioned(
-            left: _kItemMargin,
-            child: _NavIndicator(),
-          ),
+          const Positioned(left: _kItemMargin, child: _NavIndicator()),
         ],
       );
     }

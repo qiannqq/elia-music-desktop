@@ -930,7 +930,7 @@ class _PlaylistItemState extends State<_PlaylistItem> {
               onChanged: (_) => state.toggleSelect(song.mid),
             ),
             const SizedBox(width: 12),
-            SongCover(pic: song.pic, size: 40),
+            SongCover(pic: song.coverPic, size: 40),
             const SizedBox(width: 12),
             Expanded(
               child: Column(

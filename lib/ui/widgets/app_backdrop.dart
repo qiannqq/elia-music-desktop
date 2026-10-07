@@ -78,13 +78,15 @@ class _AppBackdropLayerState extends State<AppBackdropLayer> {
 
       case AppBgMode.cover:
         final song = player.currentSong;
-        if (song == null || song.pic.isEmpty) return const SizedBox.shrink();
+        if (song == null || song.coverPic.isEmpty) {
+          return const SizedBox.shrink();
+        }
         // ⚠️ 律动幅度 / 旋转速度是设置里的**活值**：单独听 AppState 重建这一小块
         // （跟现在播放页里那个 AnimatedBuilder 是同一个理由与同一个做法）。
         return AnimatedBuilder(
           animation: app,
           builder: (_, _) => SongBackdrop(
-            pic: song.pic,
+            pic: song.coverPic,
             mid: song.mid,
             amount: app.bgPulse,
             spin: app.bgSpin,

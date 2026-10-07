@@ -18,32 +18,32 @@ enum PlayMode { sequential, reverse, repeatAll, repeatOne, shuffle }
 
 extension PlayModeX on PlayMode {
   String get id => switch (this) {
-        PlayMode.sequential => 'sequential',
-        PlayMode.reverse => 'reverse',
-        PlayMode.repeatAll => 'repeat-all',
-        PlayMode.repeatOne => 'repeat-one',
-        PlayMode.shuffle => 'shuffle',
-      };
+    PlayMode.sequential => 'sequential',
+    PlayMode.reverse => 'reverse',
+    PlayMode.repeatAll => 'repeat-all',
+    PlayMode.repeatOne => 'repeat-one',
+    PlayMode.shuffle => 'shuffle',
+  };
 
   String get label => switch (this) {
-        PlayMode.sequential => '顺序播放',
-        PlayMode.reverse => '倒序播放',
-        PlayMode.repeatAll => '列表循环',
-        PlayMode.repeatOne => '单曲循环',
-        PlayMode.shuffle => '随机播放',
-      };
+    PlayMode.sequential => '顺序播放',
+    PlayMode.reverse => '倒序播放',
+    PlayMode.repeatAll => '列表循环',
+    PlayMode.repeatOne => '单曲循环',
+    PlayMode.shuffle => '随机播放',
+  };
 
   /// 走到队尾就停 —— 顺序与倒序是这一对，区别于各种循环
   bool get stopsAtEnd =>
       this == PlayMode.sequential || this == PlayMode.reverse;
 
   static PlayMode fromId(String? id) => switch (id) {
-        'sequential' => PlayMode.sequential,
-        'reverse' => PlayMode.reverse,
-        'repeat-one' => PlayMode.repeatOne,
-        'shuffle' => PlayMode.shuffle,
-        _ => PlayMode.repeatAll,
-      };
+    'sequential' => PlayMode.sequential,
+    'reverse' => PlayMode.reverse,
+    'repeat-one' => PlayMode.repeatOne,
+    'shuffle' => PlayMode.shuffle,
+    _ => PlayMode.repeatAll,
+  };
 }
 
 /// 播放器 —— `public/dist/js/player.js` 的 Dart 移植。
@@ -160,6 +160,13 @@ class PlayerController extends ChangeNotifier {
     final song = currentSong;
     if (song == null || song.mid != mid) return;
     currentSong = song.copyWith(name: newName);
+    notifyListeners();
+  }
+
+  void setCoverOverride(String mid, String uri) {
+    final song = currentSong;
+    if (song == null || song.mid != mid) return;
+    currentSong = song.copyWith(coverOverride: uri);
     notifyListeners();
   }
 
@@ -465,8 +472,9 @@ class PlayerController extends ChangeNotifier {
     if (duration.inMilliseconds <= 0) return;
     // 用户自己拖的：他要是拖回开头那段空白，就让他听，别再自动顶走
     _silence.userSeeked();
-    final target =
-        Duration(milliseconds: (percent * duration.inMilliseconds).round());
+    final target = Duration(
+      milliseconds: (percent * duration.inMilliseconds).round(),
+    );
     // 源还没加载（记忆态 / 上次取地址失败）：往底层的旧源上 seek 是白费，
     // 只把位置记下来，等真正加载时再跳（见 _seekToPending）。
     if (!_sourceLoaded) {
@@ -563,7 +571,7 @@ class PlayerController extends ChangeNotifier {
     fileLogger.info(
       'Player',
       '恢复上次播放态 mid=$mid 位置=${position.inMilliseconds}ms '
-      '时长=${duration.inMilliseconds}ms',
+          '时长=${duration.inMilliseconds}ms',
     );
     notifyListeners();
   }

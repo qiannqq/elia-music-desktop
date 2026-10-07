@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -59,10 +60,9 @@ const double kActiveUnsungAlpha = 0.42;
 ({double sung, double unsung}) lyricLineAlphas({
   required bool active,
   required double opacity,
-}) =>
-    active
-        ? (sung: 1.0, unsung: kActiveUnsungAlpha)
-        : (sung: opacity, unsung: opacity);
+}) => active
+    ? (sung: 1.0, unsung: kActiveUnsungAlpha)
+    : (sung: opacity, unsung: opacity);
 
 /// 现在播放页 —— 仿 Apple Music 的整屏播放页，点播放栏左侧封面从下往上推出来。
 ///
@@ -98,14 +98,14 @@ class _NowPlayingPageState extends State<NowPlayingPage>
   );
 
   /// 从下往上推：整页从屏幕下沿滑进来
-  late final Animation<Offset> _slide = Tween<Offset>(
-    begin: const Offset(0, 1),
-    end: Offset.zero,
-  ).animate(CurvedAnimation(
-    parent: _anim,
-    curve: Curves.easeOutCubic,
-    reverseCurve: Curves.easeInCubic,
-  ));
+  late final Animation<Offset> _slide =
+      Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero).animate(
+        CurvedAnimation(
+          parent: _anim,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        ),
+      );
 
   @override
   void initState() {
@@ -138,15 +138,27 @@ class _NowPlayingPageState extends State<NowPlayingPage>
   /// 所以预热也得用同一层包装，否则 key 对不上。
   void _prefetchCover() {
     final song = player.currentSong;
-    if (song == null || song.pic.isEmpty || song.mid == _prefetchedMid) return;
+    if (song == null || song.coverPic.isEmpty || song.mid == _prefetchedMid) {
+      return;
+    }
     _prefetchedMid = song.mid;
     // 和封面、背景用同一档（否则各自都是一个不同的 URL = 下好几张）
+    final raw = song.coverPic;
+    if (raw.startsWith('file://')) {
+      precacheImage(
+        ResizeImage(FileImage(File.fromUri(Uri.parse(raw))), width: 512),
+        context,
+      ).catchError((_) {});
+      return;
+    }
     final url = ApiClient.getProxyImageUrl(
-      ApiClient.coverUrlFor(song.pic, px: kBackdropCoverPx),
+      ApiClient.coverUrlFor(raw, px: kBackdropCoverPx),
     );
     if (url.isEmpty) return;
-    precacheImage(ResizeImage(NetworkImage(url), width: 512), context)
-        .catchError((_) {});
+    precacheImage(
+      ResizeImage(NetworkImage(url), width: 512),
+      context,
+    ).catchError((_) {});
   }
 
   @override
@@ -226,7 +238,7 @@ class _NowPlayingPageState extends State<NowPlayingPage>
 
   Widget _buildPage(BuildContext context) {
     final song = player.currentSong;
-    final pic = song?.pic ?? '';
+    final pic = song?.coverPic ?? '';
 
     return ColoredBox(
       // 封面还没解出来时的兜底底色
@@ -258,8 +270,7 @@ class _NowPlayingPageState extends State<NowPlayingPage>
                 ),
               ),
             ),
-            if (song != null)
-              Positioned.fill(child: _buildContent(song)),
+            if (song != null) Positioned.fill(child: _buildContent(song)),
             // 标题栏在最上层（见 app_shell），所以收起键要落在它下面
             Positioned(
               left: 16,
@@ -311,10 +322,7 @@ class _NowPlayingPageState extends State<NowPlayingPage>
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SizedBox(
-                width: left,
-                child: _buildLeft(song, cover),
-              ),
+              SizedBox(width: left, child: _buildLeft(song, cover)),
               const SizedBox(width: 44),
               Expanded(
                 child: lyrics.isEmpty
@@ -428,7 +436,7 @@ class _NowPlayingPageState extends State<NowPlayingPage>
           ],
         ),
         child: SongCover(
-          pic: song.pic.isEmpty ? null : song.pic,
+          pic: song.coverPic.isEmpty ? null : song.coverPic,
           size: size,
           radius: 10,
           px: kBackdropCoverPx,
@@ -484,8 +492,9 @@ class _NowPlayingPageState extends State<NowPlayingPage>
               final progress = dragging ?? player.progress;
               final display = dragging != null
                   ? Duration(
-                      milliseconds:
-                          (progress * player.duration.inMilliseconds).round())
+                      milliseconds: (progress * player.duration.inMilliseconds)
+                          .round(),
+                    )
                   : player.position;
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -751,15 +760,15 @@ class _PausedCoverScaleState extends State<_PausedCoverScale>
 
   late Animation<double> _scale = _build();
 
-  Animation<double> _build() => Tween<double>(
-        begin: _PausedCoverScale.paused,
-        end: 1.0,
-      ).animate(CurvedAnimation(
-        parent: _c,
-        curve: widget.playing
-            ? const Cubic(0.3, 0.2, 0.2, 1.4)
-            : const Cubic(0.4, 0.2, 0.1, 1),
-      ));
+  Animation<double> _build() =>
+      Tween<double>(begin: _PausedCoverScale.paused, end: 1.0).animate(
+        CurvedAnimation(
+          parent: _c,
+          curve: widget.playing
+              ? const Cubic(0.3, 0.2, 0.2, 1.4)
+              : const Cubic(0.4, 0.2, 0.1, 1),
+        ),
+      );
 
   @override
   void didUpdateWidget(covariant _PausedCoverScale old) {
@@ -1028,7 +1037,9 @@ class _LyricsViewState extends State<_LyricsView>
   /// 每个弹簧的落位延迟（按行号错峰算出来的）
   double _delayFor(int i) {
     final active = _active;
-    if (active < 0 || i < active - _staggerAbove || i > active + _staggerBelow) {
+    if (active < 0 ||
+        i < active - _staggerAbove ||
+        i > active + _staggerBelow) {
       return 0;
     }
     final first = math.max(0, active - _staggerAbove);
@@ -1196,8 +1207,10 @@ class _LyricsViewState extends State<_LyricsView>
     // 内容不能被拖出视口：上边界 0（内容顶部贴视口顶部）、
     // 下边界 = 内容底部贴视口底部
     final minDy = math.min(0.0, _viewportH - _contentH);
-    return (_viewportH * _anchor - _contentTopOf(i) - _userScroll)
-        .clamp(minDy, 0.0);
+    return (_viewportH * _anchor - _contentTopOf(i) - _userScroll).clamp(
+      minDy,
+      0.0,
+    );
   }
 
   /// 直接定位到当前句（首次打开 / 换歌）
@@ -1206,8 +1219,8 @@ class _LyricsViewState extends State<_LyricsView>
     final i = _active < 0
         ? 0
         : (_active > widget.lines.length - 1
-            ? widget.lines.length - 1
-            : _active);
+              ? widget.lines.length - 1
+              : _active);
     if (widget.lines.isEmpty) return;
     final dy = _targetDyFor(i);
     for (final s in _springs) {
@@ -1568,8 +1581,10 @@ class _LyricLineFadeState extends State<_LyricLineFade>
     value: 1,
   );
 
-  late final Animation<double> _t =
-      CurvedAnimation(parent: _c, curve: _kLineFadeCurve);
+  late final Animation<double> _t = CurvedAnimation(
+    parent: _c,
+    curve: _kLineFadeCurve,
+  );
 
   late double _sungFrom = widget.sungAlpha;
   late double _sungTo = widget.sungAlpha;
@@ -1607,8 +1622,9 @@ class _LyricLineFadeState extends State<_LyricLineFade>
         animation: _t,
         builder: (_, _) {
           final sung = Colors.white.withValues(alpha: _at(_sungFrom, _sungTo));
-          final unsung =
-              Colors.white.withValues(alpha: _at(_unsungFrom, _unsungTo));
+          final unsung = Colors.white.withValues(
+            alpha: _at(_unsungFrom, _unsungTo),
+          );
           return _KaraokeLine(
             line: widget.line,
             style: widget.style,
@@ -1735,7 +1751,9 @@ class _KaraokeLineState extends State<_KaraokeLine> {
 
   /// 排版一次就够：只在文本/样式/可用宽度变了的时候重排
   void _ensureLayout(double maxWidth) {
-    if (_painter != null && _width == maxWidth && _style == widget.style) return;
+    if (_painter != null && _width == maxWidth && _style == widget.style) {
+      return;
+    }
     final words = widget.line.words!;
     final tp = TextPainter(
       text: TextSpan(text: widget.line.text, style: widget.style),
@@ -1754,11 +1772,17 @@ class _KaraokeLineState extends State<_KaraokeLine> {
       final list = tp.getBoxesForSelection(
         TextSelection(baseOffset: start, extentOffset: offset),
       );
-      boxes.add(list.isEmpty
-          ? Rect.zero
-          // 折行时一个字会拆成多个 box：从第一个的左到最后一个的右
-          : Rect.fromLTRB(list.first.left, list.first.top, list.last.right,
-              list.last.bottom));
+      boxes.add(
+        list.isEmpty
+            ? Rect.zero
+            // 折行时一个字会拆成多个 box：从第一个的左到最后一个的右
+            : Rect.fromLTRB(
+                list.first.left,
+                list.first.top,
+                list.last.right,
+                list.last.bottom,
+              ),
+      );
     }
 
     // 按 box 的 top 把字分成行（同一行的 top 相同，浮点误差留 1px 容差）
@@ -1776,7 +1800,12 @@ class _KaraokeLineState extends State<_KaraokeLine> {
           bottom: box.bottom > last.bottom ? box.bottom : last.bottom,
         ));
       } else {
-        rows.add((start: offsets[i], end: end, top: box.top, bottom: box.bottom));
+        rows.add((
+          start: offsets[i],
+          end: end,
+          top: box.top,
+          bottom: box.bottom,
+        ));
       }
       wordRow[i] = rows.length - 1;
     }
@@ -1808,11 +1837,11 @@ class _KaraokeLineState extends State<_KaraokeLine> {
     return Paint()
       ..shader = LinearGradient(colors: [widget.sung, widget.unsung])
           .createShader(
-        // 着色矩形 = 渐隐带本身，宽度就是过渡的长度。
-        // ⚠️ 渐变只沿**水平方向**取值，与 y 无关 —— 所以「一行一个 shader」
-        // 才是能不能只点亮一行的关键，靠矩形高度是拦不住的。
-        Rect.fromLTWH(x - fade, 0, fade * 2, (_painter?.height ?? 40) + 4),
-      );
+            // 着色矩形 = 渐隐带本身，宽度就是过渡的长度。
+            // ⚠️ 渐变只沿**水平方向**取值，与 y 无关 —— 所以「一行一个 shader」
+            // 才是能不能只点亮一行的关键，靠矩形高度是拦不住的。
+            Rect.fromLTWH(x - fade, 0, fade * 2, (_painter?.height ?? 40) + 4),
+          );
   }
 
   @override

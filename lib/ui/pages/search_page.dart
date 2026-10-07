@@ -616,7 +616,7 @@ class _SongCardState extends State<_SongCard> {
           ),
           child: Row(
             children: [
-              SongCover(pic: song.pic, size: 44),
+              SongCover(pic: song.coverPic, size: 44),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
