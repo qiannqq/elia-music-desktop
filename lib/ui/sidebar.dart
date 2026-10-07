@@ -126,7 +126,9 @@ class _PlaylistChildren extends StatelessWidget {
                       child: _PlaylistChild(
                         key: ValueKey('sidebar-playlist-${p.id}'),
                         playlist: p,
-                        active: p.id == state.currentPlaylistId,
+                        active:
+                            state.page == 'playlist' &&
+                            p.id == state.currentPlaylistId,
                         state: state,
                       ),
                     ),

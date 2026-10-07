@@ -25,6 +25,7 @@ void main() {
   setUp(() {
     state.playlists = [Playlist(id: 'p1', name: '默认歌单')];
     state.currentPlaylistId = 'p1';
+    state.page = 'playlist';
     state.playlistsExpanded = true;
   });
 
@@ -33,15 +34,17 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
-    await tester.pumpWidget(MaterialApp(
-      theme: buildTheme(AppColors.light, Brightness.light),
-      home: Scaffold(
-        body: AnimatedBuilder(
-          animation: state,
-          builder: (_, _) => AppSidebar(state: state),
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(AppColors.light, Brightness.light),
+        home: Scaffold(
+          body: AnimatedBuilder(
+            animation: state,
+            builder: (_, _) => AppSidebar(state: state),
+          ),
         ),
       ),
-    ));
+    );
     await tester.pump();
 
     final shown = tester.widget<Text>(find.text('默认歌单'));
@@ -67,11 +70,7 @@ void main() {
 
     // 框的上下位置与高度也要一样 —— 布局层面的偏移同样是「跳 1px」
     final fieldRect = tester.getRect(find.byType(TextField));
-    expect(
-      fieldRect.top,
-      closeTo(shownRect.top, 0.5),
-      reason: '进编辑态字上移/下移了',
-    );
+    expect(fieldRect.top, closeTo(shownRect.top, 0.5), reason: '进编辑态字上移/下移了');
     expect(
       fieldRect.height,
       closeTo(shownRect.height, 0.5),
