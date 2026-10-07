@@ -94,6 +94,7 @@ elia-music-desktop/
 - [Bilibili](https://www.bilibili.com) — 音乐数据来源
 - workbuddy国际版、DeepSeek Harness — harness
 - deepseek-v4.1-flash — 主力开发模型
+- GPT-6-Astra、Hy4 preview — 参与开发模型
 - 伊莉雅二世、伊莉雅三世 — Agent
 
 ## 许可证
