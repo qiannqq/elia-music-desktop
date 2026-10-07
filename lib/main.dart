@@ -72,6 +72,9 @@ Future<void> main() async {
   // 播放态记忆：把上次关闭时听的那首与进度放回播放栏，但**不自动播放**。
   // 歌单要先加载好（app.init 已 await），否则查不到这首歌。
   player.restoreLastPlayback(app.findSong);
+  // 恢复播放态时也预加载歌词，但不取音频、不自动播放；直接打开播放页时
+  // 不再先显示「暂无歌词」，等待缓存/网络歌词加载完成即可显示。
+  unawaited(player.preloadLyrics());
 
   // 系统媒体控件：播放栏之外的第二个出口（媒体面板 / 锁屏 / 硬件媒体键）
   await smtc.init();

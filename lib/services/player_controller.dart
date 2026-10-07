@@ -644,6 +644,22 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
+  /// 重启恢复态下预加载歌词，不启动音频。
+  Future<void> preloadLyrics() async {
+    final song = currentSong;
+    if (song == null) return;
+    isLoading = true;
+    notifyListeners();
+    try {
+      await _loadLyrics(song);
+    } finally {
+      if (currentSong?.mid == song.mid) {
+        isLoading = false;
+        notifyListeners();
+      }
+    }
+  }
+
   /// 歌词被编辑保存后重新装载。
   ///
   /// 播放栏的歌词是播放器自己持有的 `lyricLines`，与歌词弹窗**不是同一份**：
