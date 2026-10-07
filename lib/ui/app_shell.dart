@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../core/app_theme.dart';
 import '../core/perf_probe.dart';
@@ -38,27 +39,34 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell>
-    // 必须是 TickerProviderStateMixin（复数）：下面那 5 个 SmoothScrollController
-    // 每个都会 createTicker。Single 那个版本第二次就 assert 失败 ——
-    // release 下 assert 被跳过，所以「切到歌单页再切设置页」这种路径一直没炸，
-    // debug 下一进去就红。
-    with TickerProviderStateMixin {
+        // 必须是 TickerProviderStateMixin（复数）：下面那 5 个 SmoothScrollController
+        // 每个都会 createTicker。Single 那个版本第二次就 assert 失败 ——
+        // release 下 assert 被跳过，所以「切到歌单页再切设置页」这种路径一直没炸，
+        // debug 下一进去就红。
+        with
+        TickerProviderStateMixin {
   final AppState state = app;
 
   // 用 SmoothScrollController：滚轮与键盘共用**同一条连续动画**
   // （逐个事件起 animateTo 会让曲线反复重置，连发时就是一顿一顿的感觉）
-  late final SmoothScrollController _searchScroll =
-      SmoothScrollController(vsync: this);
-  late final SmoothScrollController _playlistScroll =
-      SmoothScrollController(vsync: this);
-  late final SmoothScrollController _settingsScroll =
-      SmoothScrollController(vsync: this);
-  late final SmoothScrollController _aboutScroll =
-      SmoothScrollController(vsync: this);
+  late final SmoothScrollController _searchScroll = SmoothScrollController(
+    vsync: this,
+  );
+  late final SmoothScrollController _playlistScroll = SmoothScrollController(
+    vsync: this,
+  );
+  late final SmoothScrollController _settingsScroll = SmoothScrollController(
+    vsync: this,
+  );
+  late final SmoothScrollController _aboutScroll = SmoothScrollController(
+    vsync: this,
+  );
+
   /// 播放列表面板的滚动条。归 shell 持有是因为面板开着时那几个翻页键要作用
   /// 在它身上 —— 键处理挂在 shell 的根 Focus 上，得够得着这条控制器。
-  late final SmoothScrollController _queueScroll =
-      SmoothScrollController(vsync: this);
+  late final SmoothScrollController _queueScroll = SmoothScrollController(
+    vsync: this,
+  );
 
   // 输入框控制器与滚动控制器同理，必须由 shell 持有：
   // 页面是按 `switch (state.page)` 构建的，切走就 dispose，
@@ -126,7 +134,9 @@ class _AppShellState extends State<AppShell>
   /// 打上「播放/暂停 + 背景模式」之后，同一次运行里开/关背景的数字可以直接对比。
   /// 探针关着时 `mark` 只是一次赋值，没有开销。
   void _markPerf() {
-    PerfProbe.mark('${player.isPlaying ? '播放' : '暂停'}/背景=${appBackground.mode.name}');
+    PerfProbe.mark(
+      '${player.isPlaying ? '播放' : '暂停'}/背景=${appBackground.mode.name}',
+    );
   }
 
   /// 点播放栏那个按钮：开着就收回，收起就展开。
@@ -185,8 +195,15 @@ class _AppShellState extends State<AppShell>
   ///    表现为「点输入框点不进去、一个字也打不了」。所以要等一小会儿，
   ///    确认焦点**真的**没人要，才收回。
   void _reclaimFocusIfLost() {
-    Future.delayed(const Duration(milliseconds: 120), () {
+    Future.delayed(const Duration(milliseconds: 120), () async {
       if (!mounted) return;
+      // 主窗口已经失去系统焦点时，绝不能 requestFocus：Windows 会把这次
+      // 子窗口聚焦升级成重新激活顶层窗口，表现为应用一直抢在别的窗口前面。
+      try {
+        if (!await windowManager.isFocused()) return;
+      } catch (_) {
+        // 单测 / 非桌面平台没有窗口通道时，保持原来的焦点回收行为。
+      }
       // 焦点在输入框里就绝不能碰。
       //
       // 弹窗（歌词编辑、重命名……）挂在 Navigator 的 overlay 上，本来就不在
@@ -243,7 +260,9 @@ class _AppShellState extends State<AppShell>
     if (state.page != _lastPage) {
       _saveScroll(_lastPage);
       _lastPage = state.page;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _restoreScroll(state.page));
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _restoreScroll(state.page),
+      );
     }
     setState(() {});
   }
@@ -272,7 +291,8 @@ class _AppShellState extends State<AppShell>
     final ctrl = _activeScroll();
     if (!ctrl.hasClients) return;
     ctrl.scrollTo(
-        top ? ctrl.position.minScrollExtent : ctrl.position.maxScrollExtent);
+      top ? ctrl.position.minScrollExtent : ctrl.position.maxScrollExtent,
+    );
   }
 
   /// 一屏的高度（翻页键走这么多）
@@ -352,11 +372,11 @@ class _AppShellState extends State<AppShell>
   String? _lastSongMid;
 
   SmoothScrollController _controllerFor(String page) => switch (page) {
-        'playlist' => _playlistScroll,
-        'settings' => _settingsScroll,
-        'about' => _aboutScroll,
-        _ => _searchScroll,
-      };
+    'playlist' => _playlistScroll,
+    'settings' => _settingsScroll,
+    'about' => _aboutScroll,
+    _ => _searchScroll,
+  };
 
   void _saveScroll(String page) {
     final ctrl = _controllerFor(page);
@@ -367,10 +387,9 @@ class _AppShellState extends State<AppShell>
     final ctrl = _controllerFor(page);
     final saved = state.pageScrolls[page];
     if (!ctrl.hasClients || saved == null) return;
-    ctrl.jumpTo(saved.clamp(
-      ctrl.position.minScrollExtent,
-      ctrl.position.maxScrollExtent,
-    ));
+    ctrl.jumpTo(
+      saved.clamp(ctrl.position.minScrollExtent, ctrl.position.maxScrollExtent),
+    );
     // 程序改了位置，清掉动画基准，免得下一次滚动从过期的目标起步
     ctrl.invalidateTarget();
   }
@@ -489,7 +508,9 @@ class _AppShellState extends State<AppShell>
                         child: Offstage(
                           offstage: _nowPlayingOpen,
                           child: Padding(
-                            padding: const EdgeInsets.only(top: kTitlebarHeight),
+                            padding: const EdgeInsets.only(
+                              top: kTitlebarHeight,
+                            ),
                             child: ZoomWrapper(
                               scale: state.zoom / 100,
                               child: Stack(
@@ -500,116 +521,131 @@ class _AppShellState extends State<AppShell>
                                   // （千奈真机看出来的：播放栏偏暗、标题栏偏亮）。
                                   // 现在整窗只有背景层那一层统一叠色（明暗滑块），
                                   // 其余 chrome 一律透明，亮度才真正统一。
-                              // 播放栏出现时**必须为它让出高度**（等价原版
-                              // `body.has-player .page.active{padding-bottom:88px}`），
-                              // 否则它会盖住页面底部内容（设置页的「外观」区）。
-                              // 注意只让出**播放栏本体高度**：多让的部分在页面外层，
-                              // 露出的是窗口底色，会变成播放栏上方一条灰边。
-                              Padding(
-                                padding: EdgeInsets.only(
-                                  bottom: player.currentSong != null ? kPlayerBarHeight : 0,
-                                ),
-                                child: Row(
-                                  children: [
-                                    AppSidebar(state: state),
-                                    Expanded(
-                                      child: ClipRect(
-                                        child: Stack(
-                                          children: [
-                                            _PageSlot(
-                                              key: ValueKey(state.page),
-                                              direction: state.pageDirection,
-                                              child: switch (state.page) {
-                                                'playlist' => PlaylistPage(
-                                                    state: state,
-                                                    scrollController: _playlistScroll,
-                                                    onOpenLyric: state.requestLyricDialog,
-                                                  ),
-                                                'settings' => SettingsPage(
-                                                    state: state,
-                                                    scrollController: _settingsScroll,
-                                                    qqCookie: _qqCookie,
-                                                    neteaseCookie: _neteaseCookie,
-                                                    biliCookie: _biliCookie,
-                                                    savePath: _savePath,
-                                                  ),
-                                              'about' =>
-                                                AboutPage(scrollController: _aboutScroll),
-                                              _ => SearchPage(
+                                  // 播放栏出现时**必须为它让出高度**（等价原版
+                                  // `body.has-player .page.active{padding-bottom:88px}`），
+                                  // 否则它会盖住页面底部内容（设置页的「外观」区）。
+                                  // 注意只让出**播放栏本体高度**：多让的部分在页面外层，
+                                  // 露出的是窗口底色，会变成播放栏上方一条灰边。
+                                  Padding(
+                                    padding: EdgeInsets.only(
+                                      bottom: player.currentSong != null
+                                          ? kPlayerBarHeight
+                                          : 0,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        AppSidebar(state: state),
+                                        Expanded(
+                                          child: ClipRect(
+                                            child: Stack(
+                                              children: [
+                                                _PageSlot(
+                                                  key: ValueKey(state.page),
+                                                  direction:
+                                                      state.pageDirection,
+                                                  child: switch (state.page) {
+                                                    'playlist' => PlaylistPage(
+                                                      state: state,
+                                                      scrollController:
+                                                          _playlistScroll,
+                                                      onOpenLyric: state
+                                                          .requestLyricDialog,
+                                                    ),
+                                                    'settings' => SettingsPage(
+                                                      state: state,
+                                                      scrollController:
+                                                          _settingsScroll,
+                                                      qqCookie: _qqCookie,
+                                                      neteaseCookie:
+                                                          _neteaseCookie,
+                                                      biliCookie: _biliCookie,
+                                                      savePath: _savePath,
+                                                    ),
+                                                    'about' => AboutPage(
+                                                      scrollController:
+                                                          _aboutScroll,
+                                                    ),
+                                                    _ => SearchPage(
+                                                      state: state,
+                                                      scrollController:
+                                                          _searchScroll,
+                                                      inputController:
+                                                          _searchInput,
+                                                      onOpenLyric: state
+                                                          .requestLyricDialog,
+                                                    ),
+                                                  },
+                                                ),
+                                                // 播放列表面板：盖在页面之上，从右侧滑出。
+                                                // 放在 ClipRect 里面 —— 滑出的过程正好被
+                                                // 页面区裁掉，看起来才是「从边上推出来」。
+                                                QueuePanel(
                                                   state: state,
-                                                  scrollController: _searchScroll,
-                                                  inputController: _searchInput,
+                                                  open: _queueOpen,
+                                                  onClose: () => setState(
+                                                    () => _queueOpen = false,
+                                                  ),
                                                   onOpenLyric:
                                                       state.requestLyricDialog,
+                                                  scrollController:
+                                                      _queueScroll,
                                                 ),
-                                            },
+                                              ],
+                                            ),
                                           ),
-                                          // 播放列表面板：盖在页面之上，从右侧滑出。
-                                          // 放在 ClipRect 里面 —— 滑出的过程正好被
-                                          // 页面区裁掉，看起来才是「从边上推出来」。
-                                          QueuePanel(
-                                            state: state,
-                                            open: _queueOpen,
-                                            onClose: () =>
-                                                setState(() => _queueOpen = false),
-                                            onOpenLyric: state.requestLyricDialog,
-                                            scrollController: _queueScroll,
-                                          ),
-                                        ],
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  // 播放器栏（有歌曲时显示，等价 body.has-player）
+                                  //
+                                  // ⚠️ 自己关一层重绘边界：进度条与时间按位置事件
+                                  // （30Hz）在变，而外壳这一层原本**一个重绘边界都没有**
+                                  // —— 不关起来的话它们每变一次都会把整窗内容层的绘制
+                                  // 记录标脏，白白重录一遍整屏。
+                                  if (player.currentSong != null)
+                                    Positioned(
+                                      left: 0,
+                                      right: 0,
+                                      bottom: 0,
+                                      child: RepaintBoundary(
+                                        child: PlayerBar(
+                                          state: state,
+                                          onOpenQueue: _toggleQueue,
+                                          onOpenNowPlaying: () =>
+                                              _setNowPlaying(true),
+                                        ),
                                       ),
                                     ),
-                                  ),
                                 ],
-                                ),
                               ),
-                              // 播放器栏（有歌曲时显示，等价 body.has-player）
-                              //
-                              // ⚠️ 自己关一层重绘边界：进度条与时间按位置事件
-                              // （30Hz）在变，而外壳这一层原本**一个重绘边界都没有**
-                              // —— 不关起来的话它们每变一次都会把整窗内容层的绘制
-                              // 记录标脏，白白重录一遍整屏。
-                              if (player.currentSong != null)
-                                Positioned(
-                                  left: 0,
-                                  right: 0,
-                                  bottom: 0,
-                                  child: RepaintBoundary(
-                                    child: PlayerBar(
-                                      state: state,
-                                      onOpenQueue: _toggleQueue,
-                                      onOpenNowPlaying: () => _setNowPlaying(true),
-                                    ),
-                                  ),
-                                ),
-                            ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                      // ---- 现在播放页：盖住整窗（含标题栏区域）----
+                      //
+                      // 常驻组件树、只切 open —— 摘挂会重建整棵子树。
+                      Positioned.fill(
+                        child: NowPlayingPage(
+                          state: state,
+                          open: _nowPlayingOpen,
+                          onClose: () => _setNowPlaying(false),
+                        ),
+                      ),
+                      // ---- 标题栏：永远在最上层 ----
+                      //
+                      // 播放页开着时它透明 + 内容物转白，窗口按钮仍然可点 ——
+                      // 全屏页把标题栏吃掉的话，用户连关窗都做不到。
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        top: 0,
+                        child: AppTitlebar(over: _nowPlayingOpen),
+                      ),
+                    ],
                   ),
-                  // ---- 现在播放页：盖住整窗（含标题栏区域）----
-                  //
-                  // 常驻组件树、只切 open —— 摘挂会重建整棵子树。
-                  Positioned.fill(
-                    child: NowPlayingPage(
-                      state: state,
-                      open: _nowPlayingOpen,
-                      onClose: () => _setNowPlaying(false),
-                    ),
-                  ),
-                  // ---- 标题栏：永远在最上层 ----
-                  //
-                  // 播放页开着时它透明 + 内容物转白，窗口按钮仍然可点 ——
-                  // 全屏页把标题栏吃掉的话，用户连关窗都做不到。
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    top: 0,
-                    child: AppTitlebar(over: _nowPlayingOpen),
-                  ),
-                ],
-              ),
-            );
+                );
               },
             ),
           ),
@@ -629,11 +665,7 @@ class _AppShellState extends State<AppShell>
 /// 早期版本为了让滚动位置自然保留而把 4 个页面全部常驻挂载，
 /// 会让渲染树与无障碍语义树大出数倍（并伴随 Windows 无障碍桥报错）。
 class _PageSlot extends StatelessWidget {
-  const _PageSlot({
-    super.key,
-    required this.direction,
-    required this.child,
-  });
+  const _PageSlot({super.key, required this.direction, required this.child});
 
   /// 1 = 向右进入，-1 = 向左进入
   final int direction;
@@ -745,12 +777,7 @@ class EliaMusicApp extends StatelessWidget {
             AppThemeMode.system => ThemeMode.system,
           },
           builder: (context, child) {
-            return Stack(
-              children: [
-                ?child,
-                const ToastLayer(),
-              ],
-            );
+            return Stack(children: [?child, const ToastLayer()]);
           },
           home: const AppShell(),
         );

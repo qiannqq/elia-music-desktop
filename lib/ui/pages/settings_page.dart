@@ -139,8 +139,10 @@ class _SettingsPageState extends State<SettingsPage> {
         _ => CacheManager.clearAll(),
       };
       await _refreshCache();
-      toast.show('已清理 $label，释放 ${CacheManager.formatBytes(freed)}',
-          type: ToastType.success);
+      toast.show(
+        '已清理 $label，释放 ${CacheManager.formatBytes(freed)}',
+        type: ToastType.success,
+      );
     } catch (e) {
       toast.show('清理失败：$e', type: ToastType.error);
     } finally {
@@ -169,13 +171,21 @@ class _SettingsPageState extends State<SettingsPage> {
         // ---- 页头 + 分栏。固定在顶部，不跟着内容滚 ----
         Padding(
           padding: const EdgeInsets.fromLTRB(
-            AppSpace.page, AppSpace.pageTop, AppSpace.page, AppSpace.pageHeaderBottom),
+            AppSpace.page,
+            AppSpace.pageTop,
+            AppSpace.page,
+            AppSpace.pageHeaderBottom,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
                 '设置',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: c.text),
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: c.text,
+                ),
               ),
               const SizedBox(height: 16),
               _TabBar(
@@ -202,7 +212,11 @@ class _SettingsPageState extends State<SettingsPage> {
             child: SingleChildScrollView(
               controller: widget.scrollController,
               padding: const EdgeInsets.fromLTRB(
-                  AppSpace.page, AppSpace.xxs, AppSpace.page, AppSpace.page),
+                AppSpace.page,
+                AppSpace.xxs,
+                AppSpace.page,
+                AppSpace.page,
+              ),
               // 换栏过场：**复用侧边栏切主页面那一条**（横滑 30px + 淡入，250ms）。
               // key 每次换栏都要变，动画才重播（见 AppPageTransition 的说明）。
               child: AppPageTransition(
@@ -227,25 +241,25 @@ class _SettingsPageState extends State<SettingsPage> {
   List<Widget> _sectionsOf(SettingsTab tab, AppColors c, AppState state) {
     final sections = switch (tab) {
       SettingsTab.playback => [
-          _qualitySection(c, state),
-          _silenceSection(c, state),
-          _lyricIslandSection(c, state),
-        ],
+        _qualitySection(c, state),
+        _silenceSection(c, state),
+        _lyricIslandSection(c, state),
+      ],
       SettingsTab.ck => [
-          _qqCookieSection(c, state),
-          _neteaseCookieSection(c, state),
-          _biliCookieSection(c, state),
-        ],
+        _qqCookieSection(c, state),
+        _neteaseCookieSection(c, state),
+        _biliCookieSection(c, state),
+      ],
       SettingsTab.storage => [
-          _downloadSection(c, state),
-          _cacheSection(c, state),
-        ],
+        _downloadSection(c, state),
+        _cacheSection(c, state),
+      ],
       SettingsTab.appearance => [
-          _appearanceSection(c, state),
-          _accentColorSection(c, state),
-          _backgroundSection(c, state),
-          _nowPlayingSection(c, state),
-        ],
+        _appearanceSection(c, state),
+        _accentColorSection(c, state),
+        _backgroundSection(c, state),
+        _nowPlayingSection(c, state),
+      ],
     };
     return [
       for (var i = 0; i < sections.length; i++) ...[
@@ -303,7 +317,10 @@ class _SettingsPageState extends State<SettingsPage> {
             AppButton(
               label: '清除',
               onPressed: () async {
-                final ok = await showConfirmDialog(context, '确定清除已保存的 Cookie 吗？');
+                final ok = await showConfirmDialog(
+                  context,
+                  '确定清除已保存的 Cookie 吗？',
+                );
                 if (!ok) return;
                 state.clearQqCookie();
                 _qqCookie.text = '';
@@ -351,7 +368,8 @@ class _SettingsPageState extends State<SettingsPage> {
             size: 28,
             iconSize: 16,
             tooltip: '显示/隐藏',
-            onTap: () => setState(() => _showNeteaseCookie = !_showNeteaseCookie),
+            onTap: () =>
+                setState(() => _showNeteaseCookie = !_showNeteaseCookie),
           ),
         ),
         _fieldGap,
@@ -366,7 +384,10 @@ class _SettingsPageState extends State<SettingsPage> {
             AppButton(
               label: '清除',
               onPressed: () async {
-                final ok = await showConfirmDialog(context, '确定清除已保存的网易云 Cookie 吗？');
+                final ok = await showConfirmDialog(
+                  context,
+                  '确定清除已保存的网易云 Cookie 吗？',
+                );
                 if (!ok) return;
                 state.clearNeteaseCookie();
                 _neteaseCookie.text = '';
@@ -383,7 +404,8 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _biliCookieSection(AppColors c, AppState state) {
     return _Section(
       title: 'B站 Cookie',
-      desc: '可选。填写后可访问私密投稿，搜索排序与网页端一致。'
+      desc:
+          '可选。填写后可访问私密投稿，搜索排序与网页端一致。'
           '可填完整 Cookie 或 SESSDATA。',
       children: [
         _FieldLabel('Cookie 状态', c),
@@ -430,8 +452,10 @@ class _SettingsPageState extends State<SettingsPage> {
             AppButton(
               label: '清除',
               onPressed: () async {
-                final ok =
-                    await showConfirmDialog(context, '确定清除已保存的 B站 Cookie 吗？');
+                final ok = await showConfirmDialog(
+                  context,
+                  '确定清除已保存的 B站 Cookie 吗？',
+                );
                 if (!ok) return;
                 state.clearBiliCookie();
                 _biliCookie.text = '';
@@ -489,22 +513,31 @@ class _SettingsPageState extends State<SettingsPage> {
               for (final dir in state.recentDirs)
                 HoverBuilder(
                   builder: (_, hovered) => Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: hovered ? c.hover : c.hover.withValues(alpha: 0),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Row(
                       children: [
-                        AppIcon(AppIcons.folder,
-                            size: 14, color: c.textSecondary.withValues(alpha: 0.5)),
+                        AppIcon(
+                          AppIcons.folder,
+                          size: 14,
+                          color: c.textSecondary.withValues(alpha: 0.5),
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             dir,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontSize: 12, color: c.textSecondary),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: c.textSecondary,
+                            ),
                           ),
                         ),
                         AppIconButton(
@@ -554,7 +587,10 @@ class _SettingsPageState extends State<SettingsPage> {
                 if (state.highQuality) ...[
                   const SizedBox(width: 10),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: c.accentLight,
                       borderRadius: BorderRadius.circular(4),
@@ -580,7 +616,8 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _silenceSection(AppColors c, AppState state) {
     return _Section(
       title: '跳过首尾无声片段',
-      desc: '自动跳过歌曲开头与结尾的空白（压制时留下的那几秒）。'
+      desc:
+          '自动跳过歌曲开头与结尾的空白（压制时留下的那几秒）。'
           '需要解一次音频来定位，所以每首歌第一次播放时可能晚半秒才生效。',
       children: [
         Row(
@@ -638,7 +675,8 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _nowPlayingSection(AppColors c, AppState state) {
     return _Section(
       title: '现在播放页',
-      desc: '背景是这张封面糊开的大图，它会绕屏幕中心匀速旋转，'
+      desc:
+          '背景是这张封面糊开的大图，它会绕屏幕中心匀速旋转，'
           '并跟着歌曲的低频（80~120Hz，也就是鼓点）轻轻向内放大。',
       children: [
         _FieldLabel('律动幅度', c),
@@ -799,8 +837,12 @@ class _SettingsPageState extends State<SettingsPage> {
                   inactiveTrackColor: c.progressBg,
                   thumbColor: c.accentFill,
                   overlayColor: c.accentLight,
-                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 9),
-                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+                  thumbShape: const RoundSliderThumbShape(
+                    enabledThumbRadius: 9,
+                  ),
+                  overlayShape: const RoundSliderOverlayShape(
+                    overlayRadius: 16,
+                  ),
                 ),
                 child: Slider(
                   value: state.zoom,
@@ -859,7 +901,8 @@ class _SettingsPageState extends State<SettingsPage> {
     final isImage = bg.mode == AppBgMode.image;
     return _Section(
       title: '整体背景',
-      desc: '把一张图或当前这首的封面铺满整个应用：标题栏、侧边栏、内容区、'
+      desc:
+          '把一张图或当前这首的封面铺满整个应用：标题栏、侧边栏、内容区、'
           '播放栏都沉浸在里面。默认关。',
       children: [
         Row(
@@ -881,7 +924,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   },
                 ),
               ),
-              if (mode != AppBgMode.values.last) const SizedBox(width: AppSpace.inline),
+              if (mode != AppBgMode.values.last)
+                const SizedBox(width: AppSpace.inline),
             ],
           ],
         ),
@@ -920,7 +964,10 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: AppSpace.line),
           Row(
             children: [
-              Text('背景明暗', style: TextStyle(fontSize: 13, color: c.textSecondary)),
+              Text(
+                '背景明暗',
+                style: TextStyle(fontSize: 13, color: c.textSecondary),
+              ),
               const SizedBox(width: AppSpace.line),
               _slider(
                 c: c,
@@ -935,7 +982,10 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           Row(
             children: [
-              Text('背景模糊', style: TextStyle(fontSize: 13, color: c.textSecondary)),
+              Text(
+                '背景模糊',
+                style: TextStyle(fontSize: 13, color: c.textSecondary),
+              ),
               const SizedBox(width: AppSpace.line),
               _slider(
                 c: c,
@@ -947,7 +997,10 @@ class _SettingsPageState extends State<SettingsPage> {
                 divisions: 50,
                 onChanged: bg.setBlur,
               ),
-              _sliderValue(bg.blurSigma < 0.5 ? '关' : bg.blurSigma.round().toString(), c),
+              _sliderValue(
+                bg.blurSigma < 0.5 ? '关' : bg.blurSigma.round().toString(),
+                c,
+              ),
             ],
           ),
           const SizedBox(height: 2),
@@ -970,16 +1023,16 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   static String _bgModeLabel(AppBgMode m) => switch (m) {
-        AppBgMode.none => '关',
-        AppBgMode.image => '自定义图片',
-        AppBgMode.cover => '歌曲封面',
-      };
+    AppBgMode.none => '关',
+    AppBgMode.image => '自定义图片',
+    AppBgMode.cover => '歌曲封面',
+  };
 
   static String _bgModeIcon(AppBgMode m) => switch (m) {
-        AppBgMode.none => AppIcons.close,
-        AppBgMode.image => AppIcons.folder,
-        AppBgMode.cover => AppIcons.music,
-      };
+    AppBgMode.none => AppIcons.close,
+    AppBgMode.image => AppIcons.folder,
+    AppBgMode.cover => AppIcons.music,
+  };
 
   Widget _cacheSection(AppColors c, AppState state) {
     return _Section(
@@ -997,10 +1050,13 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _accentColorSection(AppColors c, AppState state) {
     final current = themeController.accent;
     final hsl = HSLColor.fromColor(current);
-    final isPreset = kAccentPresets.any((p) => p.toARGB32() == current.toARGB32());
+    final isPreset = kAccentPresets.any(
+      (p) => p.toARGB32() == current.toARGB32(),
+    );
     return _Section(
       title: '主题色',
-      desc: '替换界面里所有的强调色：按钮、开关、进度条、歌词高亮、选中态。'
+      desc:
+          '替换界面里所有的强调色：按钮、开关、进度条、歌词高亮、选中态。'
           '默认跟随 Windows「设置 → 个性化 → 颜色」里的主题色。',
       children: [
         Wrap(
@@ -1057,8 +1113,10 @@ class _SettingsPageState extends State<SettingsPage> {
               // 之后想再同步一次就点这里。
               label: '恢复默认',
               small: true,
-              onPressed: themeController.systemAccent != null &&
-                      current.toARGB32() == themeController.systemAccent!.toARGB32()
+              onPressed:
+                  themeController.systemAccent != null &&
+                      current.toARGB32() ==
+                          themeController.systemAccent!.toARGB32()
                   ? null
                   : () async {
                       final ok = await themeController.useSystemAccent();
@@ -1087,10 +1145,7 @@ class _SettingsPageState extends State<SettingsPage> {
     final u = _usage;
     if (u == null) {
       return [
-        Text(
-          '正在统计…',
-          style: TextStyle(fontSize: 13, color: c.textTertiary),
-        ),
+        Text('正在统计…', style: TextStyle(fontSize: 13, color: c.textTertiary)),
       ];
     }
 
@@ -1241,8 +1296,7 @@ class _SettingsPageState extends State<SettingsPage> {
           // 凭据换了：之前缓存的音频可能只是匿名状态下拿到的试听片段，
           // 作废一代，下次播放重新取完整版。
           AudioDiskCache.bumpEpoch();
-          toast.show('验证通过：${info.nickname}（旧缓存已作废）',
-              type: ToastType.success);
+          toast.show('验证通过：${info.nickname}（旧缓存已作废）', type: ToastType.success);
         case CkOutcome.rejected:
           widget.state.markQqCookieInvalid();
           toast.show('Cookie 无效或已失效，未保存', type: ToastType.error);
@@ -1317,8 +1371,7 @@ class _SettingsPageState extends State<SettingsPage> {
       );
       // 见 _verifyQq：B站换 ck 也会影响能取到哪一档音频
       AudioDiskCache.bumpEpoch();
-      toast.show('验证通过：${info.nickname}（旧缓存已作废）',
-          type: ToastType.success);
+      toast.show('验证通过：${info.nickname}', type: ToastType.success);
     } catch (e) {
       widget.state.biliCookieStatus = 'invalid';
       toast.show('$e', type: ToastType.error);
@@ -1402,7 +1455,9 @@ class _TabBar extends StatelessWidget {
                                     ? DecoratedBox(
                                         decoration: BoxDecoration(
                                           color: c.accent,
-                                          borderRadius: BorderRadius.circular(1.5),
+                                          borderRadius: BorderRadius.circular(
+                                            1.5,
+                                          ),
                                         ),
                                       )
                                     : null,
@@ -1417,7 +1472,8 @@ class _TabBar extends StatelessWidget {
               },
             ),
           ),
-          if (tab != SettingsTab.values.last) const SizedBox(width: AppSpace.inline),
+          if (tab != SettingsTab.values.last)
+            const SizedBox(width: AppSpace.inline),
         ],
       ],
     );
@@ -1458,14 +1514,18 @@ class _Swatch extends StatelessWidget {
             color: color,
             borderRadius: BorderRadius.circular(9),
             border: Border.all(
-              color: selected ? c.accent : (hovered ? c.textSecondary : c.border),
+              color: selected
+                  ? c.accent
+                  : (hovered ? c.textSecondary : c.border),
               width: selected ? 2 : 1,
             ),
           ),
           child: Center(
             child: selected
                 ? AppIcon(AppIcons.check, size: 16, color: ink)
-                : (custom ? AppIcon(AppIcons.palette, size: 15, color: ink) : null),
+                : (custom
+                      ? AppIcon(AppIcons.palette, size: 15, color: ink)
+                      : null),
           ),
         ),
       ),
@@ -1500,7 +1560,11 @@ class _AccentSlider extends StatelessWidget {
           width: 40,
           child: Text(
             label,
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: c.textSecondary),
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: c.textSecondary,
+            ),
           ),
         ),
         SizedBox(
@@ -1556,7 +1620,9 @@ class _Section extends StatelessWidget {
     // Windows 平台不用投影来分层 —— 官方 Elevation 文档明文：用描边代替。
     return Container(
       padding: const EdgeInsets.symmetric(
-          horizontal: AppSpace.cardPadH, vertical: AppSpace.cardPadV),
+        horizontal: AppSpace.cardPadH,
+        vertical: AppSpace.cardPadV,
+      ),
       decoration: BoxDecoration(
         color: c.card,
         border: Border.all(color: c.cardStroke),
@@ -1567,13 +1633,21 @@ class _Section extends StatelessWidget {
         children: [
           Text(
             title,
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: c.text),
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: c.text,
+            ),
           ),
           if (desc != null) ...[
             const SizedBox(height: 4),
             Text(
               desc!,
-              style: TextStyle(fontSize: 12, color: c.textTertiary, height: 1.5),
+              style: TextStyle(
+                fontSize: 12,
+                color: c.textTertiary,
+                height: 1.5,
+              ),
             ),
           ],
           const SizedBox(height: 16),
@@ -1595,7 +1669,11 @@ class _FieldLabel extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 6),
       child: Text(
         text,
-        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: c.textSecondary),
+        style: TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+          color: c.textSecondary,
+        ),
       ),
     );
   }
@@ -1735,7 +1813,11 @@ class _CookieStatus extends StatelessWidget {
 }
 
 class _ThemeOption extends StatelessWidget {
-  const _ThemeOption({required this.mode, required this.selected, required this.onTap});
+  const _ThemeOption({
+    required this.mode,
+    required this.selected,
+    required this.onTap,
+  });
 
   final AppThemeMode mode;
   final bool selected;
@@ -1743,11 +1825,11 @@ class _ThemeOption extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _OptionCard(
-        icon: mode.icon,
-        label: mode.label,
-        selected: selected,
-        onTap: onTap,
-      );
+    icon: mode.icon,
+    label: mode.label,
+    selected: selected,
+    onTap: onTap,
+  );
 }
 
 /// 一排「多选一」的小卡片（主题模式、整体背景模式都用它）。
@@ -1782,9 +1864,13 @@ class _OptionCard extends StatelessWidget {
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
-            color: selected ? c.accentLight : c.accentLight.withValues(alpha: 0),
+            color: selected
+                ? c.accentLight
+                : c.accentLight.withValues(alpha: 0),
             border: Border.all(
-              color: selected ? c.accent : (hovered ? c.textTertiary : c.border),
+              color: selected
+                  ? c.accent
+                  : (hovered ? c.textTertiary : c.border),
               width: 1.5,
             ),
             borderRadius: BorderRadius.circular(c.radius),
@@ -1792,8 +1878,12 @@ class _OptionCard extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              AppIcon(icon, size: 16, color: selected ? c.accent : c.textSecondary,
-                  viewBox: iconViewBox),
+              AppIcon(
+                icon,
+                size: 16,
+                color: selected ? c.accent : c.textSecondary,
+                viewBox: iconViewBox,
+              ),
               const SizedBox(width: AppSpace.inline),
               Text(
                 label,

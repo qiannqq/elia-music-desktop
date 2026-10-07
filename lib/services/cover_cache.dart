@@ -1,7 +1,11 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/painting.dart';
+import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
+
+import 'api_client.dart';
 
 import '../core/app_paths.dart';
 import '../core/file_logger.dart';
@@ -75,6 +79,15 @@ class CoverCache {
       part.writeAsBytesSync(bytes, flush: true);
       if (target.existsSync()) target.deleteSync();
       part.renameSync(target.path);
+      // 同一 URL 可能曾经以另一种后缀落盘；新文件成功后再清掉旧后缀，
+      // 避免 find() 继续命中旧图片。
+      for (final other in _exts) {
+        if (other == ext) continue;
+        final old = File(p.join(dir.path, '${keyOf(url)}$other'));
+        try {
+          if (old.existsSync()) old.deleteSync();
+        } catch (_) {}
+      }
     } catch (e) {
       fileLogger.warn('CoverCache', '写入失败: $e');
       try {
@@ -83,6 +96,25 @@ class CoverCache {
       return;
     }
     if (++_writes % _enforceEvery == 0) enforceLimit();
+  }
+
+  /// 只刷新已经存在的封面缓存；下载失败时不动旧文件。
+  static Future<bool> refresh(String url) async {
+    if (url.isEmpty || find(url) == null) return false;
+    try {
+      final res = await http
+          .get(Uri.parse(ApiClient.getProxyImageUrl(url)))
+          .timeout(const Duration(seconds: 30));
+      if (res.statusCode != 200 || res.bodyBytes.isEmpty) return false;
+      put(url, res.bodyBytes, res.headers['content-type'] ?? '');
+      PaintingBinding.instance.imageCache.evict(
+        NetworkImage(ApiClient.getProxyImageUrl(url)),
+      );
+      return find(url) != null;
+    } catch (e) {
+      fileLogger.warn('CoverCache', '刷新失败，保留旧封面: $e');
+      return false;
+    }
   }
 
   static String _extFor(String contentType) {
@@ -96,12 +128,12 @@ class CoverCache {
 
   /// 回给客户端时的 Content-Type。后缀是我们自己按类型写的，反推得回来。
   static String contentTypeOf(String path) => switch (p.extension(path)) {
-        '.png' => 'image/png',
-        '.webp' => 'image/webp',
-        '.gif' => 'image/gif',
-        '.jpg' => 'image/jpeg',
-        _ => 'application/octet-stream',
-      };
+    '.png' => 'image/png',
+    '.webp' => 'image/webp',
+    '.gif' => 'image/gif',
+    '.jpg' => 'image/jpeg',
+    _ => 'application/octet-stream',
+  };
 
   static List<File> _files() {
     try {
@@ -161,8 +193,10 @@ class CoverCache {
       } catch (_) {}
     }
     if (count > 0) {
-      fileLogger.info('CoverCache',
-          '清空封面缓存：$count 个文件，释放 ${(freed / 1024 / 1024).toStringAsFixed(1)}MB');
+      fileLogger.info(
+        'CoverCache',
+        '清空封面缓存：$count 个文件，释放 ${(freed / 1024 / 1024).toStringAsFixed(1)}MB',
+      );
     }
     return freed;
   }

@@ -325,7 +325,11 @@ void main() {
       ];
       fetcher([qq('1'), qq('2')]);
       await state.syncPlaylist('p1', trigger: 'f5');
-      expect(mids(state.playlists[0].songs), ['1', '2'], reason: 'p1 自己没有这条黑名单');
+      expect(
+        mids(state.playlists[0].songs),
+        ['2', '1'],
+        reason: 'p1 自己没有这条黑名单，新增项置顶但旧歌顺序不动',
+      );
     });
   });
 

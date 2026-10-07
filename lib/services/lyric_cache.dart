@@ -67,6 +67,47 @@ class LyricCache {
     return fut;
   }
 
+  /// 是否存在可刷新的远端歌词缓存（内存或磁盘任一命中即可）。
+  static bool hasCache(String mid) =>
+      _cache.containsKey(mid) || _diskFile(mid).existsSync();
+
+  /// 只刷新远端歌词缓存，不触碰用户自定义歌词。
+  ///
+  /// 自定义原歌词存在时直接跳过；远端请求失败、返回空歌词或解析失败时，
+  /// 旧缓存全部保留。翻译若是用户单独改过，也沿用用户那份。
+  static Future<bool> refreshRemote(
+    String mid, {
+    required String source,
+  }) async {
+    if (!hasCache(mid) || LocalStore.get('custom_lyric_$mid') != null) {
+      return false;
+    }
+    try {
+      final res = switch (source) {
+        'netease' => await ApiClient.neLyric(mid),
+        'bilibili' => await bilibiliService.getLyricByMid(mid),
+        _ => await ApiClient.getLyric(mid),
+      };
+      if (res.lyric.trim().isEmpty) return false;
+      final isQrc = looksLikeQrc(res.lyric);
+      final trans = LocalStore.get('custom_lyric_trans_$mid') ?? res.trans;
+      final bundle = LyricBundle(
+        raw: res.lyric,
+        trans: trans,
+        lines: isQrc ? parseQrc(res.lyric) : parseLrc(res.lyric),
+        transMap: parseTransLrc(trans),
+      );
+      if (bundle.isEmpty) return false;
+      _cache[mid] = bundle;
+      _saveToDisk(mid, res.lyric, trans);
+      fileLogger.info('Lyric', '$mid 已刷新远端歌词缓存');
+      return true;
+    } catch (e) {
+      fileLogger.warn('Lyric', '$mid 刷新失败，保留旧缓存: $e');
+      return false;
+    }
+  }
+
   /// 丢掉这首歌的缓存（内存 + 磁盘）。用户把歌词清空时要用 ——
   /// 不丢的话下次取词会命中磁盘缓存，旧歌词又回来了。
   static void dropDisk(String mid) {
@@ -87,7 +128,10 @@ class LyricCache {
     try {
       final f = _diskFile(mid);
       if (!f.parent.existsSync()) f.parent.createSync(recursive: true);
-      f.writeAsStringSync(jsonEncode({'raw': raw, 'trans': trans}), flush: true);
+      f.writeAsStringSync(
+        jsonEncode({'raw': raw, 'trans': trans}),
+        flush: true,
+      );
     } catch (e) {
       fileLogger.warn('Lyric', '$mid 写缓存失败: $e');
     }
@@ -161,11 +205,14 @@ class LyricCache {
       fileLogger.info(
         'Lyric',
         '$mid $source${isQrc ? ' qrc' : ''} raw=${raw.length} trans=${trans.length}'
-        ' → lines=${bundle.lines.length} 其中逐字行=$withWords transMap=${bundle.transMap.length}',
+            ' → lines=${bundle.lines.length} 其中逐字行=$withWords transMap=${bundle.transMap.length}',
       );
       if (raw.isNotEmpty && bundle.lines.isEmpty) {
-        fileLogger.warn('Lyric', '$mid 歌词非空但解析出 0 行，原文首行: '
-            '${raw.split('\n').firstWhere((l) => l.trim().isNotEmpty, orElse: () => '')}');
+        fileLogger.warn(
+          'Lyric',
+          '$mid 歌词非空但解析出 0 行，原文首行: '
+              '${raw.split('\n').firstWhere((l) => l.trim().isNotEmpty, orElse: () => '')}',
+        );
       }
       _cache[mid] = bundle;
       return bundle;
@@ -192,8 +239,10 @@ class LyricCache {
     if (bundle.isEmpty) return;
     _cache[mid] = bundle;
     _saveToDisk(mid, raw, trans);
-    fileLogger.info('Lyric',
-        '$mid 迟到的歌词已补进缓存（lines=${bundle.lines.length} trans=${trans.length}）');
+    fileLogger.info(
+      'Lyric',
+      '$mid 迟到的歌词已补进缓存（lines=${bundle.lines.length} trans=${trans.length}）',
+    );
   }
 
   /// 自定义歌词保存/清除后让其失效，下次重新读取。
@@ -250,8 +299,10 @@ class LyricCache {
       fileLogger.warn('Lyric', '清空歌词缓存失败: $e');
     }
     if (count > 0) {
-      fileLogger.info('Lyric',
-          '清空歌词缓存：$count 个文件，释放 ${(freed / 1024).toStringAsFixed(0)}KB');
+      fileLogger.info(
+        'Lyric',
+        '清空歌词缓存：$count 个文件，释放 ${(freed / 1024).toStringAsFixed(0)}KB',
+      );
     }
     return freed;
   }

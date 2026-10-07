@@ -819,8 +819,13 @@ void Paint() {
 
   if (!IsWindowVisible(g_hwnd)) {
     ShowWindow(g_hwnd, SW_SHOWNOACTIVATE);
-    SetWindowPos(g_hwnd, HWND_TOPMOST, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    // 胶囊是主窗口的 owned popup，不应成为全局 TOPMOST 窗口。
+    // 只在主窗口仍是前台时把它提到 owner 之上；切到别的程序后让出 z-order，
+    // 否则它会遮住别的窗口，看起来像播放器一直置顶。
+    if (g_host == nullptr || GetForegroundWindow() == g_host) {
+      SetWindowPos(g_hwnd, HWND_TOP, 0, 0, 0, 0,
+                   SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    }
   }
 }
 
@@ -1010,8 +1015,8 @@ void EnsureWindow() {
   RegisterClassExW(&wc);
 
   g_hwnd = CreateWindowExW(
-      WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
-      L"EliaLyricIsland", L"", WS_POPUP, 0, 0, 1, 1, nullptr, nullptr, wc.hInstance,
+      WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+      L"EliaLyricIsland", L"", WS_POPUP, 0, 0, 1, 1, g_host, nullptr, wc.hInstance,
       nullptr);
 }
 

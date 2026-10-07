@@ -38,7 +38,8 @@ class _DownloadButtonState extends State<DownloadButton> {
   Widget build(BuildContext context) {
     final c = context.c;
     final downloaded = widget.state.downloadedPaths[widget.mid];
-    final status = widget.state.downloadStatuses[widget.mid] ?? DownloadStatus.idle;
+    final status =
+        widget.state.downloadStatuses[widget.mid] ?? DownloadStatus.idle;
     final pct = widget.state.downloadProgress[widget.mid] ?? 0;
 
     if (downloaded != null) {
@@ -59,7 +60,11 @@ class _DownloadButtonState extends State<DownloadButton> {
         child: Center(
           child: CustomPaint(
             size: const Size(28, 28),
-            painter: _RingPainter(progress: pct / 100, bg: c.border, fg: c.accent),
+            painter: _RingPainter(
+              progress: pct / 100,
+              bg: c.border,
+              fg: c.accent,
+            ),
           ),
         ),
       );
@@ -72,7 +77,11 @@ class _DownloadButtonState extends State<DownloadButton> {
         child: Center(
           child: Text(
             '✗',
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: c.danger),
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: c.danger,
+            ),
           ),
         ),
       );
@@ -97,7 +106,8 @@ class _DownloadButtonState extends State<DownloadButton> {
       },
     );
     if (!mounted) return;
-    if (!ok && (widget.state.downloadStatuses[widget.mid] == DownloadStatus.fail)) {
+    if (!ok &&
+        (widget.state.downloadStatuses[widget.mid] == DownloadStatus.fail)) {
       final token = ++_failToken;
       setState(() => _showFail = true);
       Future.delayed(const Duration(seconds: 3), () {
@@ -155,7 +165,12 @@ class _RingPainter extends CustomPainter {
 /// 展开态：十字旋转 45°（变为 ×），弹出 168px 宽菜单，
 /// 含「添加到歌单顶部」「添加到歌单底部」两项；空间不足时自动左/上翻转。
 class AddButton extends StatefulWidget {
-  const AddButton({super.key, required this.mid, required this.state, this.size = 32});
+  const AddButton({
+    super.key,
+    required this.mid,
+    required this.state,
+    this.size = 32,
+  });
 
   final String mid;
   final AppState state;
@@ -440,7 +455,7 @@ class _PopupState extends State<_Popup> {
                         enabled: song == null
                             ? false
                             : !state.playlistHasSong(p.id, song.mid) &&
-                                !state.playlistLocked(p.id),
+                                  !state.playlistLocked(p.id),
                         onTap: () {
                           requestClose();
                           if (song == null) return;
@@ -573,7 +588,8 @@ List<AppMenuItem> buildSongMenuItems({
       icon: showingPause ? AppIcons.pause : AppIcons.play,
       // 正在播的这首本身就是「当前这首」，点「播放」等于重播；
       // 但它已经在播了，所以这时给的是「暂停」，走 toggle。
-      onTap: () => showingPause ? player.togglePlay() : state.playSong(song.mid),
+      onTap: () =>
+          showingPause ? player.togglePlay() : state.playSong(song.mid),
     ),
     // 插到「正在播的那首」后面。已经在队列里的话会先把它从原位置摘掉 ——
     // 不摘会出现同一首歌占两处。正在播的那首本身不给点：它已经在播了。
@@ -597,6 +613,12 @@ List<AppMenuItem> buildSongMenuItems({
             onTap: () => downloadSongFromMenu(context, state, song.mid),
           ),
     AppMenuItem(
+      label: '刷新缓存',
+      icon: AppIcons.refresh,
+      dividerBefore: true,
+      onTap: () => refreshSongCacheFromMenu(state, song),
+    ),
+    AppMenuItem(
       label: '歌词',
       icon: AppIcons.lyricDoc,
       onTap: () => onOpenLyric(song.mid),
@@ -615,7 +637,8 @@ List<AppMenuItem> buildSongMenuItems({
             icon: state.playlistHasSong(p.id, song.mid)
                 ? AppIcons.check
                 : AppIcons.plus,
-            enabled: !state.playlistHasSong(p.id, song.mid) &&
+            enabled:
+                !state.playlistHasSong(p.id, song.mid) &&
                 !state.playlistLocked(p.id),
             onTap: () => state.addToPlaylist(p.id, song),
           ),
@@ -627,11 +650,7 @@ List<AppMenuItem> buildSongMenuItems({
       onTap: () => restoreLyricFromMenu(context, state, song),
     ),
     if (onEditName != null)
-      AppMenuItem(
-        label: '编辑歌曲名',
-        icon: AppIcons.edit,
-        onTap: onEditName,
-      ),
+      AppMenuItem(label: '编辑歌曲名', icon: AppIcons.edit, onTap: onEditName),
     if (inQueue)
       AppMenuItem(
         label: '从播放队列中移除',
@@ -693,12 +712,24 @@ Future<void> restoreLyricFromMenu(
   AppState state,
   Song song,
 ) async {
-  final ok = await showConfirmDialog(
-    context,
-    '放弃这首歌已修改的歌词，重新从音源获取？',
-  );
+  final ok = await showConfirmDialog(context, '放弃这首歌已修改的歌词，重新从音源获取？');
   if (!ok || !context.mounted) return;
   await state.restoreDefaultLyric(song.mid);
+}
+
+/// 菜单里的「刷新缓存」：只刷新当前歌曲已有的缓存项。
+Future<void> refreshSongCacheFromMenu(AppState state, Song song) async {
+  final result = await state.refreshSongCache(song);
+  final refreshed = <String>[
+    if (result.audio) '音频',
+    if (result.cover) '封面',
+    if (result.lyric) '歌词',
+  ];
+  if (refreshed.isEmpty) {
+    state.showInfo('没有可刷新的缓存，或远端内容获取失败');
+  } else {
+    state.showSuccess('已刷新${refreshed.join('、')}缓存');
+  }
 }
 
 /// 菜单里的「下载」—— 与下载按钮走同一条路，只是这里不显示环形进度，

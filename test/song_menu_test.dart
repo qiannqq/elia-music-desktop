@@ -72,7 +72,16 @@ void main() {
 
     expect(
       labels,
-      containsAll(<String>['播放', '下载', '歌词', '编辑歌曲名', '从歌单中移除', '置顶', '置底']),
+      containsAll(<String>[
+        '播放',
+        '下载',
+        '刷新缓存',
+        '歌词',
+        '编辑歌曲名',
+        '从歌单中移除',
+        '置顶',
+        '置底',
+      ]),
     );
     // 措辞改过：移除的是「歌单里的这一条」，不是把歌本身删掉
     expect(labels, isNot(contains('移除歌单')));

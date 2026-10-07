@@ -16,6 +16,7 @@ import '../services/app_background.dart';
 import '../services/api_client.dart';
 import '../services/audio_cache.dart';
 import '../services/bilibili_service.dart';
+import '../services/cover_cache.dart';
 import '../services/lyric_cache.dart';
 import '../services/netease_service.dart';
 import '../services/player_controller.dart';
@@ -29,10 +30,8 @@ enum DownloadStatus { idle, running, done, fail }
 
 /// 拉远端歌单的函数签名。默认走本地 API（Cookie 由 `ApiClient._headers` 自动带），
 /// 测试里换成假的就能把「拉取」这一层摘掉。
-typedef PlaylistRemoteFetch = Future<({List<Song> list, int total})> Function(
-  String source,
-  String id,
-);
+typedef PlaylistRemoteFetch =
+    Future<({List<Song> list, int total})> Function(String source, String id);
 
 /// 一次同步跑完的结果。谁触发的不重要，界面（弹窗里的「立即同步」）拿它显示一行字。
 class PlaylistSyncRun {
@@ -95,6 +94,7 @@ class AppState extends ChangeNotifier {
   /// 否则表现为「点了下一页，页面瞬间回到顶部、内容还是旧的」。
   bool pageLoading = false;
   bool isPlaylistPage = false;
+
   /// 当前音源：'qq' | 'netease' | 'bilibili'
   String searchSource = 'qq';
 
@@ -134,8 +134,9 @@ class AppState extends ChangeNotifier {
 
   /// 所有歌单里的 mid。缓存淘汰要用它 —— 只看当前歌单的话，
   /// 切到另一个歌单时前一个歌单的歌会被判成「已经不在歌单里」而清掉缓存。
-  Set<String> get allPlaylistMids =>
-      {for (final p in playlists) ...p.songs.map((s) => s.mid)};
+  Set<String> get allPlaylistMids => {
+    for (final p in playlists) ...p.songs.map((s) => s.mid),
+  };
 
   String _newPlaylistId() {
     var id = 'pl-${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}';
@@ -204,6 +205,7 @@ class AppState extends ChangeNotifier {
     LocalStore.set('sidebar_playlists_expanded', playlistsExpanded ? '1' : '0');
     notifyListeners();
   }
+
   final Set<String> selectedMids = {};
 
   // ------------------------------------------------------------ 设置
@@ -309,23 +311,30 @@ class AppState extends ChangeNotifier {
     searchSource = LocalStore.getOr('search_source', 'qq');
     highQuality = LocalStore.get('qqmusic_high_quality') != 'false';
     skipSilence = LocalStore.get('skip_silence') != 'false';
-    bgPulse = (double.tryParse(LocalStore.getOr('bg_pulse', '1')) ?? 1)
-        .clamp(0, 2);
-    bgSpin = (double.tryParse(LocalStore.getOr('bg_spin', '1')) ?? 1)
-        .clamp(0, 3);
+    bgPulse = (double.tryParse(LocalStore.getOr('bg_pulse', '1')) ?? 1).clamp(
+      0,
+      2,
+    );
+    bgSpin = (double.tryParse(LocalStore.getOr('bg_spin', '1')) ?? 1).clamp(
+      0,
+      3,
+    );
     bgVideo = LocalStore.get('bg_video') == 'true';
     savePath = LocalStore.getOr('qqmusic_save_path', '');
     // 默认 110%：未设置过时用它；已设置过的仍读存下来的值
     zoom = (double.tryParse(LocalStore.getOr('qqmusic_zoom', '110')) ?? 110)
         .clamp(75, 150);
-    recentDirs = LocalStore.readJson<List<dynamic>>('qqmusic_recent_dirs', const [])
-        .map((e) => e.toString())
-        .toList();
+    recentDirs = LocalStore.readJson<List<dynamic>>(
+      'qqmusic_recent_dirs',
+      const [],
+    ).map((e) => e.toString()).toList();
     downloadedPaths
       ..clear()
-      ..addAll(LocalStore.readMap('qqmusic_downloaded_paths').map(
-        (k, v) => MapEntry(k, v.toString()),
-      ));
+      ..addAll(
+        LocalStore.readMap(
+          'qqmusic_downloaded_paths',
+        ).map((k, v) => MapEntry(k, v.toString())),
+      );
 
     qqCookie = LocalStore.getOr('qqmusic_cookie', '');
     neteaseCookie = LocalStore.getOr('netease_cookie', '');
@@ -345,6 +354,12 @@ class AppState extends ChangeNotifier {
     qqMusicService.onCookieRefreshed = (fresh) {
       qqCookie = fresh;
       LocalStore.set('qqmusic_cookie', fresh);
+      notifyListeners();
+    };
+    bilibiliService.onCookieRefreshed = (fresh) {
+      if (fresh == biliCookie) return;
+      biliCookie = fresh;
+      LocalStore.set('bilibili_cookie', fresh);
       notifyListeners();
     };
 
@@ -402,6 +417,9 @@ class AppState extends ChangeNotifier {
 
     if (biliCookie.isNotEmpty) {
       bilibiliService.setCookie(biliCookie);
+      // 对齐 PiliPlus：启动时先激活 buvid 并做一次轻量会话保活。
+      // 网络异常只记日志，不把现有 CK 改成失效。
+      await bilibiliService.ensureSessionAlive(force: true);
       try {
         final info = await bilibiliService.fetchUserInfo();
         if (info != null) {
@@ -427,15 +445,16 @@ class AppState extends ChangeNotifier {
   /// 「默认歌单」，升级之后看到的还是原来那些歌，不会因为改结构丢东西。
   void _loadPlaylists() {
     // 侧边栏「歌单」分组的展开状态：没记过就按默认（展开）
-    playlistsExpanded =
-        LocalStore.get('sidebar_playlists_expanded') != '0';
+    playlistsExpanded = LocalStore.get('sidebar_playlists_expanded') != '0';
     try {
       final raw = LocalStore.get('qqmusic_playlists');
       if (raw != null && raw.isNotEmpty) {
         final list = jsonDecode(raw);
         if (list is List) {
-          playlists =
-              list.map(Playlist.fromStoreJson).whereType<Playlist>().toList();
+          playlists = list
+              .map(Playlist.fromStoreJson)
+              .whereType<Playlist>()
+              .toList();
         }
       }
     } catch (_) {
@@ -451,8 +470,9 @@ class AppState extends ChangeNotifier {
       ];
     }
     final saved = LocalStore.get('qqmusic_current_playlist') ?? '';
-    currentPlaylistId =
-        playlists.any((p) => p.id == saved) ? saved : playlists.first.id;
+    currentPlaylistId = playlists.any((p) => p.id == saved)
+        ? saved
+        : playlists.first.id;
   }
 
   /// 老结构里的那一份歌单
@@ -588,15 +608,17 @@ class AppState extends ChangeNotifier {
           .where((s) => s.hasMid && s.source == source)
           .toList(growable: false);
 
-      final result = mergeSyncedPlaylist(SyncInput(
-        local: p.songs,
-        remote: list,
-        mode: p.syncMode,
-        source: source,
-        blacklist: p.syncBlacklist,
-        whitelist: p.syncWhitelist,
-        userTouched: p.syncUserTouched,
-      ));
+      final result = mergeSyncedPlaylist(
+        SyncInput(
+          local: p.songs,
+          remote: list,
+          mode: p.syncMode,
+          source: source,
+          blacklist: p.syncBlacklist,
+          whitelist: p.syncWhitelist,
+          userTouched: p.syncUserTouched,
+        ),
+      );
 
       final empty = result.skipReason == 'empty';
       p.syncLastAt = DateTime.now().millisecondsSinceEpoch;
@@ -613,12 +635,13 @@ class AppState extends ChangeNotifier {
 
       _syncFails.remove(id);
       fileLogger.info(
-          'PlaylistSync',
-          '「${p.name}」← $source:$remoteId 远端 ${list.length} 首'
-          '（音源报 ${remote.total} 首${remote.truncated ? '，已截断' : ''}）'
-          ' → 新增 ${result.added}、移除 ${result.removed}'
-          '${empty ? '，音源返回空：本地未改动' : ''}'
-          '（${sw.elapsedMilliseconds}ms, trigger=$trigger）');
+        'PlaylistSync',
+        '「${p.name}」← $source:$remoteId 远端 ${list.length} 首'
+            '（音源报 ${remote.total} 首${remote.truncated ? '，已截断' : ''}）'
+            ' → 新增 ${result.added}、移除 ${result.removed}'
+            '${empty ? '，音源返回空：本地未改动' : ''}'
+            '（${sw.elapsedMilliseconds}ms, trigger=$trigger）',
+      );
 
       if (!silent) {
         notifyListeners();
@@ -644,14 +667,20 @@ class AppState extends ChangeNotifier {
         _savePlaylists();
       }
       fileLogger.warn(
-          'PlaylistSync',
-          '「${cur >= 0 ? playlists[cur].name : id}」同步失败'
-          '（连续第 ${_syncFails[id]} 次，trigger=$trigger）：$e');
+        'PlaylistSync',
+        '「${cur >= 0 ? playlists[cur].name : id}」同步失败'
+            '（连续第 ${_syncFails[id]} 次，trigger=$trigger）：$e',
+      );
       if (!silent) {
         notifyListeners();
         showError('同步失败: $e');
       }
-      return const PlaylistSyncRun(ok: false, added: 0, removed: 0, reason: 'fail');
+      return const PlaylistSyncRun(
+        ok: false,
+        added: 0,
+        removed: 0,
+        reason: 'fail',
+      );
     } finally {
       _lastSyncAt[id] = DateTime.now();
       _syncingIds.remove(id);
@@ -704,9 +733,11 @@ class AppState extends ChangeNotifier {
     // QQ：一次最多 500 首且**接口自己不分页**，必须翻到底（见 playlist_pull.dart）。
     return pullAllPlaylistSongs(
       label: 'QQ:$id',
-      fetchPage: (begin, count) =>
-          ApiClient.getPlaylist(id, begin: begin, count: count)
-              .then((r) => (list: r.list, total: r.total)),
+      fetchPage: (begin, count) => ApiClient.getPlaylist(
+        id,
+        begin: begin,
+        count: count,
+      ).then((r) => (list: r.list, total: r.total)),
     );
   }
 
@@ -801,7 +832,12 @@ class AppState extends ChangeNotifier {
 
   // ============================================================ 导航
 
-  static const List<String> _pageOrder = ['search', 'playlist', 'settings', 'about'];
+  static const List<String> _pageOrder = [
+    'search',
+    'playlist',
+    'settings',
+    'about',
+  ];
 
   /// 页面切换方向：1 = 向右进入，-1 = 向左进入
   int pageDirection = 1;
@@ -877,8 +913,9 @@ class AppState extends ChangeNotifier {
     if (i < 0) return;
     final p = playlists[i];
     final have = {for (final s in p.songs) s.mid};
-    final toAdd =
-        searchResults.where((s) => !have.contains(s.mid)).toList(growable: false);
+    final toAdd = searchResults
+        .where((s) => !have.contains(s.mid))
+        .toList(growable: false);
     if (toAdd.isEmpty) {
       showInfo('「${p.name}」里已经有这些歌了');
       return;
@@ -1022,7 +1059,8 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool get allSelected => songs.isNotEmpty && selectedMids.length == songs.length;
+  bool get allSelected =>
+      songs.isNotEmpty && selectedMids.length == songs.length;
 
   void selectAll() {
     if (allSelected) {
@@ -1195,7 +1233,9 @@ class AppState extends ChangeNotifier {
     if (at < queueIndex) {
       queueIndex--;
     } else if (at == queueIndex) {
-      queueIndex = queueIndex < playQueue.length ? queueIndex : playQueue.length - 1;
+      queueIndex = queueIndex < playQueue.length
+          ? queueIndex
+          : playQueue.length - 1;
     }
     notifyListeners();
   }
@@ -1215,6 +1255,42 @@ class AppState extends ChangeNotifier {
     AudioDiskCache.drop(song.mid);
     AudioDiskCache.markTrial(song.mid);
     showInfo('《${song.name}》只能试听一小段，可能需要会员');
+  }
+
+  /// 刷新右键菜单指定歌曲已有的本地缓存。
+  ///
+  /// 三类缓存独立处理：某一项成功才替换某一项，另一项失败不会牵连旧缓存。
+  /// 歌名属于歌单元数据，用户自定义歌词由 LyricCache.refreshRemote 主动保护，
+  /// 都不会在这里被改动。
+  Future<({bool audio, bool cover, bool lyric})> refreshSongCache(
+    Song song,
+  ) async {
+    var audio = false;
+    var cover = false;
+    var lyric = false;
+
+    if (AudioDiskCache.fileFor(song.mid) != null) {
+      try {
+        final url = await ApiClient.getSongUrl(song.mid, true, song);
+        audio = await AudioDiskCache.refresh(song.mid, url);
+      } catch (e) {
+        fileLogger.warn('CacheRefresh', '${song.mid} 音频刷新失败，保留旧缓存: $e');
+      }
+    }
+
+    if (song.pic.isNotEmpty && CoverCache.find(song.pic) != null) {
+      cover = await CoverCache.refresh(song.pic);
+    }
+
+    if (LyricCache.hasCache(song.mid)) {
+      lyric = await LyricCache.refreshRemote(song.mid, source: song.source);
+      if (lyric && player.currentSong?.mid == song.mid) {
+        await player.reloadLyrics();
+      }
+    }
+
+    if (audio || cover || lyric) notifyListeners();
+    return (audio: audio, cover: cover, lyric: lyric);
   }
 
   /// 播放模式变了 —— 队列立刻按新模式重建，面板跟着刷新。
@@ -1298,7 +1374,9 @@ class AppState extends ChangeNotifier {
       //
       // `play()` 本来就会先查缓存，这里只是把那一次查询提前，好把这段白等省掉。
       final cached = AudioDiskCache.find(song.mid) != null;
-      final url = cached ? '' : await ApiClient.getSongUrl(song.mid, true, song);
+      final url = cached
+          ? ''
+          : await ApiClient.getSongUrl(song.mid, true, song);
       // 取地址期间用户已经切到别的歌了 —— 这个结果作废，
       // 既不能拿去播放（会把新歌顶掉），也不该弹错误提示
       if (gen != _playGeneration) return;
@@ -1365,7 +1443,9 @@ class AppState extends ChangeNotifier {
   // ============================================================ 搜索
 
   static final RegExp _qqSongRe = RegExp(r'song/(\w+)');
-  static final RegExp _nePlaylistRe = RegExp(r'music\.163\.com.*playlist\?id=(\d+)');
+  static final RegExp _nePlaylistRe = RegExp(
+    r'music\.163\.com.*playlist\?id=(\d+)',
+  );
   static final RegExp _neSongRe = RegExp(r'music\.163\.com.*song\?id=(\d+)');
   static final RegExp _playlistRe = RegExp(r'playlist/(\d+)');
   static final RegExp _idRe = RegExp(r'[?&]id=(\d+)');
@@ -1421,8 +1501,11 @@ class AppState extends ChangeNotifier {
           notifyListeners();
         }
       } else if ((m = _nePlaylistRe.firstMatch(keyword)?.group(1)) != null) {
-        final toastId = toast.show('网易云音乐 歌单加载中...歌曲过多可能需要十几秒种加载~',
-            type: ToastType.progress, duration: 0);
+        final toastId = toast.show(
+          '网易云音乐 歌单加载中...歌曲过多可能需要十几秒种加载~',
+          type: ToastType.progress,
+          duration: 0,
+        );
         try {
           final res = await ApiClient.nePlaylist(m!);
           toast.dismiss(toastId);
@@ -1461,14 +1544,18 @@ class AppState extends ChangeNotifier {
         currentPage = 1;
         isPlaylistPage = false;
         hasSearched = true;
-        _cacheCurrentPage();   // 首屏也进缓存，翻回第 1 页就不再请求
+        _cacheCurrentPage(); // 首屏也进缓存，翻回第 1 页就不再请求
         notifyListeners();
-      } else if ((m = _playlistRe.firstMatch(keyword)?.group(1) ??
+      } else if ((m =
+              _playlistRe.firstMatch(keyword)?.group(1) ??
               _idRe.firstMatch(keyword)?.group(1) ??
               (_numRe.hasMatch(keyword) ? keyword : null)) !=
           null) {
-        final toastId = toast.show('QQ音乐 歌单加载中...歌曲过多可能需要十几秒种加载~',
-            type: ToastType.progress, duration: 0);
+        final toastId = toast.show(
+          'QQ音乐 歌单加载中...歌曲过多可能需要十几秒种加载~',
+          type: ToastType.progress,
+          duration: 0,
+        );
         try {
           final res = await ApiClient.getPlaylist(m!);
           toast.dismiss(toastId);
@@ -1505,7 +1592,7 @@ class AppState extends ChangeNotifier {
         currentPage = 1;
         isPlaylistPage = false;
         hasSearched = true;
-        _cacheCurrentPage();   // 首屏也进缓存，翻回第 1 页就不再请求
+        _cacheCurrentPage(); // 首屏也进缓存，翻回第 1 页就不再请求
         notifyListeners();
       }
     } catch (e) {
@@ -1560,8 +1647,10 @@ class AppState extends ChangeNotifier {
   /// 否则从第 2 页翻回第 1 页时又会重新请求一次（QQ 音乐那边很慢）。
   void _cacheCurrentPage() {
     if (searchKeyword.isEmpty || isPlaylistPage) return;
-    _pageCache[_pageCacheKey(currentPage)] =
-        (list: searchResults, total: searchTotal);
+    _pageCache[_pageCacheKey(currentPage)] = (
+      list: searchResults,
+      total: searchTotal,
+    );
     // 简单的上限：翻得再多也不至于无限涨（key 里带关键词，不会串页）
     if (_pageCache.length > 40) _pageCache.clear();
   }
@@ -1673,9 +1762,9 @@ class AppState extends ChangeNotifier {
   }
 
   void setBiliCookie(String cookie) {
-    biliCookie = cookie;
-    bilibiliService.setCookie(cookie);
-    LocalStore.set('bilibili_cookie', cookie);
+    biliCookie = BilibiliService.normalizeCookie(cookie);
+    bilibiliService.setCookie(biliCookie);
+    LocalStore.set('bilibili_cookie', biliCookie);
     if (biliCookieStatus != 'valid') {
       biliCookieStatus = 'pending';
       LocalStore.set('bilibili_cookie_status', 'pending');
@@ -1783,8 +1872,10 @@ class AppState extends ChangeNotifier {
 
   // ============================================================ 文件名 / 目录
 
-  static String sanitizeFilename(String name) =>
-      name.replaceAll(RegExp(r'[/\\:*?"<>|]'), '_').replaceAll(RegExp(r'\s+'), ' ').trim();
+  static String sanitizeFilename(String name) => name
+      .replaceAll(RegExp(r'[/\\:*?"<>|]'), '_')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
 
   /// 选一张图当「整体背景」（外观设置里那个按钮）。
   ///
@@ -1819,7 +1910,10 @@ class AppState extends ChangeNotifier {
   Future<void> showItemInFolder(String filePath) async {
     try {
       if (Platform.isWindows) {
-        await Process.run('explorer.exe', ['/select,', filePath.replaceAll('/', '\\')]);
+        await Process.run('explorer.exe', [
+          '/select,',
+          filePath.replaceAll('/', '\\'),
+        ]);
       }
     } catch (e) {
       fileLogger.error('Shell', 'showItemInFolder failed: $e');
@@ -1839,7 +1933,8 @@ class AppState extends ChangeNotifier {
     String filePath,
     void Function(double pct) onProgress,
   ) async {
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 20);
     try {
       final req = await client.getUrl(Uri.parse(url));
       final resp = await req.close();
@@ -1872,7 +1967,8 @@ class AppState extends ChangeNotifier {
   /// 单曲下载（对应 `doDownload`），返回是否成功
   Future<bool> downloadSong(
     String mid, {
-    required Future<({String path, String filename})?> Function(String filename) askSaveLocation,
+    required Future<({String path, String filename})?> Function(String filename)
+    askSaveLocation,
   }) async {
     final song = findSong(mid);
     if (song == null) {
@@ -1896,7 +1992,8 @@ class AppState extends ChangeNotifier {
         _setProgress(mid, 0, DownloadStatus.fail);
         return false;
       }
-      final fullPath = '${target.path}${Platform.pathSeparator}${target.filename}';
+      final fullPath =
+          '${target.path}${Platform.pathSeparator}${target.filename}';
       final ok = await _downloadToFile(audioUrl, fullPath, (pct) {
         _setProgress(mid, pct, DownloadStatus.running);
       });
@@ -1930,8 +2027,11 @@ class AppState extends ChangeNotifier {
       setSavePath(dir);
     }
 
-    final toastId = toast.show('批量下载 ${targetSongs.length} 首...',
-        type: ToastType.progress, duration: 0);
+    final toastId = toast.show(
+      '批量下载 ${targetSongs.length} 首...',
+      type: ToastType.progress,
+      duration: 0,
+    );
 
     try {
       final urls = await ApiClient.getBatchUrls(targetSongs, highQuality);
@@ -1975,8 +2075,11 @@ class AppState extends ChangeNotifier {
 
       _saveDownloadedPaths();
       if (ok > 0) {
-        toast.update(toastId, '成功下载 $ok 首${fail > 0 ? '，$fail 首失败' : ''}',
-            type: ToastType.success);
+        toast.update(
+          toastId,
+          '成功下载 $ok 首${fail > 0 ? '，$fail 首失败' : ''}',
+          type: ToastType.success,
+        );
       } else {
         toast.update(toastId, '下载失败', type: ToastType.error);
       }
@@ -2091,8 +2194,9 @@ class AppState extends ChangeNotifier {
   void _applyLyricBundle(LyricBundle b) {
     currentLyricRaw = b.raw;
     currentLyricTrans = b.trans;
-    currentLyricParsed =
-        b.lines.map((e) => LyricLineBox(e.time, e.text, words: e.words)).toList();
+    currentLyricParsed = b.lines
+        .map((e) => LyricLineBox(e.time, e.text, words: e.words))
+        .toList();
     currentLyricTransMap = b.transMap;
   }
 
@@ -2107,7 +2211,8 @@ class AppState extends ChangeNotifier {
   /// 结果会同时刷到弹窗那份（`currentLyric*`）和播放栏那份（`player.lyricLines`）——
   /// 两边是两份数据，只刷一边会出现「弹窗对了、播放栏还是旧的」。
   Future<bool> restoreDefaultLyric(String mid) async {
-    final song = findSong(mid) ??
+    final song =
+        findSong(mid) ??
         (player.currentSong?.mid == mid ? player.currentSong : null);
     if (song == null || !song.hasMid) {
       toast.show('找不到这首歌，无法重取歌词', type: ToastType.error);
@@ -2195,9 +2300,10 @@ class AppState extends ChangeNotifier {
     // 这里原来写死 parseLrc，而 QRC 的行头是 `[起点ms,时长ms]` 不是 `[mm:ss.xx]`
     // → 解析出 0 行 → 用户「点编辑再取消」回来就变成「暂无歌词」。
     final isQrc = looksLikeQrc(currentLyricRaw);
-    currentLyricParsed = (isQrc ? parseQrc(currentLyricRaw) : parseLrc(currentLyricRaw))
-        .map((e) => LyricLineBox(e.time, e.text, words: e.words))
-        .toList();
+    currentLyricParsed =
+        (isQrc ? parseQrc(currentLyricRaw) : parseLrc(currentLyricRaw))
+            .map((e) => LyricLineBox(e.time, e.text, words: e.words))
+            .toList();
     currentLyricTransMap = parseTransLrc(currentLyricTrans);
     notifyListeners();
   }

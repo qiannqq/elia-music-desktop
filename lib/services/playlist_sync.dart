@@ -82,15 +82,15 @@ SyncResult mergeSyncedPlaylist(SyncInput input) {
   final touched = Set<String>.from(input.userTouched);
 
   SyncResult skip(String reason) => SyncResult(
-        songs: local,
-        blacklist: blacklist,
-        whitelist: whitelist,
-        userTouched: touched,
-        added: 0,
-        removed: 0,
-        changed: false,
-        skipReason: reason,
-      );
+    songs: local,
+    blacklist: blacklist,
+    whitelist: whitelist,
+    userTouched: touched,
+    added: 0,
+    removed: 0,
+    changed: false,
+    skipReason: reason,
+  );
 
   // ⚠️ 空远端：见文件头。宁可什么都不做，也不能清空用户的歌单。
   if (remote.isEmpty) return skip('empty');
@@ -108,30 +108,37 @@ SyncResult mergeSyncedPlaylist(SyncInput input) {
   }
 
   switch (input.mode) {
-    // 完全单向：整个歌单由音源决定（顺序也跟随音源）
+    // 三种机制共同遵守：本地已有歌曲的相对顺序不动，新歌按远端顺序整块置顶。
+    // 远端顺序变化不能把用户手工排好的整张歌单重排。
     case PlaylistSyncMode.frozen:
-      // 顺序完全跟随音源，但**本地已有的那首用本地那份** ——
-      // 用户改过歌名/歌词/封面（机制允许改元数据），不能被音源的覆盖回去。
-      final next = [
-        for (final k in remoteKeys) localByKey[k] ?? remoteSongs[k]!,
+      // 完全单向仍然响应远端增删，但本地已有的那首用本地那份，且保留本地顺序。
+      final fresh = [
+        for (final k in remoteKeys)
+          if (!localByKey.containsKey(k)) remoteSongs[k]!,
       ];
-      final changed = !_sameOrder(next, local);
+      final next = [
+        ...fresh,
+        for (final s in local)
+          if (remoteSongs.containsKey(syncKey(s))) s,
+      ];
+      final removed = local.length - next.length + fresh.length;
       return SyncResult(
         songs: next,
         blacklist: blacklist,
         whitelist: whitelist,
         userTouched: touched,
-        added: remoteKeys.where((k) => !localByKey.containsKey(k)).length,
-        removed: local.where((s) => !remoteSongs.containsKey(syncKey(s))).length,
-        changed: changed,
+        added: fresh.length,
+        removed: removed < 0 ? 0 : removed,
+        changed: !_sameOrder(next, local),
       );
 
     // 增加单向：只把音源里**新的**歌加到最上方；本地已有的顺序一律不动，
-    // 音源移出的也不管（只有用户自己移出的会进黑名单，不再加回来）
+    // 音源移出的也不管（只有用户自己移出的会进黑名单，不再加回来）。
     case PlaylistSyncMode.add:
       final fresh = [
         for (final k in remoteKeys)
-          if (!localByKey.containsKey(k) && !blacklist.contains(k)) remoteSongs[k]!
+          if (!localByKey.containsKey(k) && !blacklist.contains(k))
+            remoteSongs[k]!,
       ];
       if (fresh.isEmpty) {
         return SyncResult(
@@ -154,41 +161,37 @@ SyncResult mergeSyncedPlaylist(SyncInput input) {
         changed: true,
       );
 
-    // 兼容单向：音源的增删都响应，但用户在本地加进来的（白名单）不删
+    // 兼容单向：音源的增删都响应，但用户在本地加进来的（白名单/动过）不删；
+    // 保留本地既有顺序，只把新歌置顶。
     case PlaylistSyncMode.compat:
-      final next = <Song>[];
-      final kept = <String>{};
-
-      // ① 音源里还在的：先放（保持音源顺序），本地有就用本地那份
-      //    （本地可能改过歌名/歌词，不能拿音源的覆盖掉）
-      for (final k in remoteKeys) {
-        if (blacklist.contains(k) && !whitelist.contains(k)) continue;
-        final s = localByKey[k] ?? remoteSongs[k]!;
-        if (kept.add(k)) next.add(s);
-      }
-
-      // ② 本地留下的「音源已经没有了」的歌：用户自己加的（白名单/动过）留着，
-      //    其余的当作被音源删掉 —— 从歌单里移除，并**补记进黑名单**，
-      //    这样下次拉取不会又冒出来。
+      final fresh = [
+        for (final k in remoteKeys)
+          if (!localByKey.containsKey(k) && !blacklist.contains(k))
+            remoteSongs[k]!,
+      ];
+      final remoteSet = remoteSongs.keys.toSet();
+      final kept = <Song>[];
       for (final s in local) {
         final k = syncKey(s);
-        if (kept.contains(k)) continue;
-        if (whitelist.contains(k) || touched.contains(k)) {
-          if (kept.add(k)) next.add(s);
+        if (blacklist.contains(k) && !whitelist.contains(k)) continue;
+        if (remoteSet.contains(k) ||
+            whitelist.contains(k) ||
+            touched.contains(k)) {
+          kept.add(s);
         } else {
           blacklist.add(k);
         }
       }
-
-      final changed = !_sameOrder(next, local);
+      final next = [...fresh, ...kept];
+      final removed = local.length - kept.length;
       return SyncResult(
         songs: next,
         blacklist: blacklist,
         whitelist: whitelist,
         userTouched: touched,
-        added: next.length - local.length > 0 ? next.length - local.length : 0,
-        removed: local.where((s) => !next.any((n) => syncKey(n) == syncKey(s))).length,
-        changed: changed,
+        added: fresh.length,
+        removed: removed < 0 ? 0 : removed,
+        changed: !_sameOrder(next, local),
       );
   }
 }

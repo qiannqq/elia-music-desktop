@@ -17,10 +17,12 @@ void main() {
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
 
-    await tester.pumpWidget(MaterialApp(
-      theme: buildTheme(AppColors.light, Brightness.light),
-      home: LyricsDialog(state: app),
-    ));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(AppColors.light, Brightness.light),
+        home: LyricsDialog(state: app),
+      ),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('编辑'));
     await tester.pumpAndSettle();
@@ -30,12 +32,14 @@ void main() {
     await openEditor(tester);
 
     Color bgOf(String key) {
-      final box = tester.widget<Container>(find
-          .descendant(
-            of: find.byKey(ValueKey(key)),
-            matching: find.byType(Container),
-          )
-          .first);
+      final box = tester.widget<Container>(
+        find
+            .descendant(
+              of: find.byKey(ValueKey(key)),
+              matching: find.byType(Container),
+            )
+            .first,
+      );
       return (box.decoration! as BoxDecoration).color!;
     }
 
@@ -57,6 +61,40 @@ void main() {
       );
     }
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('查看态会跟随共享歌词缓存加载完成而停止转圈', (tester) async {
+    app.currentLyricMid = 'lyric-dialog-test';
+    app.currentLyricRaw = '';
+    app.currentLyricTrans = '';
+    app.currentLyricParsed = [];
+    app.currentLyricTransMap = {};
+    app.lyricLoading = true;
+    addTearDown(() {
+      app.currentLyricMid = null;
+      app.currentLyricRaw = '';
+      app.currentLyricTrans = '';
+      app.currentLyricParsed = [];
+      app.currentLyricTransMap = {};
+      app.lyricLoading = false;
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(AppColors.light, Brightness.light),
+        home: LyricsDialog(state: app),
+      ),
+    );
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+    app.currentLyricRaw = '[00:01.00]已经加载';
+    app.currentLyricParsed = [const LyricLineBox(1, '已经加载')];
+    app.lyricLoading = false;
+    app.notifyListeners();
+    await tester.pump();
+
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.text('已经加载'), findsOneWidget);
   });
 
   testWidgets('编辑区两块各占整宽，切换后旧的一块完全移出可视区', (tester) async {
@@ -94,10 +132,12 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 60));
     final midLeft = tester.getRect(fields.at(0)).left;
-    expect(midLeft, lessThan(startLeft - 5),
-        reason: '点了切换但完全没动 —— 动画没启动');
-    expect(midLeft, greaterThan(startLeft - viewportWidth + 5),
-        reason: '一步到位了 —— 动画丢了（应该 260ms 滑过去）');
+    expect(midLeft, lessThan(startLeft - 5), reason: '点了切换但完全没动 —— 动画没启动');
+    expect(
+      midLeft,
+      greaterThan(startLeft - viewportWidth + 5),
+      reason: '一步到位了 —— 动画丢了（应该 260ms 滑过去）',
+    );
     await tester.pumpAndSettle();
 
     final rawRect = tester.getRect(fields.at(0));
@@ -105,7 +145,8 @@ void main() {
     expect(
       rawRect.right <= viewportRect.left + 1,
       isTrue,
-      reason: '原歌词框只挤出去一半（right=${rawRect.right}, '
+      reason:
+          '原歌词框只挤出去一半（right=${rawRect.right}, '
           'viewport.left=${viewportRect.left}）',
     );
 

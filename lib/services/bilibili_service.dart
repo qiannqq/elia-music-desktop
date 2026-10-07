@@ -18,14 +18,45 @@ class BilibiliService {
   BilibiliService._();
   static final BilibiliService instance = BilibiliService._();
 
-  static const String _ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+  static const String _ua =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
       'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
   static const String _host = 'https://api.bilibili.com';
 
   /// wbi 签名的字符重排表 —— 官方前端的固定值。
   static const List<int> _mixinKeyEncTab = <int>[
-    46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35, 27, 43, 5,
-    49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
+    46,
+    47,
+    18,
+    2,
+    53,
+    8,
+    23,
+    32,
+    15,
+    50,
+    10,
+    31,
+    58,
+    3,
+    45,
+    35,
+    27,
+    43,
+    5,
+    49,
+    33,
+    9,
+    42,
+    19,
+    29,
+    28,
+    14,
+    39,
+    12,
+    38,
+    41,
+    13,
   ];
 
   /// 参与 wbi 计算的参数要先把这几个字符剔除
@@ -57,10 +88,33 @@ class BilibiliService {
     return s.contains('=') ? s : 'SESSDATA=$s';
   }
 
+  /// Cookie 发生变化时通知状态层，供它把最新 jar 落盘。
+  ///
+  /// 这对应 PiliPlus 的 `cookieJar.onChange()`：B 站响应里下发的
+  /// `buvid3`、`bili_ticket` 等不能只留在当前进程，否则重启后又会带着旧值。
+  void Function(String cookie)? onCookieRefreshed;
+
   BilibiliService setCookie(String value) {
     cookie = normalizeCookie(value);
+    _jar.clear();
+    _buvid3 = '';
+    _buvid4 = '';
+    for (final part in cookie.split(';')) {
+      final i = part.indexOf('=');
+      if (i <= 0) continue;
+      final name = part.substring(0, i).trim();
+      final v = part.substring(i + 1).trim();
+      if (name == 'buvid3') _buvid3 = v;
+      if (name == 'buvid4') _buvid4 = v;
+    }
+    _buvidActivated = false;
+    _lastKeepAliveAt = null;
     return this;
   }
+
+  /// 当前请求会实际带上的 Cookie（含服务端后来下发的更新项）。
+  /// 供状态层持久化，不能只保存用户最初粘贴的那一串。
+  String get effectiveCookie => _cookieHeader();
 
   /// 服务端下发过来的 cookie（响应里的 `Set-Cookie`）。
   ///
@@ -74,6 +128,7 @@ class BilibiliService {
   void _absorbCookies(Map<String, String> headers) {
     final raw = headers['set-cookie'];
     if (raw == null || raw.isEmpty) return;
+    var changed = false;
     // http 包会把多条 Set-Cookie 拼成一行。不能直接按逗号切：Expires 里
     // 也有逗号（`Expires=Wed, 21 Oct ...`），所以只在「逗号后面跟着
     // `名字=`」的地方断开。
@@ -85,11 +140,19 @@ class BilibiliService {
       final value = seg.substring(i + 1).trim();
       if (name.isEmpty || value.isEmpty) continue;
       if (_jar[name] != value) {
+        changed = true;
         // 只在真的变了的时候记一行：这是「ck 为什么会过期」的直接证据
-        fileLogger.debug('Bili', '收到 Set-Cookie: $name='
-            '${value.length <= 8 ? value : '${value.substring(0, 8)}…'}');
+        fileLogger.debug(
+          'Bili',
+          '收到 Set-Cookie: $name='
+              '${value.length <= 8 ? value : '${value.substring(0, 8)}…'}',
+        );
       }
       _jar[name] = value;
+    }
+    if (changed && cookie.isNotEmpty) {
+      final updated = effectiveCookie;
+      if (updated.isNotEmpty) onCookieRefreshed?.call(updated);
     }
   }
 
@@ -115,6 +178,8 @@ class BilibiliService {
   String _buvid3 = '';
   String _buvid4 = '';
   bool _buvidActivated = false;
+  DateTime? _lastKeepAliveAt;
+  Future<void>? _keepAliveInFlight;
   String _mixinKey = '';
   DateTime? _mixinKeyAt;
 
@@ -170,23 +235,29 @@ class BilibiliService {
         // 请求和响应都完整记一份：B 站对「同一个 URL、不同请求头」会给出
         // 完全不同的结果（排序、风控、空数据），出问题时只看 URL 和条数
         // 根本查不出来 —— 得能看到当时到底带了什么头、返回了什么。
-        fileLogger.debug('Bili', '→ ${body == null ? 'GET' : 'POST'} $url\n'
-            '  请求头: ${_formatHeaders(h)}\n'
-            '  请求体: ${body ?? '(无)'}');
+        fileLogger.debug(
+          'Bili',
+          '→ ${body == null ? 'GET' : 'POST'} $url\n'
+              '  请求头: ${_formatHeaders(h)}\n'
+              '  请求体: ${body ?? '(无)'}',
+        );
 
         final resp = body == null
             ? await http.get(Uri.parse(url), headers: h).timeout(timeout)
             : await http
-                .post(Uri.parse(url), headers: h, body: body)
-                .timeout(timeout);
+                  .post(Uri.parse(url), headers: h, body: body)
+                  .timeout(timeout);
         final text = utf8.decode(resp.bodyBytes);
         final ms = sw.elapsedMilliseconds;
         // 服务端可能刷新了 cookie —— 不接住的话，下次还拿旧的去请求
         _absorbCookies(resp.headers);
 
-        fileLogger.debug('Bili', '← ${resp.statusCode} ($ms ms) $url\n'
-            '  响应头: ${_formatHeaders(resp.headers)}\n'
-            '  响应体: ${_brief(text)}');
+        fileLogger.debug(
+          'Bili',
+          '← ${resp.statusCode} ($ms ms) $url\n'
+              '  响应头: ${_formatHeaders(resp.headers)}\n'
+              '  响应体: ${_brief(text)}',
+        );
 
         if (resp.statusCode < 200 || resp.statusCode >= 300) {
           throw Exception('HTTP ${resp.statusCode}');
@@ -220,16 +291,21 @@ class BilibiliService {
   /// cookie 只留每个值的前 8 位：够认出是哪一个，又不至于把凭据整份写进日志。
   static String _formatHeaders(Map<String, String> h) {
     if (h.isEmpty) return '(无)';
-    return h.entries.map((e) {
-      if (e.key.toLowerCase() != 'cookie') return '${e.key}=${e.value}';
-      final masked = e.value.split('; ').map((part) {
-        final i = part.indexOf('=');
-        if (i < 0) return part;
-        final v = part.substring(i + 1);
-        return '${part.substring(0, i)}=${v.length <= 8 ? v : '${v.substring(0, 8)}…'}';
-      }).join('; ');
-      return '${e.key}=$masked';
-    }).join('; ');
+    return h.entries
+        .map((e) {
+          if (e.key.toLowerCase() != 'cookie') return '${e.key}=${e.value}';
+          final masked = e.value
+              .split('; ')
+              .map((part) {
+                final i = part.indexOf('=');
+                if (i < 0) return part;
+                final v = part.substring(i + 1);
+                return '${part.substring(0, i)}=${v.length <= 8 ? v : '${v.substring(0, 8)}…'}';
+              })
+              .join('; ');
+          return '${e.key}=$masked';
+        })
+        .join('; ');
   }
 
   /// 响应体可能几十 KB，日志里只留开头 —— 够看清 code 和结构就行。
@@ -247,7 +323,14 @@ class BilibiliService {
     try {
       final rand = base64.encode(<int>[
         ...List<int>.generate(32, (_) => _random.nextInt(256)),
-        0, 0, 0, 0, 73, 69, 78, 68,
+        0,
+        0,
+        0,
+        0,
+        73,
+        69,
+        78,
+        68,
         ...List<int>.generate(4, (_) => _random.nextInt(256)),
       ]);
       final payload = jsonEncode({
@@ -283,10 +366,50 @@ class BilibiliService {
     }
   }
 
+  /// 让当前会话保持活跃，并接住 B 站返回的最新 Cookie。
+  ///
+  /// PiliPlus 的 `Accounts.refresh()` 会在启动时激活 buvid；这里再加一层
+  /// 六小时冷却的 nav 保活。它不把一次网络失败判成 CK 失效，只记录日志，
+  /// 也会合并同一时刻的并发保活请求。
+  Future<void> ensureSessionAlive({bool force = false}) {
+    final pending = _keepAliveInFlight;
+    if (pending != null) return pending;
+    final now = DateTime.now();
+    final last = _lastKeepAliveAt;
+    if (!force &&
+        last != null &&
+        now.difference(last) < const Duration(hours: 6)) {
+      return Future<void>.value();
+    }
+
+    final future = () async {
+      try {
+        await _ensureBuvid();
+        if (cookie.isEmpty) return;
+        final res = await _getJson('$_host/x/web-interface/nav', attempts: 2);
+        final code = (res['code'] as num?)?.toInt() ?? 0;
+        if (code == -101) {
+          fileLogger.warn('Bilibili', '会话保活返回未登录（code=-101），保留现有 Cookie');
+        } else if (code != 0) {
+          fileLogger.warn('Bilibili', '会话保活返回 code=$code，保留现有 Cookie');
+        } else {
+          fileLogger.info('Bilibili', '会话保活成功');
+        }
+        _lastKeepAliveAt = DateTime.now();
+      } catch (e) {
+        fileLogger.warn('Bilibili', '会话保活失败（不改 Cookie 状态）: $e');
+      }
+    }();
+    _keepAliveInFlight = future;
+    return future.whenComplete(() => _keepAliveInFlight = null);
+  }
+
   /// wbi 的 mixinKey 由 nav 接口的 img_key/sub_key 拼出来，每天变一次。
   Future<void> _ensureMixinKey() async {
+    await ensureSessionAlive();
     final now = DateTime.now();
-    final fresh = _mixinKeyAt != null &&
+    final fresh =
+        _mixinKeyAt != null &&
         _mixinKey.isNotEmpty &&
         _mixinKeyAt!.year == now.year &&
         _mixinKeyAt!.month == now.month &&
@@ -316,8 +439,11 @@ class BilibiliService {
     final p = Map<String, Object>.from(params);
     p['wts'] = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final query = (p.keys.toList()..sort())
-        .map((k) => '${Uri.encodeQueryComponent(k)}='
-            '${Uri.encodeQueryComponent(p[k].toString().replaceAll(_chrFilter, ''))}')
+        .map(
+          (k) =>
+              '${Uri.encodeQueryComponent(k)}='
+              '${Uri.encodeQueryComponent(p[k].toString().replaceAll(_chrFilter, ''))}',
+        )
         .join('&');
     final wRid = md5.convert(utf8.encode(query + _mixinKey)).toString();
     return '$query&w_rid=$wRid';
@@ -381,15 +507,17 @@ class BilibiliService {
         if (arc is! Map) continue;
         final bvid = (arc['bvid'] ?? '').toString();
         if (bvid.isEmpty) continue;
-        songs.add(Song(
-          mid: bvid,
-          name: _stripHtml((arc['title'] ?? '').toString()),
-          artist: '我的投稿',
-          pic: _httpsize((arc['cover'] ?? '').toString()),
-          link: 'https://www.bilibili.com/video/$bvid',
-          source: 'bilibili',
-          duration: (arc['duration'] as num?)?.toInt() ?? 0,
-        ));
+        songs.add(
+          Song(
+            mid: bvid,
+            name: _stripHtml((arc['title'] ?? '').toString()),
+            artist: '我的投稿',
+            pic: _httpsize((arc['cover'] ?? '').toString()),
+            link: 'https://www.bilibili.com/video/$bvid',
+            source: 'bilibili',
+            duration: (arc['duration'] as num?)?.toInt() ?? 0,
+          ),
+        );
       }
       fileLogger.info('Bilibili', '取到自己投稿 ${songs.length} 条');
       return songs;
@@ -446,17 +574,22 @@ class BilibiliService {
       final mine = await fetchMyVideos();
       if (mine.isNotEmpty) {
         final kw = keyword.toLowerCase();
-        final hit =
-            mine.where((s) => s.name.toLowerCase().contains(kw)).toList();
+        final hit = mine
+            .where((s) => s.name.toLowerCase().contains(kw))
+            .toList();
         if (hit.isNotEmpty) list.insertAll(0, hit);
       }
     }
 
-    final total = (data['numResults'] as num?)?.toInt() ??
+    final total =
+        (data['numResults'] as num?)?.toInt() ??
         (data['total'] as num?)?.toInt() ??
         list.length;
-    fileLogger.info('Bilibili', '搜索 "$keyword" page=$page → ${list.length} 条'
-        '${cookie.isEmpty ? '' : '（含自己投稿）'}');
+    fileLogger.info(
+      'Bilibili',
+      '搜索 "$keyword" page=$page → ${list.length} 条'
+          '${cookie.isEmpty ? '' : '（含自己投稿）'}',
+    );
     return (list: list, total: total);
   }
 
@@ -552,8 +685,10 @@ class BilibiliService {
     // 注意括号：`??` 的优先级比 `~/` 低，少一层括号会算成
     //「先 0 ~/ 1000、再取值」，日志里就变成 108274kbps 这种数字。
     final bwKbps = (((best?['bandwidth'] as num?)?.toInt()) ?? 0) ~/ 1000;
-    fileLogger.info('Bilibili',
-        '${song.mid} 音频 ${bwKbps}kbps codecs=$pickedCodecs mime=$pickedMime');
+    fileLogger.info(
+      'Bilibili',
+      '${song.mid} 音频 ${bwKbps}kbps codecs=$pickedCodecs mime=$pickedMime',
+    );
     return url;
   }
 
@@ -566,14 +701,17 @@ class BilibiliService {
   /// 返回值里的 `urls` 是**候选地址**（baseUrl + 备份节点，非 mcdn 的排前面）——
   /// 同一条流 B站会挂好几个节点，`mcdn.bilivideo.cn` 那个实测会半路掐连接，
   /// 所以拉流失败时要能换下一个（见 `video_bg.dart`）。
-  Future<({
-    String url,
-    List<String> urls,
-    int width,
-    int height,
-    String codecs,
-    int qn,
-  })> getVideoStream(Song song) async {
+  Future<
+    ({
+      String url,
+      List<String> urls,
+      int width,
+      int height,
+      String codecs,
+      int qn,
+    })
+  >
+  getVideoStream(Song song) async {
     final dash = await _playurlDash(song);
     final videos = (dash?['video'] as List?) ?? const [];
     final picked = pickBilibiliVideo(videos);
@@ -581,7 +719,7 @@ class BilibiliService {
     fileLogger.info(
       'Bilibili',
       '${song.mid} 视频背景用 ${picked.qn} 档 ${picked.width}x${picked.height} '
-      'codecs=${picked.codecs} 候选节点 ${picked.urls.length} 个',
+          'codecs=${picked.codecs} 候选节点 ${picked.urls.length} 个',
     );
     return picked;
   }
@@ -628,8 +766,9 @@ class BilibiliService {
         headers: {'Referer': 'https://www.bilibili.com/video/${song.mid}'},
       );
       final subs =
-          (((res['data'] as Map?)?['subtitle'] as Map?)?['subtitles'] as List?) ??
-              const [];
+          (((res['data'] as Map?)?['subtitle'] as Map?)?['subtitles']
+              as List?) ??
+          const [];
       if (subs.isEmpty) return (lyric: '', trans: '');
 
       // **只要人工字幕，不要 AI 字幕**。
@@ -668,8 +807,10 @@ class BilibiliService {
         buf.writeln('${_lrcStamp(from)}$text');
       }
       final lyric = buf.toString();
-      fileLogger.info('Bilibili',
-          '${song.mid} 字幕 ${items.length} 条 → 歌词 ${lyric.length} 字符');
+      fileLogger.info(
+        'Bilibili',
+        '${song.mid} 字幕 ${items.length} 条 → 歌词 ${lyric.length} 字符',
+      );
       return (lyric: lyric, trans: '');
     } catch (e) {
       fileLogger.warn('Bilibili', '取字幕失败: $e');
@@ -731,15 +872,18 @@ class BilibiliService {
 ///
 /// 返回 null 表示没有可用的视频流（只有音频的投稿、或者风控只给了音频）。
 ({String url, List<String> urls, int width, int height, String codecs, int qn})?
-    pickBilibiliVideo(List<dynamic> videos) {
-  final usable = <({
-    List<String> urls,
-    int width,
-    int height,
-    String codecs,
-    int qn,
-    int bw,
-  })>[];
+pickBilibiliVideo(List<dynamic> videos) {
+  final usable =
+      <
+        ({
+          List<String> urls,
+          int width,
+          int height,
+          String codecs,
+          int qn,
+          int bw,
+        })
+      >[];
   for (final v in videos) {
     if (v is! Map) continue;
     final urls = bilibiliStreamUrls(v);
@@ -761,9 +905,13 @@ class BilibiliService {
       .where((e) => e.codecs.toLowerCase().contains('avc'))
       .toList(growable: false);
   final pool = avc.isNotEmpty ? avc : usable;
-  pool.sort((a, b) => a.height != b.height
-      ? a.height.compareTo(b.height)
-      : (a.width != b.width ? a.width.compareTo(b.width) : a.bw.compareTo(b.bw)));
+  pool.sort(
+    (a, b) => a.height != b.height
+        ? a.height.compareTo(b.height)
+        : (a.width != b.width
+              ? a.width.compareTo(b.width)
+              : a.bw.compareTo(b.bw)),
+  );
   final best = pool.first;
   return (
     url: best.urls.first,

@@ -92,11 +92,14 @@ class AudioDiskCache {
       if (!_indexFile.existsSync()) return {};
       final raw = jsonDecode(_indexFile.readAsStringSync());
       if (raw is! Map) return {};
-      return raw.map((k, v) => MapEntry(
-            k.toString(),
-            (v as Map).map((k2, v2) =>
-                MapEntry(k2.toString(), (v2 as num).toInt())),
-          ));
+      return raw.map(
+        (k, v) => MapEntry(
+          k.toString(),
+          (v as Map).map(
+            (k2, v2) => MapEntry(k2.toString(), (v2 as num).toInt()),
+          ),
+        ),
+      );
     } catch (_) {
       return {};
     }
@@ -184,7 +187,8 @@ class AudioDiskCache {
           if ((_readIndex()[mid]?['epoch'] ?? 0) != epoch) continue;
           // 后缀和实际内容对不上（早期版本把 fMP4 存成了 .mp3）就当没命中，
           // 顺手删掉：这种文件本来就播不出来，留着只会让播放每次都回退到网络。
-          if (p.extension(f.path).toLowerCase() != extensionForBytes(_head(f))) {
+          if (p.extension(f.path).toLowerCase() !=
+              extensionForBytes(_head(f))) {
             try {
               f.deleteSync();
             } catch (_) {}
@@ -264,13 +268,16 @@ class AudioDiskCache {
           .get(Uri.parse(ApiClient.getProxyAudioUrl(url)))
           .timeout(const Duration(seconds: 60));
       if (res.statusCode != 200 || res.bodyBytes.isEmpty) {
-        fileLogger.warn('AudioCache',
-            '$mid 缓存失败: HTTP ${res.statusCode}（不影响本次播放）');
+        fileLogger.warn(
+          'AudioCache',
+          '$mid 缓存失败: HTTP ${res.statusCode}（不影响本次播放）',
+        );
         return;
       }
       await part.writeAsBytes(res.bodyBytes, flush: true);
-      final target =
-          File(p.join(dir.path, '$mid${extensionForBytes(res.bodyBytes)}'));
+      final target = File(
+        p.join(dir.path, '$mid${extensionForBytes(res.bodyBytes)}'),
+      );
       if (target.existsSync()) {
         try {
           target.deleteSync();
@@ -285,9 +292,11 @@ class AudioDiskCache {
         'epoch': epoch,
       };
       _writeIndex(index);
-      fileLogger.info('AudioCache',
-          '$mid 已缓存 ${(res.bodyBytes.length / 1024 / 1024).toStringAsFixed(1)}MB'
-          ' → ${p.basename(target.path)}');
+      fileLogger.info(
+        'AudioCache',
+        '$mid 已缓存 ${(res.bodyBytes.length / 1024 / 1024).toStringAsFixed(1)}MB'
+            ' → ${p.basename(target.path)}',
+      );
       // 刚存进来的这首也要算进上限里，不然一直播就会一直涨到下次启动
       enforceLimit();
     } catch (e) {
@@ -298,24 +307,69 @@ class AudioDiskCache {
     }
   }
 
+  /// 用新地址刷新一份**已经存在**的音频缓存。
+  ///
+  /// 先把新内容写入独立临时文件，下载成功后才替换旧文件；任何网络、写盘或
+  /// Windows 文件占用错误都会保留旧缓存。这样右键「刷新缓存」不会出现
+  ///「新内容没下来，旧内容也被删了」的空档。
+  static Future<bool> refresh(String mid, String url) async {
+    if (mid.isEmpty || url.isEmpty || fileFor(mid) == null) return false;
+    final part = File(p.join(dir.path, '$mid.refresh.part'));
+    try {
+      final res = await http
+          .get(Uri.parse(ApiClient.getProxyAudioUrl(url)))
+          .timeout(const Duration(seconds: 60));
+      if (res.statusCode != 200 || res.bodyBytes.isEmpty) return false;
+      await part.writeAsBytes(res.bodyBytes, flush: true);
+      final target = File(
+        p.join(dir.path, '$mid${extensionForBytes(res.bodyBytes)}'),
+      );
+      // 新内容已经完整落盘，接下来才动旧文件。
+      for (final f in dir.listSync().whereType<File>()) {
+        if (p.basenameWithoutExtension(f.path) != mid ||
+            f.path == target.path) {
+          continue;
+        }
+        f.deleteSync();
+      }
+      if (target.existsSync()) target.deleteSync();
+      await part.rename(target.path);
+      final index = _readIndex();
+      index[mid] = {
+        'cachedAt': DateTime.now().millisecondsSinceEpoch,
+        'lastPlayedAt': DateTime.now().millisecondsSinceEpoch,
+        'epoch': epoch,
+      };
+      _writeIndex(index);
+      fileLogger.info('AudioCache', '$mid 已刷新缓存');
+      return true;
+    } catch (e) {
+      fileLogger.warn('AudioCache', '$mid 刷新失败，保留旧缓存: $e');
+      try {
+        if (part.existsSync()) part.deleteSync();
+      } catch (_) {}
+      return false;
+    }
+  }
+
   // ------------------------------------------------------------ 淘汰
 
   /// 按策略清理缓存。
   ///
   /// [playlistMids] 是当前歌单里的歌曲 mid 集合 —— 判断「还在不在歌单里」。
   /// [now] 只为测试注入，正常运行不用传。
-  static void prune({
-    required Set<String> playlistMids,
-    DateTime? now,
-  }) {
+  static void prune({required Set<String> playlistMids, DateTime? now}) {
     final ts = (now ?? DateTime.now()).millisecondsSinceEpoch;
     try {
       final index = _readIndex();
       final files = dir
           .listSync()
           .whereType<File>()
-          .where((f) => p.extension(f.path) != '.part' &&
-              p.basename(f.path) != 'index.json')
+          .where(
+            (f) =>
+                p.extension(f.path) != '.part' &&
+                p.basename(f.path) != 'index.json',
+          )
           .toList();
 
       var removed = 0;
@@ -333,7 +387,7 @@ class AudioDiskCache {
             ? ts - lastPlayedAt <= idleTtl.inMilliseconds
             // 不在歌单里（含被移除的）：24 小时后删
             : ts - (lastPlayedAt > cachedAt ? lastPlayedAt : cachedAt) <=
-                orphanTtl.inMilliseconds;
+                  orphanTtl.inMilliseconds;
 
         if (!keep) {
           try {
@@ -352,9 +406,11 @@ class AudioDiskCache {
           .toList();
       if (survivors.length > maxFiles) {
         survivors.sort((a, b) {
-          final am = index[p.basenameWithoutExtension(a.path)]?['lastPlayedAt'] ??
+          final am =
+              index[p.basenameWithoutExtension(a.path)]?['lastPlayedAt'] ??
               a.statSync().modified.millisecondsSinceEpoch;
-          final bm = index[p.basenameWithoutExtension(b.path)]?['lastPlayedAt'] ??
+          final bm =
+              index[p.basenameWithoutExtension(b.path)]?['lastPlayedAt'] ??
               b.statSync().modified.millisecondsSinceEpoch;
           return am.compareTo(bm);
         });
@@ -391,8 +447,11 @@ class AudioDiskCache {
     final files = dir
         .listSync()
         .whereType<File>()
-        .where((f) =>
-            p.extension(f.path) != '.part' && p.basename(f.path) != 'index.json')
+        .where(
+          (f) =>
+              p.extension(f.path) != '.part' &&
+              p.basename(f.path) != 'index.json',
+        )
         .toList();
     if (files.isEmpty) return 0;
 
@@ -401,11 +460,15 @@ class AudioDiskCache {
     final stamp = <String, int>{};
     for (final f in files) {
       final mid = p.basenameWithoutExtension(f.path);
-      stamp[mid] = index[mid]?['lastPlayedAt'] ??
+      stamp[mid] =
+          index[mid]?['lastPlayedAt'] ??
           f.statSync().modified.millisecondsSinceEpoch;
     }
-    files.sort((a, b) => stamp[p.basenameWithoutExtension(a.path)]!
-        .compareTo(stamp[p.basenameWithoutExtension(b.path)]!));
+    files.sort(
+      (a, b) => stamp[p.basenameWithoutExtension(a.path)]!.compareTo(
+        stamp[p.basenameWithoutExtension(b.path)]!,
+      ),
+    );
 
     var removed = 0;
     for (final f in files) {
@@ -424,11 +487,12 @@ class AudioDiskCache {
     if (removed > 0) {
       _writeIndex(index);
       fileLogger.info(
-          'AudioCache',
-          '超出上限 ${(limit / 1024 / 1024).toStringAsFixed(0)}MB'
-          '（${(before / 1024 / 1024).toStringAsFixed(1)}MB → '
-          '${(total / 1024 / 1024).toStringAsFixed(1)}MB），'
-          '按最久未播放删除 $removed 个');
+        'AudioCache',
+        '超出上限 ${(limit / 1024 / 1024).toStringAsFixed(0)}MB'
+            '（${(before / 1024 / 1024).toStringAsFixed(1)}MB → '
+            '${(total / 1024 / 1024).toStringAsFixed(1)}MB），'
+            '按最久未播放删除 $removed 个',
+      );
     }
     return removed;
   }
@@ -468,8 +532,10 @@ class AudioDiskCache {
       fileLogger.warn('AudioCache', '清空缓存失败: $e');
     }
     if (count > 0) {
-      fileLogger.info('AudioCache',
-          '清空缓存：$count 个文件，释放 ${(freed / 1024 / 1024).toStringAsFixed(1)}MB');
+      fileLogger.info(
+        'AudioCache',
+        '清空缓存：$count 个文件，释放 ${(freed / 1024 / 1024).toStringAsFixed(1)}MB',
+      );
     }
     return freed;
   }

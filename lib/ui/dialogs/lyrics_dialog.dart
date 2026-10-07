@@ -35,6 +35,7 @@ class _LyricsDialogState extends State<LyricsDialog> {
   bool _showTrans = false;
   bool _autoFollow = true;
   int _lastScrolledIdx = -1;
+
   /// 上次同步到的歌词行 —— 用来避免「位置每变一次就重建整首歌词」
   int _lastSyncedIdx = -2;
   bool _programmaticScroll = false;
@@ -52,13 +53,21 @@ class _LyricsDialogState extends State<LyricsDialog> {
   void initState() {
     super.initState();
     player.addListener(_onPlayer);
+    // 弹窗挂在 Navigator overlay 上，不会随 AppShell 重建。
+    // 歌词网络加载完成后由 AppState 更新 currentLyricParsed，弹窗自己必须
+    // 订阅这次变化，否则查看态会一直停在转圈；点击「编辑」触发本地 setState
+    // 才会把已经加载好的内容显示出来。
+    widget.state.addListener(_onState);
     _scroll.addListener(_onUserScroll);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _syncActive(scroll: true));
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _syncActive(scroll: true),
+    );
   }
 
   @override
   void dispose() {
     player.removeListener(_onPlayer);
+    widget.state.removeListener(_onState);
     _scroll.removeListener(_onUserScroll);
     _scroll.dispose();
     _rawCtrl.dispose();
@@ -70,6 +79,10 @@ class _LyricsDialogState extends State<LyricsDialog> {
 
   void _onPlayer() {
     if (mounted) _syncActive(scroll: true);
+  }
+
+  void _onState() {
+    if (mounted) setState(() {});
   }
 
   void _onUserScroll() {
@@ -204,9 +217,12 @@ class _LyricsDialogState extends State<LyricsDialog> {
     return Shortcuts(
       shortcuts: {
         if (_editing) ...{
-          const SingleActivator(LogicalKeyboardKey.escape): const _CancelIntent(),
-          const SingleActivator(LogicalKeyboardKey.keyS, control: true): const _SaveIntent(),
-          const SingleActivator(LogicalKeyboardKey.keyS, meta: true): const _SaveIntent(),
+          const SingleActivator(LogicalKeyboardKey.escape):
+              const _CancelIntent(),
+          const SingleActivator(LogicalKeyboardKey.keyS, control: true):
+              const _SaveIntent(),
+          const SingleActivator(LogicalKeyboardKey.keyS, meta: true):
+              const _SaveIntent(),
         },
       },
       child: Actions(
@@ -234,7 +250,10 @@ class _LyricsDialogState extends State<LyricsDialog> {
               children: [
                 // ---- 标题栏 ----
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 20,
+                    vertical: 16,
+                  ),
                   decoration: BoxDecoration(
                     border: Border(bottom: BorderSide(color: c.borderSubtle)),
                   ),
@@ -246,7 +265,10 @@ class _LyricsDialogState extends State<LyricsDialog> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                              fontSize: 15, fontWeight: FontWeight.w600, color: c.text),
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: c.text,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -283,7 +305,9 @@ class _LyricsDialogState extends State<LyricsDialog> {
                 ),
                 // ---- 内容 ----
                 Expanded(
-                  child: _editing ? _buildEditArea(c) : _buildDisplayArea(c, lines, transMap, activeIdx),
+                  child: _editing
+                      ? _buildEditArea(c)
+                      : _buildDisplayArea(c, lines, transMap, activeIdx),
                 ),
               ],
             ),
@@ -306,10 +330,7 @@ class _LyricsDialogState extends State<LyricsDialog> {
           child: SizedBox(
             width: 22,
             height: 22,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: c.accent,
-            ),
+            child: CircularProgressIndicator(strokeWidth: 2, color: c.accent),
           ),
         );
       }
@@ -337,8 +358,12 @@ class _LyricsDialogState extends State<LyricsDialog> {
                 key: _keyFor(i),
                 // 用 transAt 容差匹配：QRC 行时间是毫秒、翻译是厘秒，
                 // 精确查 map[time] 会几乎全部落空（见 lyric.dart 的说明）
-                child: _buildLine(c, lines[i], transAt(transMap, lines[i].time),
-                    i == activeIdx),
+                child: _buildLine(
+                  c,
+                  lines[i],
+                  transAt(transMap, lines[i].time),
+                  i == activeIdx,
+                ),
               ),
           ],
         ),
@@ -369,7 +394,11 @@ class _LyricsDialogState extends State<LyricsDialog> {
                   ? ValueListenableBuilder<Duration>(
                       valueListenable: player.positionNotifier,
                       builder: (_, pos, _) => KaraokeText(
-                        line: LyricLine(line.time, line.text, words: line.words),
+                        line: LyricLine(
+                          line.time,
+                          line.text,
+                          words: line.words,
+                        ),
                         position: pos.inMilliseconds / 1000.0,
                         activeColor: c.accent,
                         inactiveColor: c.textTertiary,
@@ -396,7 +425,11 @@ class _LyricsDialogState extends State<LyricsDialog> {
               if (trans.isNotEmpty)
                 Text(
                   trans,
-                  style: TextStyle(fontSize: 12, color: c.textTertiary, height: 1.8),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: c.textTertiary,
+                    height: 1.8,
+                  ),
                 ),
             ],
           ),
@@ -420,12 +453,12 @@ class _LyricsDialogState extends State<LyricsDialog> {
                 KeyedSubtree(
                   key: const ValueKey('switch-left'),
                   child: _switchStrip(
-                  c,
-                  pointsLeft: true,
-                  label: '原歌词',
-                  // 左侧只负责「切回去」：已经在原歌词时置灰
-                  enabled: _showTrans,
-                  onTap: () => _showEditor(false),
+                    c,
+                    pointsLeft: true,
+                    label: '原歌词',
+                    // 左侧只负责「切回去」：已经在原歌词时置灰
+                    enabled: _showTrans,
+                    onTap: () => _showEditor(false),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -434,12 +467,12 @@ class _LyricsDialogState extends State<LyricsDialog> {
                 KeyedSubtree(
                   key: const ValueKey('switch-right'),
                   child: _switchStrip(
-                  c,
-                  pointsLeft: false,
-                  label: '翻译歌词',
-                  // 右侧负责「切到翻译」：已经在翻译时置灰
-                  enabled: !_showTrans,
-                  onTap: () => _showEditor(true),
+                    c,
+                    pointsLeft: false,
+                    label: '翻译歌词',
+                    // 右侧负责「切到翻译」：已经在翻译时置灰
+                    enabled: !_showTrans,
+                    onTap: () => _showEditor(true),
                   ),
                 ),
               ],
@@ -449,7 +482,9 @@ class _LyricsDialogState extends State<LyricsDialog> {
           Text(
             'Ctrl+S 保存 · Esc 取消',
             style: TextStyle(
-                fontSize: 11, color: c.textTertiary.withValues(alpha: 0.6)),
+              fontSize: 11,
+              color: c.textTertiary.withValues(alpha: 0.6),
+            ),
           ),
         ],
       ),
@@ -596,7 +631,6 @@ class _LyricsDialogState extends State<LyricsDialog> {
       _rawFocus.requestFocus();
     }
   }
-
 }
 
 /// 竖条里的**长箭头**：撑满整条高度。
@@ -690,7 +724,10 @@ class _MonoTextArea extends StatelessWidget {
         hintStyle: TextStyle(fontSize: 13, color: c.textTertiary),
         filled: true,
         fillColor: c.inputBg,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 12,
+        ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(c.radius),
           borderSide: BorderSide(color: c.inputBorder, width: 1.5),
