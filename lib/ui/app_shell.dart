@@ -490,10 +490,7 @@ class _AppShellState extends State<AppShell>
                             // 这里连时钟一起停掉 —— 背景画面是**播放时刻的纯函数**，
                             // 停表再启不会跳角度。
                             enabled: !_nowPlayingOpen,
-                            child: Offstage(
-                              offstage: _nowPlayingOpen,
-                              child: const AppBackdropLayer(),
-                            ),
+                            child: const AppBackdropLayer(),
                           ),
                         ),
                       ),
@@ -505,8 +502,8 @@ class _AppShellState extends State<AppShell>
                       // 播放页开着时整块 Offstage：它被盖住了，可播放栏的进度条
                       // 还在每秒重画几十次 —— 白画的那些帧正好跟出场动画抢时间。
                       Positioned.fill(
-                        child: Offstage(
-                          offstage: _nowPlayingOpen,
+                        child: TickerMode(
+                          enabled: !_nowPlayingOpen,
                           child: Padding(
                             padding: const EdgeInsets.only(
                               top: kTitlebarHeight,
