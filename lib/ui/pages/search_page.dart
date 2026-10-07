@@ -56,6 +56,9 @@ class _SearchPageState extends State<SearchPage> {
 
   TextEditingController get _input => widget.inputController;
 
+  /// 音源菜单是否开着。开着时点菜单项不算「点到别处」。
+  bool _menuOpen = false;
+
   /// 菜单锚在**整条搜索框**上：它要从框的下方展开，不能压在框上
   final GlobalKey _barKey = GlobalKey();
 
@@ -305,6 +308,28 @@ class _SearchPageState extends State<SearchPage> {
                 onSubmitted: (_) => _search(),
                 onChanged: state.onSearchInputChanged,
                 cursorColor: c.accent,
+                // ⚠️ TextField 的默认行为是「用鼠标点到框外就 unfocus」。搜索条
+                // 自己也有两个按钮（音源 / 搜索），点它们不该把光标弄丢 —— 所以
+                // 这里判一下落点：落在搜索条**自己身上**就留在输入框，落在别处
+                // 正常退出聚焦（别写成无条件 requestFocus，那会让整页再也点不
+                // 走光标）。
+                onTapOutside: (event) {
+                  // 菜单开着的时候，「点菜单项」也是一次框外点击 ——
+                  // 但那是在**继续操作搜索框**，不能当成「用户要去别处了」。
+                  // 不挡这一下，选中音源的那一瞬间就会失焦再抢回来。
+                  if (_menuOpen) {
+                    _focus.requestFocus();
+                    return;
+                  }
+                  final box = _barKey.currentContext?.findRenderObject() as RenderBox?;
+                  final inside = box != null &&
+                      box.size.contains(box.globalToLocal(event.position));
+                  if (inside) {
+                    _focus.requestFocus();
+                  } else {
+                    _focus.unfocus();
+                  }
+                },
                 // 输入的文字**居中**（含占位文字——它就是 hintText）
                 textAlign: TextAlign.center,
                 // 字体不加粗：显式 w400（别继承主题里偏粗的那档）
@@ -365,31 +390,35 @@ class _SearchPageState extends State<SearchPage> {
 
   /// 音源菜单。复用右键菜单那一套（弹出动画、圆角、悬停都是同一套），
   /// 只是锚在音源按钮上、朝下弹。
-  void _showSourceMenu() {
+  Future<void> _showSourceMenu() async {
     final box = _barKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null || !box.hasSize) return;
-    // 锚在搜索框的**下沿**再留 6px：菜单从框下面展开，不压在框上
-    showAppContextMenu(
-      context: context,
-      position: box.localToGlobal(Offset(0, box.size.height + 6)),
-      above: false,
-      items: [
-        for (final s in _kSources)
-          AppMenuItem(
-            label: s.label,
-            icon: AppIcons.music,
-            // 直接给品牌图（assets/source_icons 那三张），别用 SVG 硬画
-            iconWidget: SourceIcon(source: s.id, size: 16),
-            checked: widget.state.searchSource == s.id,
-            onTap: () {
-              widget.state.setSearchSource(s.id);
-              // 切音源不该把焦点弄丢：菜单一收就把光标还给输入框，
-              // 否则输入框当场退回「未聚焦」那副样子（未聚焦连两侧按钮都藏起来）。
-              _focus.requestFocus();
-            },
-          ),
-      ],
-    );
+    setState(() => _menuOpen = true);
+    try {
+      await showAppContextMenu(
+        context: context,
+        position: box.localToGlobal(Offset(0, box.size.height + 6)),
+        above: false,
+        items: [
+          for (final s in _kSources)
+            AppMenuItem(
+              label: s.label,
+              icon: AppIcons.music,
+              // 直接给品牌图（assets/source_icons 那三张），别用 SVG 硬画
+              iconWidget: SourceIcon(source: s.id, size: 16),
+              checked: widget.state.searchSource == s.id,
+              onTap: () {
+                widget.state.setSearchSource(s.id);
+                // 切音源不该把焦点弄丢：菜单一收就把光标还给输入框，
+                // 否则输入框当场退回「未聚焦」那副样子（未聚焦连两侧按钮都藏起来）。
+                _focus.requestFocus();
+              },
+            ),
+        ],
+      );
+    } finally {
+      if (mounted) setState(() => _menuOpen = false);
+    }
   }
 
   Widget _buildResultsHeader(AppColors c, AppState state) {
